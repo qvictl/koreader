@@ -448,6 +448,12 @@ function Button:_undoFeedbackHighlight(is_translucent)
 end
 
 function Button:onTapSelectButton()
+    -- Same as IconButton: a Button whose frame has never been painted has a bogus gesture range,
+    -- and its feedback highlight would crash on the missing dimen (c.f., #16288).
+    if not self[1].dimen then
+        logger.dbg("Button: ignoring tap on a button that has not been painted yet")
+        return
+    end
     if self.enabled or self.allow_tap_when_disabled then
         if self.callback then
             if G_reader_settings:isFalse("flash_ui") then
