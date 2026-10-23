@@ -10,6 +10,7 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local IconWidget = require("ui/widget/iconwidget")
 local GestureRange = require("ui/gesturerange")
 local UIManager = require("ui/uimanager")
+local logger = require("logger")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Screen = Device.screen
@@ -100,6 +101,13 @@ end
 
 function IconButton:onTapIconButton()
     if not self.callback then return end
+    -- An IconButton that has never been painted (e.g., the tap was dispatched in the same input batch
+    -- that opened its parent, or right after a setIcon) still has its placeholder gesture range at (0, 0).
+    -- Such a tap cannot have been aimed at us: let it through to whatever is actually displayed there.
+    if not self.image.dimen then
+        logger.dbg("IconButton: ignoring tap on a button that has not been painted yet")
+        return
+    end
     if G_reader_settings:isFalse("flash_ui") or not self.allow_flash then
         self.callback()
     else
