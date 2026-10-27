@@ -74,6 +74,11 @@ PILLOW_SOFT_DISABLED="no"
 USED_WMCTRL="no"
 PASSCODE_DISABLED="no"
 
+# Name resolution happens in glibc, outside of socketutil's timeouts, and we do it on the UI thread
+# (e.g., NetworkMgr:isOnline). With the glibc defaults (5s, 2 attempts, per nameserver), a half-up
+# Wi-Fi right after a resume can freeze the UI for tens of seconds. Keep it short, unless the user knows better.
+export RES_OPTIONS="${RES_OPTIONS:-timeout:2 attempts:2}"
+
 # List of services we stop in order to reclaim a tiny sliver of RAM...
 TOGGLED_SERVICES="stored webreader kfxreader kfxview todo tmd rcm archive scanner otav3 otaupd"
 # The KPP chrome status bar runs as a separate job, so disabling pillow doesn't stop it drawing over us
