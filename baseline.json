@@ -1,9 +1,9 @@
 {
   "date": "2026-10-27",
   "overall": {
-    "covered": 35438,
+    "covered": 35436,
     "total": 93993,
-    "percent": 37.703,
+    "percent": 37.701,
     "files": 491
   },
   "diff_unit": {
@@ -142,7 +142,7 @@
     }
   ],
   "ok": true,
-  "commit": "0a9e5ab23c6401f807761dc7188a16b58077f2b5",
+  "commit": "76b8c107f918d14c2f7de67081603b187540465b",
   "event": "push",
-  "updated": "2026-10-27T16:03:27Z"
+  "updated": "2026-10-27T16:26:25Z"
 }
