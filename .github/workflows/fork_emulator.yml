@@ -1,0 +1,221 @@
+# Fork-owned workflow (qvictl/koreader): not part of upstream KOReader.
+#
+# Builds the x86_64 emulator in upstream's `koreader/kobase` docker image, runs the
+# unit test suites (base + front, front with luacov), and uploads:
+#   - `koreader-emulator-x86_64` : the installed emulator (koreader/ tree, symlinks
+#                                   dereferenced) as `koreader-emulator-x86_64.tar.xz`,
+#                                   used by the integration tests and the releases;
+#   - `unit-coverage`            : luacov stats of the front unit tests;
+#   - `unit-results`             : JUnit report of the unit tests.
+
+name: Emulator
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      cache_epoch:
+        description: 'Cache keys prefix'
+        default: 'qv1'
+        type: string
+      unit_tests:
+        description: 'Run the unit tests'
+        default: true
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      cache_epoch:
+        description: 'Cache keys prefix'
+        default: 'qv1'
+        type: string
+      unit_tests:
+        description: 'Run the unit tests'
+        default: true
+        type: boolean
+
+env:
+  IMAGE: koreader/kobase:5.0.0-22.04
+  EMU_DIR: koreader-emulator-x86_64-linux-gnu
+
+jobs:
+
+  emulator:
+    name: Build and unit tests
+    runs-on: ubuntu-26.04
+    timeout-minutes: 240
+
+    defaults:
+      run:
+        # Everything but checkout & cache steps runs in the build container.
+        shell: stdbuf --error=L --output=L ${{ github.workspace }}/kodev docker kontainer exec bash --noprofile --norc -eo pipefail {0}
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: false
+          fetch-depth: 0
+          fetch-tags: true
+          filter: tree:0
+          show-progress: false
+
+      - name: Checkout submodules
+        shell: bash
+        run: git submodule update --depth 1 --init --jobs 4 --recursive
+
+      - name: Setup build environment
+        shell: bash
+        run: |
+          ./.ci/build_environment_setup.sh "$(jq -cn --arg image "${IMAGE}" '{target: "", image: $image, env: "PARALLEL_JOBS=5"}')"
+          echo "CACHE_KEY_BUILD=${{ inputs.cache_epoch }}-emu-build-$(sha256sum cache-key | cut -c1-32)" >>"${GITHUB_ENV}"
+          echo "CACHE_KEY_CCACHE=${{ inputs.cache_epoch }}-emu-ccache-$(sha256sum cache-key | cut -c1-32)" >>"${GITHUB_ENV}"
+
+      - name: Restore build directory
+        id: build-restore
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: &BUILD_PATHS |
+            build/*
+            !build/cmake
+            !build/staging
+            !build/thirdparty
+          key: ${{ env.CACHE_KEY_BUILD }}
+
+      - name: Lookup or restore build cache
+        id: ccache-restore
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ env.CACHE_KEY_CCACHE }}
+          restore-keys: ${{ inputs.cache_epoch }}-emu-ccache-
+          lookup-only: ${{ steps.build-restore.outputs.cache-hit }}
+
+      - name: Setup build cache
+        if: steps.build-restore.outputs.cache-hit != 'true'
+        run: |
+          set -x
+          ccache --zero-stats
+          ccache --max-size=400M
+          ccache --show-config
+
+      - name: Lookup or restore download cache
+        id: download-restore
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: &DOWNLOAD_PATHS |
+            base/thirdparty/*/build
+          key: ${{ inputs.cache_epoch }}-download-${{ hashFiles('base/Makefile', 'base/thirdparty/*/CMakeLists.txt') }}
+          lookup-only: ${{ steps.build-restore.outputs.cache-hit }}
+
+      - name: Download
+        if: steps.build-restore.outputs.cache-hit != 'true' && steps.download-restore.outputs.cache-hit != 'true'
+        run: make download-all
+
+      - name: Save download cache
+        uses: actions/cache/save@v6.1.0
+        if: steps.build-restore.outputs.cache-hit != 'true' && steps.download-restore.outputs.cache-hit != 'true'
+        with:
+          path: *DOWNLOAD_PATHS
+          key: ${{ steps.download-restore.outputs.cache-primary-key }}
+
+      - name: Build
+        id: build
+        if: steps.build-restore.outputs.cache-hit != 'true'
+        run: make base
+
+      - name: Dump build timings
+        if: contains('failure success', steps.build.conclusion) && !cancelled()
+        run: make buildstats
+
+      - name: Clean build cache
+        if: contains('failure success', steps.build.conclusion) && !cancelled()
+        run: |
+          ccache --cleanup >/dev/null
+          ccache --show-stats --verbose
+
+      - name: Save build cache
+        uses: actions/cache/save@v6.1.0
+        if: >
+          contains('failure success', steps.build.conclusion) && !cancelled()
+          && steps.ccache-restore.outputs.cache-hit != 'true'
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.ccache-restore.outputs.cache-primary-key }}
+
+      - name: Check FFI cdecls are up-to-date
+        if: steps.build-restore.outputs.cache-hit != 'true'
+        run: |
+          make ffi
+          git --no-pager diff --color=always --exit-code base/ffi
+
+      - name: Checking binaries for missing dependencies
+        if: steps.build-restore.outputs.cache-hit != 'true'
+        run: make bincheck
+
+      - name: Save build directory
+        uses: actions/cache/save@v6.1.0
+        if: steps.build.conclusion == 'success'
+        with:
+          path: *BUILD_PATHS
+          key: ${{ steps.build-restore.outputs.cache-primary-key }}
+
+      - name: Install
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make --assume-old=base all
+
+      - name: Base unit tests
+        if: inputs.unit_tests
+        run: ./base/utils/fake_tty.py make --assume-old=all testbase T="-o ${PWD}/junit-base.xml"
+
+      - name: Front unit tests (with coverage)
+        if: inputs.unit_tests
+        run: |
+          ./base/utils/fake_tty.py make --assume-old=all coverage-run T="-o ${PWD}/junit-front.xml"
+          mkdir -p coverage
+          cp "${{ env.EMU_DIR }}/koreader/luacov.stats.out" coverage/unit.stats.out
+          tail -n +"$(( $(grep -nm1 -e '^Summary$' "${{ env.EMU_DIR }}/koreader/luacov.report.out" | cut -d: -f1) - 1 ))" \
+            "${{ env.EMU_DIR }}/koreader/luacov.report.out" | tail -n 3
+
+      - name: Package emulator
+        run: |
+          make --assume-old=all skeleton
+          # Dereference the symlinks into the source tree, leave the unit tests (and their data)
+          # & coverage out, but keep the test rocks (luacov, used by the integration tests).
+          tar -C "${{ env.EMU_DIR }}" --dereference \
+            --exclude='koreader/spec/front' --exclude='koreader/spec/base' --exclude='koreader/spec/run' \
+            --exclude='koreader/luacov.*' --exclude='koreader/.luacov' \
+            -cf - koreader | xz -T0 -6 >koreader-emulator-x86_64.tar.xz
+          git describe --match='v[0-9]*' HEAD | tee emulator-version.txt
+          ls -l koreader-emulator-x86_64.tar.xz
+
+      - name: Upload emulator
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: koreader-emulator-x86_64
+          path: |
+            koreader-emulator-x86_64.tar.xz
+            emulator-version.txt
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload unit coverage
+        if: inputs.unit_tests && !cancelled()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: unit-coverage
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload unit test results
+        if: inputs.unit_tests && !cancelled()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: unit-results
+          path: junit-*.xml
+          if-no-files-found: ignore
+          retention-days: 14

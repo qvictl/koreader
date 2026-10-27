@@ -1,0 +1,251 @@
+# Fork-owned workflow (qvictl/koreader): not part of upstream KOReader.
+#
+# Releases of the fork:
+#   - stable: push a `v*` tag on a commit of `main` (convention: vYYYY.MM-qN, e.g. v2026.10-q1;
+#     upstream's own tags, mirrored by the upstream sync, are ignored) -> GitHub release
+#     `<tag>` with the Kindle packages (kindlehf, kindlepw2), the x86_64 emulator, and Lua
+#     overlays for devices on upstream stable releases;
+#   - nightly: manual (workflow_dispatch on main) or daily if `main` changed -> rolling
+#     prerelease `nightly`, with stable asset names, e.g.
+#     https://github.com/qvictl/koreader/releases/download/nightly/koreader-emulator-x86_64-latest.tar.xz
+#
+# Everything is built with upstream's machinery (build.yml / build_matrix.yml, `make update`),
+# and the emulator integration tests must pass before anything is published.
+
+name: Fork release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  schedule:
+    # Every day at 03:41 UTC (only if main changed since the last nightly).
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+    inputs:
+      overlay_bases:
+        description: 'Upstream releases to build Lua overlays for ("latest" = upstream latest stable)'
+        default: 'latest v2026.07.1'
+        type: string
+      force:
+        description: 'Build the nightly even if main did not change'
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -eo pipefail {0}
+
+jobs:
+
+  check:
+    name: Check
+    runs-on: ubuntu-26.04
+    outputs:
+      channel: ${{ steps.check.outputs.channel }}
+      tag: ${{ steps.check.outputs.tag }}
+      go: ${{ steps.check.outputs.go }}
+      overlay_bases: ${{ steps.check.outputs.overlay_bases }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: false
+          fetch-depth: 0
+          filter: tree:0
+          show-progress: false
+          sparse-checkout: .ci
+      - name: Check
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OVERLAY_BASES: ${{ inputs.overlay_bases || 'latest v2026.07.1' }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          go=true
+          if [[ "${GITHUB_REF_TYPE}" == tag ]]; then
+            channel=stable tag="${GITHUB_REF_NAME}"
+            # Upstream's own tags (mirrored by the upstream sync) are not ours to release.
+            if git ls-remote --exit-code --tags https://github.com/koreader/koreader.git "refs/tags/${tag}" >/dev/null; then
+              echo "::notice::${tag} is an upstream tag: not releasing it."
+              go=false
+            fi
+            git fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main'
+            if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+              echo "::error::${tag} (${GITHUB_SHA}) is not on main."
+              exit 1
+            fi
+          else
+            channel=nightly tag=nightly
+            if [[ "${GITHUB_REF_NAME}" != main ]]; then
+              echo "::error::nightlies are built from main only."
+              exit 1
+            fi
+            old="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/nightly" --jq .object.sha 2>/dev/null || true)"
+            if [[ "${old}" == "${GITHUB_SHA}" ]] && [[ "${FORCE}" != true ]]; then
+              echo "::notice::nightly is already at ${GITHUB_SHA}."
+              go=false
+            fi
+          fi
+          bases=()
+          for b in ${OVERLAY_BASES}; do
+            [[ "${b}" != latest ]] || b="$(gh api repos/koreader/koreader/releases/latest --jq .tag_name)"
+            [[ " ${bases[*]} " == *" ${b} "* ]] || bases+=("${b}")
+          done
+          {
+            echo "channel=${channel}"
+            echo "tag=${tag}"
+            echo "go=${go}"
+            echo "overlay_bases=$(printf '%s\n' "${bases[@]}" | jq -R . | jq -sc .)"
+          } | tee -a "${GITHUB_OUTPUT}"
+
+  emulator:
+    name: Emulator
+    needs: check
+    if: needs.check.outputs.go == 'true'
+    uses: ./.github/workflows/fork_emulator.yml
+    with:
+      unit_tests: false
+
+  kindle:
+    name: Kindle
+    needs: check
+    if: needs.check.outputs.go == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      artifacts: true
+      fail_fast: true
+      jobs: 'kindlehf kindlepw2'
+
+  integration:
+    name: Integration tests
+    needs: emulator
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: false
+          fetch-depth: 1
+          show-progress: false
+      - name: Download emulator
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: koreader-emulator-x86_64
+      - name: Integration tests
+        run: |
+          mkdir -p emu
+          tar -C emu -xJf koreader-emulator-x86_64.tar.xz
+          ./tools/run_integration_tests.sh --kodir emu/koreader --output it-results
+      - name: Summary
+        if: ${{ !cancelled() }}
+        run: cat it-results/summary.md >>"${GITHUB_STEP_SUMMARY}" || true
+
+  overlay:
+    name: Lua overlay (${{ matrix.base }})
+    needs: check
+    if: needs.check.outputs.go == 'true'
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        base: ${{ fromJSON(needs.check.outputs.overlay_bases) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: false
+          fetch-depth: 0
+          fetch-tags: true
+          filter: tree:0
+          show-progress: false
+      - name: Fetch koreader-base & upstream tags
+        run: |
+          git fetch --quiet origin '+refs/heads/upstream:refs/remotes/origin/upstream' '+refs/heads/stable/*:refs/remotes/origin/stable/*'
+          git fetch --quiet --no-tags https://github.com/koreader/koreader.git "+refs/tags/${{ matrix.base }}:refs/tags/${{ matrix.base }}"
+          git clone --quiet --filter=tree:0 --no-checkout "https://github.com/${GITHUB_REPOSITORY%%/*}/koreader-base.git" base-repo
+          git -C base-repo fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
+          git -C base-repo fetch --quiet https://github.com/koreader/koreader-base.git '+refs/heads/master:refs/remotes/upstream-src/master'
+      - name: Build overlay
+        env:
+          CHANNEL: ${{ needs.check.outputs.channel }}
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          git config user.name ci && git config user.email ci@localhost
+          suffix="${TAG}"
+          [[ "${CHANNEL}" != nightly ]] || suffix=latest
+          ./.ci/fork/make_overlay.sh "${{ matrix.base }}" base-repo overlay "${suffix}"
+      - name: Test overlay in the emulator (upstream ${{ matrix.base }} Linux package + overlay)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ matrix.base }}" -R koreader/koreader -p 'koreader-linux-x86_64-*.tar.xz' -D pkg
+          mkdir -p pkg/x && tar -C pkg/x -xJf pkg/koreader-linux-x86_64-*.tar.xz
+          kodir="$(dirname "$(find pkg/x -name reader.lua -path '*/koreader/*' | head -n1)")"
+          (cd overlay && unzip -q ./*.zip)
+          cp -a overlay/koreader-lua-overlay-*/koreader/. "${kodir}/"
+          # The upstream package's sdcv doesn't have base's res/ fix.
+          ./tools/run_integration_tests.sh --kodir "${kodir}" --output it-overlay --skip sdcv_res_dirs
+      - name: Summary
+        if: ${{ !cancelled() }}
+        run: |
+          echo "### Overlay for upstream ${{ matrix.base }}" >>"${GITHUB_STEP_SUMMARY}"
+          cat it-overlay/summary.md >>"${GITHUB_STEP_SUMMARY}" || true
+      - name: Upload overlay
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: overlay-${{ matrix.base }}
+          path: overlay/*.zip
+          retention-days: 14
+
+  publish:
+    name: Publish
+    needs: [check, emulator, kindle, integration, overlay]
+    # Overlays are best effort (an upstream release the fork's changes don't apply to).
+    if: >
+      !cancelled() && needs.check.outputs.go == 'true'
+      && needs.emulator.result == 'success' && needs.kindle.result == 'success'
+      && needs.integration.result == 'success'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: false
+          fetch-depth: 0
+          fetch-tags: true
+          filter: tree:0
+          show-progress: false
+          sparse-checkout: |
+            .ci
+            .github
+      - name: Download Kindle packages
+        uses: ./.github/actions/download-artifacts
+        with:
+          path: assets
+          regex: ^koreader-kindle
+      - name: Download emulator & overlays
+        uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: '{koreader-emulator-x86_64,overlay-*}'
+          path: assets
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ needs.check.outputs.channel }}
+          TAG: ${{ needs.check.outputs.tag }}
+          OVERLAY_RESULT: ${{ needs.overlay.result }}
+        run: ./.ci/fork/publish_release.sh assets
+
+# vim: foldmethod=marker foldlevel=0
