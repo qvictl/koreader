@@ -24,6 +24,19 @@ on:
         description: 'Run the unit tests'
         default: true
         type: boolean
+      # For qvictl/koreader-base's CI: build qvictl/koreader with the base under test.
+      koreader_repository:
+        description: 'KOReader repository to build (default: this one)'
+        default: ''
+        type: string
+      koreader_ref:
+        description: 'KOReader ref to build (default: the event ref)'
+        default: ''
+        type: string
+      base_ref:
+        description: 'koreader-base ref (fetched from its origin) to build instead of the submodule commit'
+        default: ''
+        type: string
   workflow_dispatch:
     inputs:
       cache_epoch:
@@ -57,6 +70,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
         with:
+          repository: ${{ inputs.koreader_repository || github.repository }}
+          ref: ${{ inputs.koreader_ref }}
           clean: false
           fetch-depth: 0
           fetch-tags: true
@@ -66,6 +81,17 @@ jobs:
       - name: Checkout submodules
         shell: bash
         run: git submodule update --depth 1 --init --jobs 4 --recursive
+
+      - name: Checkout base under test
+        if: inputs.base_ref != ''
+        shell: bash
+        env:
+          BASE_REF: ${{ inputs.base_ref }}
+        run: |
+          git -C base fetch --quiet --depth 1 origin "${BASE_REF}"
+          git -C base checkout --quiet FETCH_HEAD
+          git -C base submodule update --depth 1 --init --recursive
+          git -C base log --oneline -1
 
       - name: Setup build environment
         shell: bash

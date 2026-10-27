@@ -18,17 +18,30 @@ The `base` submodule points at [qvictl/koreader-base](https://github.com/qvictl/
 ## What every PR needs
 
 1. **Tests for any code change.** If your PR changes code (`frontend/`, `plugins/`, top-level `*.lua`), it must add or update tests in `spec/`:
-   - unit tests in `spec/unit/` (busted, run with `make testfront`), and/or
-   - emulator integration scenarios in `spec/integration/scenarios/` (see [spec/integration/README.md](spec/integration/README.md)), for anything that involves the UI, documents, dictionaries, subprocesses, memory or timing.
+   - unit tests in `spec/unit/` (busted, run with `make testfront`), and
+   - for every **user-visible feature or fix**, at least one emulator integration scenario in `spec/integration/scenarios/` (see [spec/integration/README.md](spec/integration/README.md)), added or updated. Name it in the PR description.
 
-   The required **Tests policy** check enforces this. Only a maintainer can waive it, by applying the `no-tests-needed` label (e.g. for a pure refactoring already covered by existing tests, or a change that can't be tested in the emulator); say why in the PR.
-2. **Diff coverage.** At least **70%** of the changed executable Lua lines must be run by the unit + integration tests (luacov). The required **Diff coverage** check reports it on the PR (comment and job summary), with the lines not covered.
+   The required **Tests policy** check fails when code changes come without any `spec/` change. Only a maintainer can waive it, by applying the `no-tests-needed` label, and only for changes to documentation, comments or log message wording.
+2. **Coverage gates** (required **Coverage** check; policy in [`.ci/coverage_config.lua`](.ci/coverage_config.lua), tool in [`.ci/fork/coverage.lua`](.ci/fork/coverage.lua)). Line coverage is measured with luacov on the unit tests and on the emulator integration tests (including their subprocesses), on every PR:
+
+   | Gate | Requirement (blocking) |
+   |---|---|
+   | Diff coverage, **unit tests** only | ≥ **80%** of the changed executable Lua lines |
+   | Diff coverage, **unit + integration** | ≥ **90%** of the changed executable Lua lines |
+   | **Overall** coverage (`frontend/` + `plugins/`) | must not drop below `main`'s (ratchet, ± 0.1 pp noise allowance) |
+   | **Fork-owned modules** ([`.ci/owned-modules.txt`](.ci/owned-modules.txt)) | each ≥ **80%** from 2026-10-27, **85%** from 2026-11-24, **90%** from 2026-12-22 |
+
+   - *Fork-owned modules* are the modules the fork added or changed: for an upstream file the fork changed, its scope is the fork's own lines (`fork`) or the fork's functions (`func:`); modules added by the fork count as a whole (`file`), and are included automatically even before being listed. Add new fork modules to the list. The dated targets tighten by themselves.
+   - The overall coverage of `frontend/` + `plugins/` had a day-one baseline (2026-10-27, see `.ci/coverage_config.lua`); targets: baseline **+5 pp** by 2026-11-24 and **+10 pp** by 2026-12-22 (tracked and reported, not blocking — the ratchet is what blocks).
+   - Upstream sync PRs (`sync/upstream-<date>`) only enforce the owned-modules gate (upstream's own changes are not ours to cover); the diff and ratchet values are reported.
+   - The `main` baseline, the history and the badges live on the [`coverage`](../../tree/coverage) branch ([`HISTORY.md`](../../blob/coverage/HISTORY.md)), updated by CI on every push to `main`.
+   - Every PR gets a coverage comment and job summary: the 4 gates, the owned modules table, and the changed lines no test runs.
 3. **All CI checks green** (required by the branch protection of `main`):
    - **Lint**: upstream's lint (`.ci/check.sh`: luacheck, shellcheck/shfmt, unscaled sizes, gettext…);
    - **Build and unit tests**: emulator build, base & front unit tests, Kindle HF / PW2 builds;
    - **Integration tests**: the emulator integration scenarios, including their memory and latency budgets;
-   - **Diff coverage** and **Tests policy** (see above).
-4. **Test evidence in the description**: what you tested and how (see the PR template). For performance or memory changes, give before/after numbers (the integration scenarios' metrics are in the job summary and the `integration-results` artifact).
+   - **Coverage** and **Tests policy** (see above).
+4. **Test evidence in the description**: what you tested and how, and which integration scenario covers the change (see the PR template). For performance or memory changes, give before/after numbers (the integration scenarios' metrics are in the job summary and the `integration-results` artifact).
 
 ## Running the tests locally
 
@@ -38,6 +51,7 @@ make testfront                                    # unit tests (front)
 ./tools/run_integration_tests.sh                  # integration scenarios (headless, SDL dummy driver)
 ./tools/run_integration_tests.sh dictionary       # only the scenarios whose name contains "dictionary"
 ./tools/run_integration_tests.sh --coverage       # with luacov (stats in integration-results/)
+make coverage-run                                 # unit tests with luacov
 ```
 
 ## Upstream

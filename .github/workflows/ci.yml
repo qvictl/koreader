@@ -6,11 +6,13 @@
 #                            Kindle HF & PW2 builds (upstream build machinery)
 #   - Integration tests    : emulator integration scenarios (spec/integration), with budgets,
 #                            then again with luacov
-#   - Diff coverage        : coverage of the changed Lua lines by unit + integration tests
+#   - Coverage             : coverage gates (see CONTRIBUTING.md, .ci/coverage_config.lua):
+#                            diff coverage (unit >= 80%, unit + integration >= 90%), overall
+#                            coverage ratchet vs main, fork-owned modules' dated targets
 # The "Tests policy" check lives in tests_policy.yml (it must re-run when labels change).
 #
 # The jobs named exactly "Lint", "Build and unit tests", "Integration tests" and
-# "Diff coverage" are the ones required by the branch protection of `main`.
+# "Coverage" are the ones required by the branch protection of `main`.
 
 name: CI
 
@@ -121,8 +123,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  diff-coverage-report:
-    name: Diff coverage report
+  coverage-report:
+    name: Coverage report
     needs: [emulator, integration]
     if: ${{ !cancelled() && needs.emulator.result == 'success' }}
     runs-on: ubuntu-26.04
@@ -139,12 +141,14 @@ jobs:
           fetch-depth: 0
           filter: tree:0
           show-progress: false
+      - name: Checkout base
+        run: git submodule update --init --depth 1 base
       - name: Download emulator & coverage
         uses: actions/download-artifact@v8.0.2
         with:
           pattern: '{koreader-emulator-x86_64,unit-coverage,integration-coverage}'
           path: artifacts
-      - name: Diff coverage
+      - name: Coverage gates
         id: coverage
         env:
           GH_TOKEN: ${{ github.token }}
@@ -152,7 +156,39 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
-        run: ./.ci/fork/diff_coverage.sh koreader artifacts
+        run: ./.ci/fork/coverage.sh artifacts
+      - name: Upload result
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: coverage-result
+          path: coverage-result.json
+          retention-days: 30
+
+  coverage-publish:
+    # main's coverage: baseline for the PR ratchet, history, badges (`coverage` branch).
+    name: Coverage history
+    needs: coverage-report
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.coverage-report.result == 'success'
+    runs-on: ubuntu-26.04
+    concurrency:
+      group: coverage-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: false
+          fetch-depth: 1
+          show-progress: false
+          sparse-checkout: .ci
+      - name: Download result
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: coverage-result
+      - name: Publish
+        run: ./.ci/fork/coverage_publish.sh coverage-result.json
 
   # }}}
 
@@ -184,15 +220,15 @@ jobs:
     steps:
       - run: '[[ "${{ needs.integration.result }}" == success ]]'
 
-  diff-coverage:
-    name: Diff coverage
-    needs: diff-coverage-report
+  coverage:
+    name: Coverage
+    needs: coverage-report
     if: ${{ always() }}
     runs-on: ubuntu-26.04
     steps:
       - run: |
-          echo "report: ${{ needs.diff-coverage-report.result }}, ok: ${{ needs.diff-coverage-report.outputs.ok }}"
-          [[ "${{ needs.diff-coverage-report.result }}" == success ]] && [[ "${{ needs.diff-coverage-report.outputs.ok }}" == true ]]
+          echo "report: ${{ needs.coverage-report.result }}, ok: ${{ needs.coverage-report.outputs.ok }}"
+          [[ "${{ needs.coverage-report.result }}" == success ]] && [[ "${{ needs.coverage-report.outputs.ok }}" == true ]]
 
   # }}}
 

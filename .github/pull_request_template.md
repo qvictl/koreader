@@ -11,8 +11,11 @@ we gate on tests (see CONTRIBUTING.md). Please fill in every section.
 
 <!-- Which tests did you add or change, and what do they check?
      - unit tests: spec/unit/…
-     - emulator integration scenarios: spec/integration/scenarios/…
-     If no test is possible, explain why: a maintainer may then apply `no-tests-needed`. -->
+     - emulator integration scenario(s) (required for any user-visible feature or fix):
+       spec/integration/scenarios/NN_name.lua — what it checks
+     `no-tests-needed` (maintainers only) is for documentation, comments or log wording changes. -->
+
+Integration scenario(s): <!-- e.g. 05_dictionary_progressive -->
 
 ### Test evidence
 
@@ -25,4 +28,5 @@ we gate on tests (see CONTRIBUTING.md). Please fill in every section.
 
 - [ ] Tests added or updated for every code change (or the reason why not is explained above)
 - [ ] `./tools/run_integration_tests.sh` passes locally (or I rely on CI and checked its results)
-- [ ] The changed Lua lines are covered (Diff coverage check ≥ 70%)
+- [ ] An emulator integration scenario covers the user-visible change (named above)
+- [ ] Coverage check green: changed lines ≥ 80% by unit tests and ≥ 90% by unit + integration tests, no overall drop, owned modules on target
