@@ -56,6 +56,10 @@ The `T` API (see `driver.lua`): `T:run(fn)` (UI action, main context), `T:wait(s
 `T:findWidget(root, pred)`, `T:rssKb()`, `T:luaKb()`, `T:fdCount()`, `T:fdList()`, `T:children()`, `T:spy(obj, method)`,
 `T:fixture(path)`, `T.startup_ms`, `T.screen_w`, `T.screen_h`. `dicthelper.lua` has helpers for dictionary lookups.
 
+With `--coverage`, subprocesses started with `util.runInSubProcess` save their own luacov stats too
+(`driver.lua`), so the code that only runs in children is measured. The CI merges the unit and integration
+stats for the coverage gates (see CONTRIBUTING.md).
+
 Budgets are deliberately generous (CI runners are slow and noisy): they catch regressions by an order of magnitude,
 not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 
@@ -69,10 +73,10 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `04_dictionary` | classic lookups: several dictionaries in order, HTML dictionary, CJK word, no result (fuzzy / non-fuzzy dialog), `res/` skipped by the .ifo scan, no sdcv left behind |
 | `05_dictionary_progressive` | progressive lookup: first dictionary shown alone before the others finish, final list equals the classic one, early close kills the background lookup; latency budgets |
 | `06_sdcv_res_dirs` | sdcv (base's `skip_res_dirs.patch`) does not walk into `res/`; per-lookup budget |
-| `07_unpainted_tap` | taps on never painted Button/IconButton in the same UI tick (#16288): no crash, ignored; work once painted |
-| `08_subprocess` | `runInSubProcess`: exit status, erroring and yielding tasks contained (no escaped child), no fd leak; Trapper restores the caller's `dismiss_callback` |
+| `07_unpainted_tap` | taps on never painted Button/IconButton in the same UI tick (#16288): no crash, ignored; work once painted; `widgetInvert` inside a scrolling dialog's cropped area |
+| `08_subprocess` | `runInSubProcess`: exit status, erroring and yielding tasks contained (no escaped child), bidirectional pipes, double fork, pipe creation failures (fd limit) without leaks; Trapper restores the caller's `dismiss_callback` |
 | `09_suspend_resume` | power button (emulator screensaver), Suspend/Resume events, input inhibition, memory release on suspend |
 | `10_low_memory_profile` | low memory profile: crengine storage factor 4, DocCache ≤ 32 MiB, memory released after open & close, open/close cycles |
-| `11_memory_budget` | 8 open/turn/TOC/close cycles of 2 books: RSS & Lua heap must not grow after warm-up (leak check) |
-| `12_japanese_kana_guard` | Japanese plugin leaves kana-less text alone in non-Japanese books (no lookups), still handles kana / Japanese books |
-| `13_font_menu_faces` | font menu previews don't keep their faces cached |
+| `11_memory_budget` | 10 open/turn/TOC/close cycles of 2 books: the RSS & Lua heap floors must not rise after warm-up (leak check) |
+| `12_japanese_kana_guard` | Japanese plugin leaves kana-less text alone in non-Japanese books (no lookups), still handles kana / Japanese books; its menu option |
+| `13_font_menu_faces` | font menu previews (incl. font-family sub-menus) don't keep their faces cached |

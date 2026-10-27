@@ -65,6 +65,32 @@ return {
         T:run(function() UIManager:widgetInvert(icon.image) end)
         T:check(true, "widgetInvert on an unpainted widget did not crash")
 
+        -- widgetInvert of a button inside a scrolling ButtonDialog (whose ScrollableContainer is
+        -- its cropping_widget): only the visible part is inverted, and inverting twice restores it.
+        local ButtonDialog = require("ui/widget/buttondialog")
+        local rows = {}
+        for i = 1, 60 do -- (taller than the screen: it scrolls)
+            table.insert(rows, { { text = "Row " .. i, callback = function() end } })
+        end
+        local dialog = ButtonDialog:new{ title = "Scrolling dialog", buttons = rows }
+        T:run(function() UIManager:show(dialog) end)
+        T:repaint()
+        T:check(dialog.cropping_widget, "the dialog scrolls (has a cropping widget)")
+        local row1 = T:findWidget(dialog.buttontable, function(w)
+            return w.text == "Row 1" and w.dimen
+        end)
+        T:check(row1 and row1.dimen, "first row button painted")
+        local bb = require("device").screen.bb
+        local function pixel()
+            return bb:getPixel(row1.dimen.x + 2, row1.dimen.y + 2):getColor8().a
+        end
+        local before = pixel()
+        T:run(function() UIManager:widgetInvert(row1, row1.dimen.x, row1.dimen.y) end)
+        T:check(pixel() ~= before, "button inverted within the cropped area")
+        T:run(function() UIManager:widgetInvert(row1, row1.dimen.x, row1.dimen.y) end)
+        T:eq(pixel(), before, "inverted back")
+        T:run(function() UIManager:close(dialog) end)
+
         -- And the reader still works after all that.
         local ui = T:openBook(T:fixture("books/en.epub"))
         T:tap(math.floor(T.screen_w * 0.9), math.floor(T.screen_h * 0.5))

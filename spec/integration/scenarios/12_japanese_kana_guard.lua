@@ -38,10 +38,20 @@ return {
         T:check(ls:extraDictionaryFormCandidates("學而") == nil, "no deinflection candidates for Chinese text")
         T:eq(raw.calls, 0, "no dictionary lookup spent on Chinese text")
 
-        -- The option restores the old behaviour.
-        japanese.handle_other_languages = true
+        -- The option (Japanese plugin menu) restores the old behaviour.
+        local menu = japanese:genMenuItem()
+        local option
+        for _, item in ipairs(menu.sub_item_table) do
+            if type(item.text) == "string" and item.text:find("without kana", 1, true) then option = item end
+        end
+        T:check(option, "the plugin menu has the 'Handle text without kana' option")
+        T:check(not option.checked_func(), "option is off by default")
+        T:run(function() option.callback() end)
+        T:check(option.checked_func(), "option is on after tapping it")
+        T:check(G_reader_settings:isTrue("language_japanese_handle_other_languages"), "option is saved")
         T:check(japanese:shouldHandleText("學而時習之"), "kana-less text handled when the option is enabled")
-        japanese.handle_other_languages = false
+        T:run(function() option.callback() end)
+        T:check(not japanese:shouldHandleText("學而時習之"), "option off again")
         raw.restore()
 
         -- In a Japanese book, kana-less (kanji only) text is handled.

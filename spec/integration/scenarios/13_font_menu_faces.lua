@@ -5,6 +5,8 @@ return {
     timeout = 120,
     settings = {
         font_menu_use_font_face = true,
+        -- So that the font-family menu entries have a preview face too.
+        cre_font_family_fonts = { serif = "Noto Serif", ["sans-serif"] = "Noto Sans" },
     },
     run = function(T)
         local Blitbuffer = require("ffi/blitbuffer")
@@ -19,21 +21,30 @@ return {
             for _ in pairs(Font.faces) do n = n + 1 end
             return n
         end
+        -- Draw every entry of the font menu (and of its sub-menus, e.g. font-family fonts) with
+        -- its own face, as the menu does.
         local function drawPreviews()
             local bb = Blitbuffer.new(800, 100, Blitbuffer.TYPE_BB8)
             local n = 0
-            for _, item in ipairs(ui.font.face_table) do
-                if item.font_func then
-                    local face = item.font_func(24)
-                    if face then
-                        local text = type(item.text) == "string" and item.text or (item.text_func and item.text_func()) or "font"
-                        local tw = TextWidget:new{ text = text, face = face }
-                        tw:paintTo(bb, 0, 0)
-                        tw:free()
-                        n = n + 1
+            local function walk(items, depth)
+                for _, item in ipairs(items) do
+                    if item.font_func then
+                        local face = item.font_func(24)
+                        if face then
+                            local text = type(item.text) == "string" and item.text or (item.text_func and item.text_func()) or "font"
+                            local tw = TextWidget:new{ text = text, face = face }
+                            tw:paintTo(bb, 0, 0)
+                            tw:free()
+                            n = n + 1
+                        end
+                    end
+                    local sub = item.sub_item_table or (item.sub_item_table_func and item.sub_item_table_func())
+                    if type(sub) == "table" and depth < 3 then
+                        walk(sub, depth + 1)
                     end
                 end
             end
+            walk(ui.font.face_table, 1)
             bb:free()
             return n
         end

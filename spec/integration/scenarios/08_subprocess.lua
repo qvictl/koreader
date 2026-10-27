@@ -75,7 +75,64 @@ return {
         T:check(yield_status ~= 3 and not io.open(escaped_marker, "r"), "child did not escape into the caller's coroutine")
         T:eq(yield_status, 1, "yielding task exits with status 1")
 
-        -- 4. Trapper: the caller's widget gets its dismiss_callback back.
+        -- 4. Bidirectional pipes, and double fork (the returned pid is the reaped intermediate
+        -- process: terminating it must not fail, there is no such process group anymore).
+        local write_fd
+        pid, read_fd, write_fd = ffiutil.runInSubProcess(function(_, child_write_fd, child_read_fd)
+            local got = ffiutil.readAllFromFD(child_read_fd)
+            ffiutil.writeToFD(child_write_fd, "echo:" .. got, true)
+        end, "bidi")
+        T:check(pid and read_fd and write_fd, "bidi subprocess started")
+        ffiutil.writeToFD(write_fd, "ping", true)
+        T:eq(ffiutil.readAllFromFD(read_fd), "echo:ping", "bidi pipes round trip")
+        T:eq(waitExit(pid), 0, "bidi subprocess exits with status 0")
+        local dpid = ffiutil.runInSubProcess(function() end, false, true)
+        T:check(dpid, "double-forked subprocess started")
+        ffiutil.terminateSubProcess(dpid)
+        T:check(ffiutil.isSubProcessDone(dpid), "double fork: nothing left to collect")
+
+        -- 5. Failures to create the pipes (fd limit reached): reported, nothing leaked.
+        pcall(ffi.cdef, [[
+            struct it_rlimit { unsigned long cur, max; };
+            int getrlimit(int, struct it_rlimit *);
+            int setrlimit(int, const struct it_rlimit *);
+        ]])
+        local RLIMIT_NOFILE = 7
+        local lim = ffi.new("struct it_rlimit")
+        C.getrlimit(RLIMIT_NOFILE, lim)
+        local saved_cur = lim.cur
+        -- Fill any gap in the fd numbers, so that the limit is exactly "n more fds".
+        local fillers, highest = {}, 0
+        for f in require("libs/libkoreader-lfs").dir("/proc/self/fd") do
+            local n = tonumber(f)
+            if n and n > highest then highest = n end
+        end
+        while true do
+            local fd = C.open("/dev/null", 0)
+            if fd < 0 or fd > highest then
+                if fd >= 0 then C.close(fd) end
+                break
+            end
+            table.insert(fillers, fd)
+        end
+        local failures = {}
+        for _, extra in ipairs({ 0, 2 }) do
+            local pipes_now = pipes()
+            lim.cur = highest + 1 + extra
+            C.setrlimit(RLIMIT_NOFILE, lim)
+            local ok_, err = ffiutil.runInSubProcess(function() end, "bidi")
+            lim.cur = saved_cur
+            C.setrlimit(RLIMIT_NOFILE, lim)
+            failures[extra] = { ok = ok_, err = err, leaked = pipes() - pipes_now }
+        end
+        for _, fd in ipairs(fillers) do C.close(fd) end
+        for extra, r in pairs(failures) do
+            T:log("fd limit +" .. extra .. ":", tostring(r.ok), tostring(r.err))
+            T:check(r.ok == false and tostring(r.err):find("pipe", 1, true), "pipe failure reported (limit +" .. extra .. ")")
+            T:eq(r.leaked, 0, "no pipe fd leaked on failure (limit +" .. extra .. ")")
+        end
+
+        -- 6. Trapper: the caller's widget gets its dismiss_callback back.
         local orig_cb = function() end
         local widget = { dismiss_callback = orig_cb }
         local done, results = false, {}
@@ -104,7 +161,14 @@ return {
         T:check(results.err_completed ~= nil, "failing Trapper task returned")
 
         -- No leak, no leftover process.
-        T:waitUntil(function() return #T:children() == 0 end, 10, "all children to be gone")
+        local deadline = T:now() + 10000
+        while #T:children() > 0 and T:now() < deadline do T:wait(0.1) end
+        if #T:children() > 0 then
+            local p = io.popen("ps -o pid,stat,etime,wchan:30,args --ppid " .. parent_pid)
+            T:log("children left:", p:read("*a"))
+            p:close()
+        end
+        T:eq(#T:children(), 0, "all children are gone")
         T:log("fds after:", T:fdList())
         T:eq(pipes(), pipes_before, "no pipe file descriptor leaked")
     end,

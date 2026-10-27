@@ -41,6 +41,37 @@ pcall(ffi.cdef, "int getpid(void);")
 
 local process_start = time.now() -- (close enough: we're loaded during startup)
 
+-- Coverage runs: subprocesses (util.runInSubProcess) end with _exit(), which skips luacov's
+-- exit handler. Have them save their own stats, to a separate file, when their function
+-- returns, errors or yields (util.runInSubProcess runs it in the first coroutine created
+-- after the fork), or prints its error. Only the few lines after that are not recorded.
+do
+    local runner = package.loaded["luacov.runner"]
+    if runner and runner.initialized then
+        require("ffi/util").addRunInSubProcessAfterForkFunc("it_luacov_child", function()
+            local statsfile = runner.configuration.statsfile:gsub("%.stats%.out$", "")
+            runner.configuration.statsfile = string.format("%s.child-%d.stats.out", statsfile, ffi.C.getpid())
+            runner.data = {}
+            local function save() pcall(runner.save_stats) end
+            local raw_create = coroutine.create
+            coroutine.create = function(f) -- luacheck: ignore 122
+                coroutine.create = raw_create -- luacheck: ignore 122
+                return raw_create(function(...)
+                    local res = { pcall(f, ...) }
+                    save()
+                    if not res[1] then error(res[2], 0) end
+                    return unpack(res, 2)
+                end)
+            end
+            local raw_print = print
+            print = function(...) -- luacheck: ignore 121
+                save()
+                return raw_print(...)
+            end
+        end)
+    end
+end
+
 -- JSON encoding (results only hold strings, numbers, booleans and tables of those). {{{
 
 local function json_encode(v)
