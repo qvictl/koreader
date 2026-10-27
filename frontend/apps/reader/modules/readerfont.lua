@@ -112,7 +112,7 @@ function ReaderFont:setupFaceMenuTable()
             font_func = function(size)
                 if G_reader_settings:nilOrTrue("font_menu_use_font_face") then
                     if font_filename and font_faceindex then
-                        return Font:getFace(font_filename, size, font_faceindex)
+                        return Font:getFace(font_filename, size, font_faceindex, true) -- (uncached: menu preview only)
                     end
                 end
             end,
@@ -533,7 +533,7 @@ Enabling this will ignore such font names and make sure your preferred family fo
                     end
                     if font_name and face_to_filename[font_name] then
                         local filename_idx = face_to_filename[font_name]
-                        return Font:getFace(filename_idx[1], size, filename_idx[2])
+                        return Font:getFace(filename_idx[1], size, filename_idx[2], true) -- (uncached: menu preview only)
                     end
                 end
             end,
@@ -630,7 +630,7 @@ Enabling this will ignore such font names and make sure your preferred family fo
                     font_func = function(size)
                         if G_reader_settings:nilOrTrue("font_menu_use_font_face") then
                             if font_filename and font_faceindex then
-                                return Font:getFace(font_filename, size, font_faceindex)
+                                return Font:getFace(font_filename, size, font_faceindex, true) -- (uncached: menu preview only)
                             end
                         end
                     end,
