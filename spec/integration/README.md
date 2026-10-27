@@ -1,0 +1,78 @@
+# Emulator integration tests
+
+These tests run the **real KOReader emulator** (the x86_64 build, `koreader-emulator-x86_64-linux-gnu/koreader`),
+headless, and drive it through scripted scenarios: opening books, turning pages with tap and swipe gestures, using
+the TOC, looking up words in dictionaries, suspending… They check the results, and **budgets** (time, memory).
+
+```sh
+./tools/run_integration_tests.sh                       # all scenarios, on the emulator built in this tree
+./tools/run_integration_tests.sh dictionary sdcv       # scenarios whose file name contains "dictionary" or "sdcv"
+./tools/run_integration_tests.sh --kodir DIR           # another KOReader install directory (e.g. a release tarball)
+./tools/run_integration_tests.sh --coverage            # with luacov (budgets only reported)
+./tools/run_integration_tests.sh --repeat 5 memory     # flakiness check
+./tools/run_integration_tests.sh --help
+```
+
+Results go to `integration-results/`: `summary.md` (also shown in the CI job summary), `junit.xml`, `timings.json`
+(every metric and budget), per-scenario `results/*.json` and KOReader logs in `logs/`.
+
+## How it works
+
+- `tools/run_integration_tests.sh` generates the fixtures (`fixtures/make_fixtures.py`: small synthetic or public
+  domain EPUBs in English, Chinese and Japanese, and StarDict dictionaries, one of them HTML with a big `res/`
+  directory), then, for each scenario, starts KOReader with a fresh `KO_HOME` (settings, caches, history), the SDL
+  `dummy` video driver (no X server needed; set `SDL_VIDEODRIVER` to override), a 1072x1448 screen at 300 dpi, and
+  `driver.lua` loaded as a user patch.
+- `driver.lua` runs the scenario in a coroutine, resumed from UIManager tasks, so the real event loop keeps running
+  (painting, scheduled tasks, subprocess polling) while the scenario waits. User actions go through `T:run()`, from
+  the main context, like real input events. When the scenario ends (or fails, or times out), it writes the result and
+  quits KOReader. A Lua error in the UI loop kills the process: the runner reports it as a crash, with the log.
+- The runner exits with a non-zero code if any scenario failed.
+
+## Writing a scenario
+
+A scenario is a file in `scenarios/` returning a table:
+
+```lua
+return {
+    name = "What it tests",
+    timeout = 120,                -- seconds (also used by the runner's watchdog)
+    settings = { ... },           -- merged into settings.reader.lua before KOReader starts
+    setup = function(T) end,      -- optional, run synchronously during startup (e.g. to install spies)
+    run = function(T)
+        local ui, open_ms = T:openBook(T:fixture("books/en.epub"))
+        T:budget("open_ms", open_ms, 15000, "ms")
+        T:tap(math.floor(T.screen_w * 0.9), math.floor(T.screen_h / 2))   -- next page
+        T:waitUntil(function() return ui:getCurrentPage() == 2 end, 5, "page 2")
+        T:closeBook()
+    end,
+}
+```
+
+The `T` API (see `driver.lua`): `T:run(fn)` (UI action, main context), `T:wait(s)`, `T:waitUntil(pred, timeout, what)`,
+`T:check(cond, msg)` (aborts on failure), `T:expect(cond, msg)` (goes on), `T:eq(a, b, msg)`, `T:metric(name, v, unit)`,
+`T:budget(name, v, max, unit)`, `T:tap(x, y)`, `T:tapWidget(w)`, `T:tapEvent(x, y)`, `T:swipe(x, y, dir)`,
+`T:repaint()`, `T:openBook(path)`, `T:closeBook()`, `T:fileManager()`, `T:reader()`, `T:topWidget()`,
+`T:findWidget(root, pred)`, `T:rssKb()`, `T:luaKb()`, `T:fdCount()`, `T:fdList()`, `T:children()`, `T:spy(obj, method)`,
+`T:fixture(path)`, `T.startup_ms`, `T.screen_w`, `T.screen_h`. `dicthelper.lua` has helpers for dictionary lookups.
+
+Budgets are deliberately generous (CI runners are slow and noisy): they catch regressions by an order of magnitude,
+not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
+
+## Scenarios
+
+| Scenario | Covers |
+|---|---|
+| `01_startup_filemanager` | startup to the file manager, books listed, tap on a book opens it; startup budget |
+| `02_english_epub` | EPUB: page turns (tap, swipe), TOC (tap on an entry), go to page; open/turn/close budgets |
+| `03_cjk_epub` | CJK EPUB with the bundled Noto Sans CJK SC: text extraction, word selection, page turns, CJK TOC, re-rendering |
+| `04_dictionary` | classic lookups: several dictionaries in order, HTML dictionary, CJK word, no result (fuzzy / non-fuzzy dialog), `res/` skipped by the .ifo scan, no sdcv left behind |
+| `05_dictionary_progressive` | progressive lookup: first dictionary shown alone before the others finish, final list equals the classic one, early close kills the background lookup; latency budgets |
+| `06_sdcv_res_dirs` | sdcv (base's `skip_res_dirs.patch`) does not walk into `res/`; per-lookup budget |
+| `07_unpainted_tap` | taps on never painted Button/IconButton in the same UI tick (#16288): no crash, ignored; work once painted |
+| `08_subprocess` | `runInSubProcess`: exit status, erroring and yielding tasks contained (no escaped child), no fd leak; Trapper restores the caller's `dismiss_callback` |
+| `09_suspend_resume` | power button (emulator screensaver), Suspend/Resume events, input inhibition, memory release on suspend |
+| `10_low_memory_profile` | low memory profile: crengine storage factor 4, DocCache ≤ 32 MiB, memory released after open & close, open/close cycles |
+| `11_memory_budget` | 8 open/turn/TOC/close cycles of 2 books: RSS & Lua heap must not grow after warm-up (leak check) |
+| `12_japanese_kana_guard` | Japanese plugin leaves kana-less text alone in non-Japanese books (no lookups), still handles kana / Japanese books |
+| `13_font_menu_faces` | font menu previews don't keep their faces cached |
