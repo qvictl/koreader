@@ -111,6 +111,7 @@ end
 
 function ReaderDictionary:init()
     self._dict_buttons = {}
+    self.background_lookups = {} -- progressive lookups going on in the background
     self.disable_lookup_history = G_reader_settings:isTrue("disable_lookup_history")
     self.dicts_order = G_reader_settings:readSetting("dicts_order", {})
     self.dicts_disabled = G_reader_settings:readSetting("dicts_disabled", {})
@@ -351,6 +352,18 @@ function ReaderDictionary:addToMainMenu(menu_items)
                 end,
                 hold_callback = function(touchmenu_instance)
                     self:toggleFuzzyDefault(touchmenu_instance)
+                end,
+            },
+            {
+                text = _("Progressive lookup"),
+                help_text = _([[
+Look up the first dictionary alone, and show its results as soon as they are available, while the other dictionaries are looked up in the background.
+Their results are then added to the dictionary window: until all dictionaries have been looked up, its "n / N" counter ends with "…".]]),
+                checked_func = function()
+                    return G_reader_settings:nilOrTrue("dict_progressive_lookup")
+                end,
+                callback = function()
+                    G_reader_settings:flipNilOrTrue("dict_progressive_lookup")
                 end,
                 separator = true,
             },
@@ -1239,7 +1252,8 @@ end
 -- sdcv is run directly (no shell in between), with its stdout connected to a
 -- non-blocking pipe, so we can collect its output from the UI loop without ever
 -- blocking it: this allows for a lookup that can be interrupted with a tap (see
--- ReaderDictionary:waitForSdcv()), and that doesn't add much latency.
+-- ReaderDictionary:waitForSdcv()), and for lookups going on in the background
+-- while some first results are already shown (see continueLookupInBackground()).
 local SdcvProcess = {}
 SdcvProcess.__index = SdcvProcess
 
@@ -1692,6 +1706,285 @@ function ReaderDictionary:startSdcv(word, dict_names, fuzzy_search)
     return finalizeSdcvResults(word, flat_results, lookup_cancelled)
 end
 
+--- Splits a lookup in dict_names into multiple sdcv queries, for a progressive lookup.
+-- The first query is for the first dictionary alone, the next ones for the other
+-- dictionaries (one per dictionary directory, as sdcv needs). All are exact searches.
+-- @treturn table|nil the queries, or nil if the lookup can't or needn't be split
+-- @treturn table the dictionaries of dict_names in each dictionary directory
+function ReaderDictionary:getProgressiveQueries(dict_names)
+    if not dict_names or #dict_names < 2 then
+        return
+    end
+    local dict_dirs = self:getDictDirs()
+    local dirs_by_dict_name = {}
+    for _, ifo in ipairs(available_ifos) do
+        for dir_idx, dict_dir in ipairs(dict_dirs) do
+            if ifo.file:sub(1, #dict_dir + 1) == dict_dir .. "/" then
+                local dirs = dirs_by_dict_name[ifo.name] or {}
+                dirs_by_dict_name[ifo.name] = dirs
+                if not util.arrayContains(dirs, dir_idx) then
+                    table.insert(dirs, dir_idx)
+                end
+                break
+            end
+        end
+    end
+    local first_query
+    local other_queries = {}
+    local names_by_dir = {}
+    for _, name in ipairs(dict_names) do
+        -- (Dictionaries we don't know about are ignored, as sdcv would.)
+        for _, dir_idx in ipairs(dirs_by_dict_name[name] or {}) do
+            names_by_dir[dir_idx] = names_by_dir[dir_idx] or {}
+            table.insert(names_by_dir[dir_idx], name)
+            if not first_query then
+                first_query = { dir_idx = dir_idx, dict_names = { name } }
+            else
+                if not other_queries[dir_idx] then
+                    other_queries[dir_idx] = { dir_idx = dir_idx, dict_names = {} }
+                end
+                table.insert(other_queries[dir_idx].dict_names, name)
+            end
+        end
+    end
+    if not first_query then
+        return
+    end
+    local queries = { first_query }
+    for dir_idx = 1, #dict_dirs do
+        if other_queries[dir_idx] then
+            table.insert(queries, other_queries[dir_idx])
+        end
+    end
+    if #queries < 2 then
+        return
+    end
+    for _, query in ipairs(queries) do
+        query.dict_dir = dict_dirs[query.dir_idx]
+    end
+    return queries, names_by_dir
+end
+
+--- Adds the results of a query of a progressive lookup to it.
+-- Results are kept in the order a single lookup in all dictionaries would have
+-- given them: by word, then dictionary directory, then dictionary (and as sdcv
+-- gave them for fuzzy searches).
+-- @treturn table the new results (not yet seen ones), possibly empty
+local function addQueryResults(lookup, query, results_str)
+    local new_results = {}
+    if not results_str or results_str == "" then
+        return new_results
+    end
+    local exact_hits = lookup.exact_hits[query.dir_idx]
+    for i, results in ipairs(parseSdcvOutput(results_str, #query.word_idxs)) do
+        local word_idx = query.word_idxs[i]
+        if not query.fuzzy and #results > 0 then
+            exact_hits[word_idx] = true
+        end
+        for _, r in ipairs(results) do
+            local h = r.dict .. r.word .. r.definition
+            if not lookup.seen_results[h] then
+                lookup.seen_results[h] = true
+                lookup.nb_results = lookup.nb_results + 1
+                lookup.sort_keys[r] = {
+                    word_idx,
+                    query.dir_idx,
+                    query.fuzzy and 0 or lookup.dict_ranks[r.dict] or math.huge,
+                    lookup.nb_results,
+                }
+                table.insert(lookup.results, r)
+                table.insert(new_results, r)
+            end
+        end
+    end
+    if query == lookup.queries[#lookup.queries] and lookup.fuzzy_search and not query.fuzzy then
+        -- All the exact searches are done. As sdcv would, in each dictionary directory (each
+        -- one being looked up by its own sdcv process), fuzzy search the words that have no
+        -- exact match in any of its dictionaries.
+        for dir_idx = 1, #lookup.dict_dirs do
+            local word_idxs = {}
+            for word_idx = 1, #lookup.words do
+                if not lookup.exact_hits[dir_idx][word_idx] then
+                    table.insert(word_idxs, word_idx)
+                end
+            end
+            if lookup.names_by_dir[dir_idx] and #word_idxs > 0 then
+                table.insert(lookup.queries, {
+                    dir_idx = dir_idx,
+                    dict_dir = lookup.dict_dirs[dir_idx],
+                    dict_names = lookup.names_by_dir[dir_idx],
+                    word_idxs = word_idxs,
+                    fuzzy = true,
+                })
+            end
+        end
+    end
+    return new_results
+end
+
+-- Returns a new (sorted) list of all the results we got so far for a progressive lookup.
+local function getLookupResults(lookup)
+    local results = {}
+    for i, r in ipairs(lookup.results) do
+        results[i] = r
+    end
+    local sort_keys = lookup.sort_keys
+    table.sort(results, function(a, b)
+        local ka, kb = sort_keys[a], sort_keys[b]
+        for i = 1, #ka do
+            if ka[i] ~= kb[i] then
+                return ka[i] < kb[i]
+            end
+        end
+        return false
+    end)
+    return results
+end
+
+function ReaderDictionary:getQueryArgs(lookup, query)
+    if not query.word_idxs then
+        query.word_idxs = {}
+        for word_idx = 1, #lookup.words do
+            query.word_idxs[word_idx] = word_idx
+        end
+    end
+    local words = {}
+    for i, word_idx in ipairs(query.word_idxs) do
+        words[i] = lookup.words[word_idx]
+    end
+    return self:getSdcvArgs(query.dict_dir, words, query.dict_names, query.fuzzy)
+end
+
+--- Progressive variant of startSdcv().
+-- sdcv only outputs anything once it has looked up every dictionary it was given, and
+-- decoding and showing the results of all of them takes time too. So we look up the
+-- first dictionary alone, so its results can be shown quickly, and the other ones will
+-- be looked up in the background (with the remaining queries we return) while they are
+-- shown, see continueLookupInBackground().
+-- If the first dictionary has no result, the other ones are looked up right away, and we
+-- stop as soon as we have some results.
+-- Exact searches are made first, fuzzy searches (if enabled) only for words with no exact
+-- match, as sdcv does: so we end up with the same results as a single lookup in all
+-- dictionaries.
+-- @treturn table results (see startSdcv())
+-- @treturn table|nil the remaining progressive lookup work, if any
+function ReaderDictionary:startProgressiveSdcv(word, dict_names, fuzzy_search)
+    local queries, names_by_dir = self:getProgressiveQueries(dict_names)
+    if not queries then
+        return self:startSdcv(word, dict_names, fuzzy_search)
+    end
+    local words
+    words, fuzzy_search = self:getSdcvWords(word, fuzzy_search)
+    local lookup = {
+        word = word,
+        words = words,
+        fuzzy_search = fuzzy_search,
+        queries = queries,
+        query_idx = 0,
+        dict_dirs = self:getDictDirs(),
+        names_by_dir = names_by_dir,
+        dict_ranks = {},
+        exact_hits = {},
+        results = {},
+        seen_results = {},
+        sort_keys = {},
+        nb_results = 0,
+    }
+    for rank, name in ipairs(dict_names) do
+        if not lookup.dict_ranks[name] then
+            lookup.dict_ranks[name] = rank
+        end
+    end
+    for dir_idx = 1, #lookup.dict_dirs do
+        lookup.exact_hits[dir_idx] = {}
+    end
+    while lookup.query_idx < #lookup.queries do
+        lookup.query_idx = lookup.query_idx + 1
+        local query = lookup.queries[lookup.query_idx]
+        local completed, results_str = self:runSdcv(self:getQueryArgs(lookup, query), self.lookup_progress_msg or false)
+        if not completed then
+            return finalizeSdcvResults(word, {}, true)
+        end
+        if #addQueryResults(lookup, query, results_str) > 0 then
+            return getLookupResults(lookup), lookup.query_idx < #lookup.queries and lookup or nil
+        end
+        logger.dbg("dict progressive lookup: no match in", query.dict_names, query.fuzzy and "(fuzzy)" or "")
+    end
+    return finalizeSdcvResults(word, {}, false)
+end
+
+--- Does the remaining queries of a progressive lookup in the background, adding their
+-- results to dict_window (which shows the ones we already have) as they come in.
+-- This is stopped when dict_window is closed.
+function ReaderDictionary:continueLookupInBackground(lookup, dict_window)
+    self.background_lookups[lookup] = true
+    lookup.dict_window = dict_window
+    dict_window.close_widget_callback = function()
+        self:cancelBackgroundLookup(lookup)
+    end
+    local query, proc, start_time, poll
+    local function nextQuery()
+        lookup.query_idx = lookup.query_idx + 1
+        query = lookup.queries[lookup.query_idx]
+        proc = SdcvProcess:new(self:getQueryArgs(lookup, query))
+        lookup.proc = proc
+        if not proc then
+            -- Let's not insist: just show we're done with what we have
+            self:cancelBackgroundLookup(lookup)
+            dict_window:updateResults(dict_window.results, false)
+            return
+        end
+        start_time = time.now()
+        UIManager:scheduleIn(getSdcvPollInterval(start_time), poll)
+    end
+    poll = function()
+        if not UIManager:isWidgetShown(dict_window) then
+            -- Should not happen (close_widget_callback should have cancelled us), but just in case
+            self:cancelBackgroundLookup(lookup)
+            return
+        end
+        if not proc:poll() then
+            UIManager:scheduleIn(getSdcvPollInterval(start_time), poll)
+            return
+        end
+        local new_results = addQueryResults(lookup, query, proc:getOutput())
+        local more_pending = lookup.query_idx < #lookup.queries
+        logger.dbg("dict progressive lookup:", #new_results, "results from", query.dict_names,
+            query.fuzzy and "(fuzzy)" or "", "in", time.to_ms(time.since(start_time)), "ms")
+        if #new_results > 0 or not more_pending then
+            tidyMarkup(new_results)
+            dict_window:updateResults(getLookupResults(lookup), more_pending)
+        end
+        if more_pending then
+            nextQuery()
+        else
+            self:cancelBackgroundLookup(lookup) -- (just cleans up, as we're done)
+        end
+    end
+    lookup.poll_func = poll
+    lookup.start_func = nextQuery
+    -- Start once the results we have are shown (painting them is more urgent)
+    lookup.start_func_wrapper = UIManager:tickAfterNext(nextQuery)
+end
+
+function ReaderDictionary:cancelBackgroundLookup(lookup)
+    if not self.background_lookups[lookup] then
+        return
+    end
+    self.background_lookups[lookup] = nil
+    UIManager:unschedule(lookup.start_func_wrapper)
+    UIManager:unschedule(lookup.start_func)
+    UIManager:unschedule(lookup.poll_func)
+    if lookup.proc then
+        lookup.proc:stop(true)
+        lookup.proc = nil
+    end
+    if lookup.dict_window then
+        lookup.dict_window.close_widget_callback = nil
+        lookup.dict_window = nil
+    end
+end
+
 function ReaderDictionary:stardictLookup(word, dict_names, fuzzy_search, boxes, link, dict_close_callback)
     local book_title = self.ui.doc_props and self.ui.doc_props.display_title or _("Dictionary lookup")
 
@@ -1755,7 +2048,12 @@ function ReaderDictionary:stardictLookup(word, dict_names, fuzzy_search, boxes, 
     self:showLookupInfo(word, self.lookup_msg_delay)
 
     self._lookup_start_time = UIManager:getTime()
-    local results = self:startSdcv(word, dict_names, fuzzy_search)
+    local results, background_lookup
+    if G_reader_settings:nilOrTrue("dict_progressive_lookup") then
+        results, background_lookup = self:startProgressiveSdcv(word, dict_names, fuzzy_search)
+    else
+        results = self:startSdcv(word, dict_names, fuzzy_search)
+    end
     local function lookupCancelled()
         if self.highlight then
             self.highlight:clear()
@@ -1778,10 +2076,13 @@ function ReaderDictionary:stardictLookup(word, dict_names, fuzzy_search, boxes, 
         if handled then return end
     end
 
-    self:showDict(word, tidyMarkup(results), boxes, link, dict_close_callback)
+    self:showDict(word, tidyMarkup(results), boxes, link, dict_close_callback, background_lookup ~= nil)
+    if background_lookup then
+        self:continueLookupInBackground(background_lookup, self.dict_window)
+    end
 end
 
-function ReaderDictionary:showDict(word, results, boxes, link, dict_close_callback)
+function ReaderDictionary:showDict(word, results, boxes, link, dict_close_callback, results_pending)
     if results and results[1] then
         logger.dbg("showing quick lookup window", #DictQuickLookup.window_list+1, ":", word, results)
         self.dict_window = DictQuickLookup:new{
@@ -1793,6 +2094,7 @@ function ReaderDictionary:showDict(word, results, boxes, link, dict_close_callba
             -- selected link, if any
             selected_link = link,
             results = results,
+            results_pending = results_pending,
             word_boxes = boxes,
             preferred_dictionaries = self.preferred_dictionaries,
             -- differentiate between dict and wiki
