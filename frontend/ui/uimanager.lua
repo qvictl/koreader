@@ -1405,6 +1405,13 @@ Same idea as `widgetRepaint`, but does a simple `bb:invertRect` on the Screen bu
 --]]
 function UIManager:widgetInvert(widget, x, y, w, h)
     if not widget then return end
+    -- A widget only gets its dimen once it has been painted: there is nothing on screen to invert before that.
+    w = w or (widget.dimen and widget.dimen.w)
+    h = h or (widget.dimen and widget.dimen.h)
+    if not (x and y and w and h) then
+        logger.dbg("Skipping widgetInvert on unpainted widget:", widget.name or widget.id or tostring(widget))
+        return
+    end
 
     logger.dbg("Explicit widgetInvert:", widget.name or widget.id or tostring(widget), "@", x, y)
     if widget.show_parent and widget.show_parent.cropping_widget then
@@ -1413,14 +1420,14 @@ function UIManager:widgetInvert(widget, x, y, w, h)
         local cropping_widget = widget.show_parent.cropping_widget
         if util.arrayReferences(cropping_widget, widget) then
             -- Invert only what intersects with the cropping container
-            local widget_region = Geom:new{x=x, y=y, w=w or widget.dimen.w, h=h or widget.dimen.h}
+            local widget_region = Geom:new{x=x, y=y, w=w, h=h}
             local crop_region = cropping_widget:getCropRegion()
             local invert_region = crop_region:intersect(widget_region)
             Screen.bb:invertRect(invert_region.x, invert_region.y, invert_region.w, invert_region.h)
             return
         end
     end
-    Screen.bb:invertRect(x, y, w or widget.dimen.w, h or widget.dimen.h)
+    Screen.bb:invertRect(x, y, w, h)
 end
 
 function UIManager:setInputTimeout(timeout)
