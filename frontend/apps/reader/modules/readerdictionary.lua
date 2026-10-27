@@ -12,22 +12,24 @@ local Geom = require("ui/geometry")
 local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
-local JSON = require("json")
 local KeyValuePage = require("ui/widget/keyvaluepage")
 local LuaData = require("luadata")
 local MultiConfirmBox = require("ui/widget/multiconfirmbox")
 local NetworkMgr = require("ui/network/manager")
 local Presets = require("ui/presets")
 local SortWidget = require("ui/widget/sortwidget")
+local TrapWidget = require("ui/widget/trapwidget")
 local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local Utf8Proc = require("ffi/utf8proc")
+local bit = require("bit")
 local ffi = require("ffi")
 local C = ffi.C
 local ffiUtil  = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local posix = require("ffi/posix")
+local rapidjson = require("rapidjson")
 local time = require("ui/time")
 local util  = require("util")
 local _ = require("gettext")
@@ -857,7 +859,7 @@ function ReaderDictionary:onLookupWord(word, is_sane, boxes, highlight, link, di
         disable_fuzzy_search = self.disable_fuzzy_search_fm
     end
 
-    -- Wrapped through Trapper, as we may be using Trapper:dismissablePopen() in it
+    -- Wrapped through Trapper, so that the sdcv lookup in it can be interrupted
     Trapper:wrap(function()
         self:stardictLookup(word, self.enabled_dict_names, not disable_fuzzy_search, boxes, link, dict_close_callback)
     end)
@@ -896,7 +898,7 @@ function ReaderDictionary:onHtmlDictionaryLinkTapped(dictionary, link)
     -- is only removed when there are no more dictionary windows open.
     self.highlight = nil
 
-    -- Wrapped through Trapper, as we may be using Trapper:dismissablePopen() in it
+    -- Wrapped through Trapper, so that the sdcv lookup in it can be interrupted
     Trapper:wrap(function()
         self:stardictLookup(word, {dictionary}, false, {link_box}, nil)
     end)
@@ -1234,7 +1236,251 @@ function ReaderDictionary:showSearchWithPresetDialog(preset_names, input_dialog,
     UIManager:show(button_dialog)
 end
 
-function ReaderDictionary:rawSdcv(words, dict_names, fuzzy_search, lookup_progress_msg)
+-- sdcv is run directly (no shell in between), with its stdout connected to a
+-- non-blocking pipe, so we can collect its output from the UI loop without ever
+-- blocking it: this allows for a lookup that can be interrupted with a tap (see
+-- ReaderDictionary:waitForSdcv()), and that doesn't add much latency.
+local SdcvProcess = {}
+SdcvProcess.__index = SdcvProcess
+
+local SDCV_READ_SIZE = 16384
+local sdcv_read_buffer = nil
+
+-- We'd rather use posix_spawn() than fork(): it doesn't have to copy our (big) page
+-- tables, and doesn't trigger the fork hooks some platforms need (i.e., SDL ones, that
+-- can take a few 100 ms). It's not in our posix_h: declare what we need, using opaque
+-- buffers for its types (whose size and layout depend on the libc).
+pcall(ffi.cdef, [[
+int posix_spawnp(int *, const char *, const void *, const void *, char *const *, char *const *);
+int posix_spawn_file_actions_init(void *);
+int posix_spawn_file_actions_adddup2(void *, int, int);
+int posix_spawn_file_actions_addclose(void *, int);
+int posix_spawn_file_actions_destroy(void *);
+int posix_spawnattr_init(void *);
+int posix_spawnattr_setflags(void *, short);
+int posix_spawnattr_destroy(void *);
+extern char **environ;
+]])
+local has_posix_spawn = pcall(function()
+    return C.posix_spawnp, C.posix_spawn_file_actions_init, C.posix_spawn_file_actions_adddup2,
+           C.posix_spawn_file_actions_addclose, C.posix_spawn_file_actions_destroy,
+           C.posix_spawnattr_init, C.posix_spawnattr_setflags, C.posix_spawnattr_destroy, C.environ
+end)
+
+-- Runs args (no shell involved) with its stdout redirected to write_fd, closing read_fd in the child.
+local function spawn(args, write_fd, read_fd)
+    local argv = ffi.new("char *[?]", #args + 1) -- zero-filled, so NULL terminated
+    for i, arg in ipairs(args) do
+        argv[i-1] = ffi.cast("char *", arg)
+    end
+    if has_posix_spawn then
+        local file_actions = ffi.new("uint8_t[1024]") -- (bigger than any libc's posix_spawn_file_actions_t)
+        local attr = ffi.new("uint8_t[1024]") -- (same for posix_spawnattr_t)
+        C.posix_spawn_file_actions_init(file_actions)
+        C.posix_spawn_file_actions_addclose(file_actions, read_fd)
+        if write_fd ~= 1 then
+            C.posix_spawn_file_actions_adddup2(file_actions, write_fd, 1)
+            C.posix_spawn_file_actions_addclose(file_actions, write_fd)
+        end
+        C.posix_spawnattr_init(attr)
+        if ffi.os == "Linux" then
+            -- POSIX_SPAWN_USEVFORK: older glibc would fork() otherwise (newer ones ignore it)
+            C.posix_spawnattr_setflags(attr, 0x40)
+        end
+        local pid = ffi.new("int[1]")
+        local err = C.posix_spawnp(pid, args[1], file_actions, attr, argv, C.environ)
+        C.posix_spawn_file_actions_destroy(file_actions)
+        C.posix_spawnattr_destroy(attr)
+        if err ~= 0 then
+            return nil, posix.strerror(err)
+        end
+        return pid[0]
+    end
+    local pid, err = ffiUtil.runInSubProcess(function()
+        -- In the child: have it write to our pipe, and replace ourselves with it
+        if write_fd ~= 1 then
+            C.dup2(write_fd, 1)
+            C.close(write_fd)
+        end
+        C.execvp(args[1], argv)
+        C._exit(127) -- only reached if exec failed
+    end)
+    return pid, err
+end
+
+--- Starts sdcv.
+-- @tparam table args sdcv path and arguments
+-- @treturn SdcvProcess|nil nil if it could not be started
+function SdcvProcess:new(args)
+    local pipe = ffi.new("int[2]", -1, -1)
+    if C.pipe(pipe) ~= 0 then
+        logger.warn("ReaderDictionary: could not create pipe for sdcv:", posix.strerror())
+        return
+    end
+    local read_fd, write_fd = pipe[0], pipe[1]
+    -- Don't leak our side of the pipe into any other process we may start
+    C.fcntl(read_fd, C.F_SETFD, ffi.cast("int", C.FD_CLOEXEC))
+    if android then
+        -- NOTE: Bionic doesn't support rpath, but does honor LD_LIBRARY_PATH...
+        --       Give it a shove so it can actually find the STL.
+        C.setenv("LD_LIBRARY_PATH", android.nativeLibraryDir, 1)
+    end
+    local pid, err = spawn(args, write_fd, read_fd)
+    if android then
+        -- NOTE: It's unset by default, so this is perfectly fine.
+        C.unsetenv("LD_LIBRARY_PATH")
+    end
+    C.close(write_fd)
+    if not pid then
+        C.close(read_fd)
+        logger.warn("ReaderDictionary: could not start sdcv:", err)
+        return
+    end
+    -- So that reading never blocks (fcntl() is variadic: make sure we pass it an int)
+    C.fcntl(read_fd, C.F_SETFL, ffi.cast("int", bit.bor(C.fcntl(read_fd, C.F_GETFL), C.O_NONBLOCK)))
+    return setmetatable({ pid = pid, fd = read_fd, chunks = {} }, SdcvProcess)
+end
+
+--- Reads whatever output is available, without blocking.
+-- @treturn bool true when sdcv is done, false if it is still running
+function SdcvProcess:poll()
+    if not self.fd then
+        return true
+    end
+    if not sdcv_read_buffer then
+        sdcv_read_buffer = ffi.new("char[?]", SDCV_READ_SIZE)
+    end
+    while true do
+        local nb_read = tonumber(C.read(self.fd, sdcv_read_buffer, SDCV_READ_SIZE))
+        if nb_read > 0 then
+            table.insert(self.chunks, ffi.string(sdcv_read_buffer, nb_read))
+        elseif nb_read == 0 then -- EOF: sdcv is exiting
+            self:stop()
+            return true
+        else
+            local errno = ffi.errno()
+            if errno == C.EAGAIN then -- nothing more for now
+                return false
+            elseif errno ~= C.EINTR then
+                logger.warn("ReaderDictionary: could not read sdcv output:", posix.strerror(errno))
+                self:stop(true)
+                return true
+            end
+        end
+    end
+end
+
+--- Waits (blocking) for sdcv to be done, collecting its output.
+function SdcvProcess:wait()
+    if not self.fd then
+        return
+    end
+    local pfd = ffi.new("struct pollfd[1]")
+    pfd[0].fd = self.fd
+    pfd[0].events = C.POLLIN
+    while not self:poll() do
+        C.poll(pfd, 1, -1)
+    end
+end
+
+--- Closes our side of the pipe, and collects the process (killing it first, if kill is true).
+function SdcvProcess:stop(kill)
+    if self.fd then
+        C.close(self.fd)
+        self.fd = nil
+    end
+    local pid = self.pid
+    if not pid then
+        return
+    end
+    self.pid = nil
+    if ffiUtil.isSubProcessDone(pid) then
+        return
+    end
+    if kill then
+        C.kill(pid, 9) -- SIGKILL (sdcv doesn't start any child process of its own)
+    end
+    -- It's about to exit (or has been killed): collect it a bit later, so it doesn't linger as a zombie.
+    local collect
+    collect = function()
+        if not ffiUtil.isSubProcessDone(pid) then
+            UIManager:scheduleIn(0.1, collect)
+        end
+    end
+    UIManager:scheduleIn(0.01, collect)
+end
+
+function SdcvProcess:getOutput()
+    return table.concat(self.chunks)
+end
+
+-- How long to wait before checking again for sdcv output: quite often at first,
+-- so we don't add much latency to quick lookups, and less and less often as
+-- time passes, so we don't wake up for nothing too often during long ones.
+local function getSdcvPollInterval(start_time)
+    return math.min(math.max(time.to_s(time.since(start_time)) / 8, 0.01), 0.25)
+end
+
+--- Waits for sdcv to be done, and returns its output.
+-- When run in a coroutine (i.e., wrapped through Trapper), the UI loop keeps running while
+-- we wait, and a tap on trap_widget_or_false interrupts the wait and kills sdcv (as with
+-- Trapper:dismissablePopen(): if false, an invisible TrapWidget not resending the tap is used).
+-- When not run in a coroutine, we just block until sdcv is done.
+-- @tparam SdcvProcess proc
+-- @param trap_widget_or_false already shown widget (i.e., an InfoMessage), false or nil
+-- @treturn bool completed (false if interrupted)
+-- @treturn string output
+function ReaderDictionary:waitForSdcv(proc, trap_widget_or_false)
+    local _coroutine = coroutine.running()
+    if not _coroutine then
+        proc:wait()
+        return true, proc:getOutput()
+    end
+
+    local trap_widget
+    local own_trap_widget = type(trap_widget_or_false) ~= "table"
+    if own_trap_widget then
+        trap_widget = TrapWidget:new{
+            text = nil,
+            resend_event = trap_widget_or_false ~= false,
+        }
+        UIManager:show(trap_widget)
+    else
+        trap_widget = trap_widget_or_false
+    end
+    -- Restored when done, so a later tap doesn't resume our coroutine at some other yield
+    local orig_dismiss_callback = trap_widget.dismiss_callback
+    trap_widget.dismiss_callback = function()
+        -- this resumes us at coroutine.yield() below, with go_on = false
+        coroutine.resume(_coroutine, false)
+    end
+
+    local completed = false
+    local start_time = time.now()
+    local go_on_func = function() coroutine.resume(_coroutine, true) end
+    while true do
+        UIManager:scheduleIn(getSdcvPollInterval(start_time), go_on_func)
+        local go_on = coroutine.yield() -- gives control back to UIManager
+        if not go_on then -- dismissed
+            UIManager:unschedule(go_on_func)
+            proc:stop(true)
+            break
+        end
+        if proc:poll() then
+            completed = true
+            break
+        end
+    end
+
+    if own_trap_widget then
+        UIManager:close(trap_widget)
+    else
+        trap_widget.dismiss_callback = orig_dismiss_callback
+    end
+    return completed, proc:getOutput()
+end
+
+function ReaderDictionary:getDictDirs()
     -- Allow for two sdcv calls : one in the classic data/dict, and
     -- another one in data/dict_ext if it exists
     -- We could put in data/dict_ext dictionaries with a great number of words
@@ -1246,6 +1492,80 @@ function ReaderDictionary:rawSdcv(words, dict_names, fuzzy_search, lookup_progre
     if lfs.attributes(dict_ext, "mode") == "directory" then
         table.insert(dict_dirs, dict_ext)
     end
+    return dict_dirs
+end
+
+function ReaderDictionary:getSdcvArgs(dict_dir, words, dict_names, fuzzy_search)
+    local args = {
+        android and (android.nativeLibraryDir .. "/libsdcv.so") or "./sdcv",
+        "--utf8-input",
+        "--utf8-output",
+        "--json-output",
+        "--non-interactive",
+        "--data-dir", dict_dir,
+    }
+    if not fuzzy_search then
+        table.insert(args, "--exact-search")
+    end
+    if dict_names then
+        for _, opt in pairs(dict_names) do
+            table.insert(args, "-u")
+            table.insert(args, opt)
+        end
+    end
+    table.insert(args, "--") -- prevent words starting with a "-" to be interpreted as a sdcv option
+    util.arrayAppend(args, words)
+    return args
+end
+
+--- Runs sdcv, and returns its output (see waitForSdcv()).
+function ReaderDictionary:runSdcv(args, trap_widget_or_false)
+    -- Some sdcv lookups, when using fuzzy search with many dictionaries
+    -- and a really bad selected text, can take up to 10 seconds.
+    -- It is nice to be able to cancel it when noticing wrong text was
+    -- selected.
+    -- When fuzzy search is enabled, we have a lookup_progress_msg that can
+    -- be used to catch a tap and trigger cancellation.
+    -- When fuzzy search is disabled, we provide false instead so an
+    -- invisible non-event-forwarding TrapWidget is used to catch a tap
+    -- and trigger cancellation (invisible so there's no need for repaint
+    -- and refresh with the usually fast non-fuzzy search lookups).
+    local proc = SdcvProcess:new(args)
+    if not proc then
+        return false
+    end
+    return self:waitForSdcv(proc, trap_widget_or_false)
+end
+
+-- sdcv can return multiple results if we passed multiple words to
+-- the cmdline. In this case, the lookup results for each word are
+-- newline separated. The JSON output doesn't contain raw newlines
+-- so it's safe to split.
+-- (We use rapidjson, as definitions can be quite large, i.e. a few 100 KB
+-- for HTML dictionaries, and it is more than 10 times faster than luajson.)
+local function parseSdcvOutput(results_str, nb_words)
+    local results_by_word = {}
+    for _, entry_str in ipairs(util.splitToArray(results_str, "\n")) do
+        local ok, results = pcall(rapidjson.decode, entry_str)
+        if not ok or type(results) ~= "table" then
+            logger.warn("JSON data cannot be decoded", results)
+            -- Need to insert an empty table so that the word entries
+            -- match up to the result entries (so that callers can
+            -- batch lookups to reduce the cost of bulk lookups while
+            -- still being able to figure out which lookup came from
+            -- which word).
+            results = {}
+        end
+        table.insert(results_by_word, results)
+    end
+    if #results_by_word ~= nb_words then
+        logger.warn("sdcv returned a different number of results than the number of words")
+    end
+    return results_by_word
+end
+
+function ReaderDictionary:rawSdcv(words, dict_names, fuzzy_search, lookup_progress_msg)
+    local dict_dirs = self:getDictDirs()
     -- early exit if no dictionaries
     if dictDirsEmpty(dict_dirs) then
         return false, nil
@@ -1256,93 +1576,24 @@ function ReaderDictionary:rawSdcv(words, dict_names, fuzzy_search, lookup_progre
         if lookup_cancelled then
             break -- don't do any more lookup on additional dict_dirs
         end
-
-        local args = {
-            android and (android.nativeLibraryDir .. "/libsdcv.so") or "./sdcv",
-            "--utf8-input",
-            "--utf8-output",
-            "--json-output",
-            "--non-interactive",
-            "--data-dir", dict_dir,
-        }
-        if not fuzzy_search then
-            table.insert(args, "--exact-search")
-        end
-        if dict_names then
-            for _, opt in pairs(dict_names) do
-                table.insert(args, "-u")
-                table.insert(args, opt)
-            end
-        end
-        table.insert(args, "--") -- prevent words starting with a "-" to be interpreted as a sdcv option
-        util.arrayAppend(args, words)
-
-        local cmd = util.shell_escape(args)
-        -- cmd = "sleep 7 ; " .. cmd     -- uncomment to simulate long lookup time
-
-        -- Some sdcv lookups, when using fuzzy search with many dictionaries
-        -- and a really bad selected text, can take up to 10 seconds.
-        -- It is nice to be able to cancel it when noticing wrong text was
-        -- selected.
-        -- Because sdcv starts outputting its output only at the end when it has
-        -- done its work, we can use Trapper:dismissablePopen() to cancel it as
-        -- long as we are waiting for output.
-        -- When fuzzy search is enabled, we have a lookup_progress_msg that can
-        -- be used to catch a tap and trigger cancellation.
-        -- When fuzzy search is disabled, we provide false instead so an
-        -- invisible non-event-forwarding TrapWidget is used to catch a tap
-        -- and trigger cancellation (invisible so there's no need for repaint
-        -- and refresh with the usually fast non-fuzzy search lookups).
-        -- We must ensure we will have some output to be readable (if no
-        -- definition found, sdcv will output some message on stderr, and
-        -- let stdout empty) by appending an "echo":
-        cmd = cmd .. "; echo"
-        -- NOTE: Bionic doesn't support rpath, but does honor LD_LIBRARY_PATH...
-        --       Give it a shove so it can actually find the STL.
-        if android then
-            C.setenv("LD_LIBRARY_PATH", android.nativeLibraryDir, 1)
-        end
-        local completed, results_str = Trapper:dismissablePopen(cmd, lookup_progress_msg)
-        if android then
-            -- NOTE: It's unset by default, so this is perfectly fine.
-            C.unsetenv("LD_LIBRARY_PATH")
-        end
+        local args = self:getSdcvArgs(dict_dir, words, dict_names, fuzzy_search)
+        local completed, results_str = self:runSdcv(args, lookup_progress_msg)
         lookup_cancelled = not completed
-        if results_str and results_str ~= "\n" then -- \n is when lookup was cancelled
-            -- sdcv can return multiple results if we passed multiple words to
-            -- the cmdline. In this case, the lookup results for each word are
-            -- newline separated. The JSON output doesn't contain raw newlines
-            -- so it's safe to split. Ideally luajson would support jsonl but
-            -- unfortunately it doesn't and it also seems to decode the last
-            -- object rather than the first one if there are multiple.
-            local result_word_idx = 0
-            for _, entry_str in ipairs(util.splitToArray(results_str, "\n")) do
-                result_word_idx = result_word_idx + 1
-                local ok, results = pcall(JSON.decode, entry_str)
-                if not ok or not results then
-                    logger.warn("JSON data cannot be decoded", results)
-                    -- Need to insert an empty table so that the word entries
-                    -- match up to the result entries (so that callers can
-                    -- batch lookups to reduce the cost of bulk lookups while
-                    -- still being able to figure out which lookup came from
-                    -- which word).
-                    results = {}
-                end
-                if all_results[result_word_idx] then
-                    util.arrayAppend(all_results[result_word_idx], results)
+        if results_str and results_str ~= "" then
+            for idx, results in ipairs(parseSdcvOutput(results_str, #words)) do
+                if all_results[idx] then
+                    util.arrayAppend(all_results[idx], results)
                 else
                     table.insert(all_results, results)
                 end
-            end
-            if result_word_idx ~= #words then
-                logger.warn("sdcv returned a different number of results than the number of words")
             end
         end
     end
     return lookup_cancelled, all_results
 end
 
-function ReaderDictionary:startSdcv(word, dict_names, fuzzy_search)
+--- Returns the words to look up for the selected word, and whether fuzzy search should be used.
+function ReaderDictionary:getSdcvWords(word, fuzzy_search)
     local words = {word}
     -- If a word starts with a capital letter, add lowercase version to words array.
     if not fuzzy_search then
@@ -1358,7 +1609,13 @@ function ReaderDictionary:startSdcv(word, dict_names, fuzzy_search)
         -- dictionary entry for whatever text the user selected).
         local candidates = self.ui.languagesupport:extraDictionaryFormCandidates(word)
         if candidates then
-            util.arrayAppend(words, candidates)
+            -- (Skip the ones we already have, i.e. the word itself: sdcv would
+            -- look them up and output their results again, for nothing.)
+            for _, candidate in ipairs(candidates) do
+                if not util.arrayContains(words, candidate) then
+                    table.insert(words, candidate)
+                end
+            end
         end
     end
 
@@ -1377,35 +1634,11 @@ function ReaderDictionary:startSdcv(word, dict_names, fuzzy_search)
         logger.dbg("disabling fuzzy searching for all-CJK word search:", words)
         fuzzy_search = false
     end
+    return words, fuzzy_search
+end
 
-    local lookup_cancelled, results = self:rawSdcv(words, dict_names, fuzzy_search, self.lookup_progress_msg or false)
-    if results == nil then -- no dictionaries found
-        return {
-            {
-                dict = "",
-                word = word,
-                definition = _([[No dictionaries installed. Please search for "Dictionary support" in the KOReader Wiki to get more information about installing new dictionaries.]]),
-            }
-        }
-    else -- flatten any possible results
-        local flat_results = {}
-        local seen_results = {}
-        -- Flatten the array, removing any duplicates we may have gotten (sdcv
-        -- may do multiple queries, in fixed mode then in fuzzy mode, and the
-        -- language-specific plugin may have also returned multiple equivalent
-        -- results).
-        local h
-        for _, term_results in ipairs(results) do
-            for _, r in ipairs(term_results) do
-                h = r.dict .. r.word .. r.definition
-                if seen_results[h] == nil then
-                    table.insert(flat_results, r)
-                    seen_results[h] = true
-                end
-            end
-        end
-        results = flat_results
-    end
+-- Returns the final results list, from the flat list of results (or dummy ones if none)
+local function finalizeSdcvResults(word, results, lookup_cancelled)
     if #results == 0 then -- no results found
         -- dummy results
         results = {
@@ -1426,17 +1659,54 @@ function ReaderDictionary:startSdcv(word, dict_names, fuzzy_search)
     return results
 end
 
+function ReaderDictionary:startSdcv(word, dict_names, fuzzy_search)
+    local words
+    words, fuzzy_search = self:getSdcvWords(word, fuzzy_search)
+    local lookup_cancelled, results = self:rawSdcv(words, dict_names, fuzzy_search, self.lookup_progress_msg or false)
+    if results == nil then -- no dictionaries found
+        return {
+            {
+                dict = "",
+                word = word,
+                definition = _([[No dictionaries installed. Please search for "Dictionary support" in the KOReader Wiki to get more information about installing new dictionaries.]]),
+            }
+        }
+    end
+    -- flatten any possible results
+    local flat_results = {}
+    local seen_results = {}
+    -- Flatten the array, removing any duplicates we may have gotten (sdcv
+    -- may do multiple queries, in fixed mode then in fuzzy mode, and the
+    -- language-specific plugin may have also returned multiple equivalent
+    -- results).
+    local h
+    for _, term_results in ipairs(results) do
+        for _, r in ipairs(term_results) do
+            h = r.dict .. r.word .. r.definition
+            if seen_results[h] == nil then
+                table.insert(flat_results, r)
+                seen_results[h] = true
+            end
+        end
+    end
+    return finalizeSdcvResults(word, flat_results, lookup_cancelled)
+end
+
 function ReaderDictionary:stardictLookup(word, dict_names, fuzzy_search, boxes, link, dict_close_callback)
     local book_title = self.ui.doc_props and self.ui.doc_props.display_title or _("Dictionary lookup")
 
     -- Event for plugin to catch lookup with book title
     self.ui:handleEvent(Event:new("WordLookedUp", word, book_title))
     if not self.disable_lookup_history then
-        lookup_history:addTableItem("lookup_history", {
+        local history_item = {
             book_title = book_title,
             time = os.time(),
             word = word,
-        })
+        }
+        -- Not urgent: done while sdcv is running
+        UIManager:nextTick(function()
+            lookup_history:addTableItem("lookup_history", history_item)
+        end)
     end
 
     if Device:canExternalDictLookup() and G_reader_settings:isTrue("external_dict_lookup") then
@@ -1593,7 +1863,7 @@ function ReaderDictionary:showNoResultsDialog(word, dict_names, fuzzy_search, bo
                 if new_word == "" then return end
                 UIManager:close(dialog)
                 -- Re-run the lookup with the (possibly edited) word and fuzzy enabled.
-                -- Wrapped through Trapper, as we may be using Trapper:dismissablePopen() in it
+                -- Wrapped through Trapper, so that the sdcv lookup in it can be interrupted
                 Trapper:wrap(function()
                     self:stardictLookup(new_word, dict_names, true, boxes, link, dict_close_callback)
                 end)
