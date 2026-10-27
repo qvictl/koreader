@@ -30,6 +30,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local posix = require("ffi/posix")
 local rapidjson = require("rapidjson")
+local sha2 = require("ffi/sha2")
 local time = require("ui/time")
 local util  = require("util")
 local _ = require("gettext")
@@ -1491,6 +1492,113 @@ function ReaderDictionary:getDictDirs()
     return dict_dirs
 end
 
+-- sdcv walks the whole tree of the dictionary directory to find .ifo files, including
+-- the res/ subdirectories some dictionaries come with, which may hold thousands of
+-- image or sound files: that's a stat() per file, twice, on every lookup. This is
+-- slow on some devices (i.e., on Kindle, where /mnt/us is a FUSE mount), and can be
+-- the main cost of a lookup.
+-- So, when some dictionaries have such a res/ directory, we give sdcv a directory in
+-- a local filesystem that mirrors the dictionaries with symlinks to their files only.
+local sdcv_data_dirs = {} -- dict_dir => directory to give sdcv
+local sdcv_data_dirs_ifos = nil -- the available_ifos sdcv_data_dirs was made for
+
+local function getTmpDir()
+    for _, dir in ipairs{ os.getenv("TMPDIR"), "/tmp", "/var/tmp" } do
+        if lfs.attributes(dir, "mode") == "directory" then
+            return dir
+        end
+    end
+end
+
+-- Removes what we may have left in mirror_dir (only the symlinks and files we, or sdcv, made there)
+local function cleanSdcvMirrorDir(mirror_dir)
+    if lfs.attributes(mirror_dir, "mode") ~= "directory" then
+        return
+    end
+    for sub_name in lfs.dir(mirror_dir) do
+        local sub_dir = mirror_dir .. "/" .. sub_name
+        if sub_name ~= "." and sub_name ~= ".." and lfs.symlinkattributes(sub_dir, "mode") == "directory" then
+            for name in lfs.dir(sub_dir) do
+                local mode = lfs.symlinkattributes(sub_dir .. "/" .. name, "mode")
+                if mode == "link" or mode == "file" then
+                    os.remove(sub_dir .. "/" .. name)
+                end
+            end
+            lfs.rmdir(sub_dir)
+        end
+    end
+end
+
+local function makeSdcvMirrorDir(dict_dir, ifos)
+    local has_res_dirs = false
+    for _, ifo in ipairs(ifos) do
+        if lfs.attributes(util.splitFilePathName(ifo.file) .. "res", "mode") == "directory" then
+            has_res_dirs = true
+            break
+        end
+    end
+    local tmp_dir = has_res_dirs and getTmpDir()
+    if not tmp_dir then
+        return
+    end
+    local mirror_dir = string.format("%s/koreader-sdcv-%d/%s", tmp_dir, tonumber(C.getuid()),
+        sha2.md5(ffiUtil.realpath(dict_dir) or dict_dir))
+    cleanSdcvMirrorDir(mirror_dir)
+    util.makePath(mirror_dir)
+    for i, ifo in ipairs(ifos) do
+        local ifo_dir, ifo_name = util.splitFilePathName(ifo.file)
+        local dir = ffiUtil.realpath(ifo_dir)
+        if not dir then
+            cleanSdcvMirrorDir(mirror_dir)
+            return
+        end
+        local base = ifo_name:gsub("%.ifo$", ".")
+        local sub_dir = mirror_dir .. "/" .. i
+        lfs.mkdir(sub_dir)
+        for name in lfs.dir(dir) do
+            if name:sub(1, #base) == base and lfs.attributes(dir .. "/" .. name, "mode") == "file" then
+                if not lfs.link(dir .. "/" .. name, sub_dir .. "/" .. name, true) then
+                    logger.warn("ReaderDictionary: could not make symlinks in", mirror_dir)
+                    cleanSdcvMirrorDir(mirror_dir)
+                    return
+                end
+            end
+        end
+        -- Have sdcv create its index caches next to the real files, if they are missing
+        for _, suffix in ipairs{ "idx", "syn" } do
+            if lfs.attributes(dir .. "/" .. base .. suffix, "mode") == "file"
+                and lfs.attributes(dir .. "/" .. base .. suffix .. ".oft", "mode") == nil then
+                lfs.link(dir .. "/" .. base .. suffix .. ".oft", sub_dir .. "/" .. base .. suffix .. ".oft", true)
+            end
+        end
+    end
+    logger.dbg("ReaderDictionary: sdcv will use", mirror_dir, "for", dict_dir)
+    return mirror_dir
+end
+
+--- Returns the directory to give sdcv to look up the dictionaries in dict_dir.
+function ReaderDictionary:getSdcvDataDir(dict_dir)
+    if not G_reader_settings:nilOrTrue("dict_sdcv_mirror_dir") then
+        return dict_dir
+    end
+    if sdcv_data_dirs_ifos ~= available_ifos then
+        sdcv_data_dirs = {}
+        sdcv_data_dirs_ifos = available_ifos
+    end
+    if sdcv_data_dirs[dict_dir] == nil then
+        local ifos = {}
+        for _, ifo in ipairs(available_ifos or {}) do
+            local rel_path = ifo.file:sub(#dict_dir + 2)
+            -- (sdcv ignores hidden files and directories: keep them hidden)
+            if ifo.file:sub(1, #dict_dir + 1) == dict_dir .. "/" and not rel_path:find("^%.") and not rel_path:find("/%.") then
+                table.insert(ifos, ifo)
+            end
+        end
+        sdcv_data_dirs[dict_dir] = makeSdcvMirrorDir(dict_dir, ifos) or dict_dir
+    end
+    return sdcv_data_dirs[dict_dir]
+end
+
 function ReaderDictionary:getSdcvArgs(dict_dir, words, dict_names, fuzzy_search)
     local args = {
         android and (android.nativeLibraryDir .. "/libsdcv.so") or "./sdcv",
@@ -1498,7 +1606,7 @@ function ReaderDictionary:getSdcvArgs(dict_dir, words, dict_names, fuzzy_search)
         "--utf8-output",
         "--json-output",
         "--non-interactive",
-        "--data-dir", dict_dir,
+        "--data-dir", self:getSdcvDataDir(dict_dir),
     }
     if not fuzzy_search then
         table.insert(args, "--exact-search")
