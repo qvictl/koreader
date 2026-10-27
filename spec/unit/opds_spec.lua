@@ -1,0 +1,1049 @@
+-- https://www.gutenberg.org/ebooks.opds/
+local navigation_sample = [[
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+
+DON'T USE THIS PAGE FOR SCRAPING.
+
+Seriously. You'll only get your IP blocked.
+
+Download https://www.gutenberg.org/feeds/catalog.rdf.bz2 instead,
+which contains *all* Project Gutenberg metadata in one RDF/XML file.
+
+--><feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:relevance="http://a9.com/-/opensearch/extensions/relevance/1.0/">
+<id>http://www.gutenberg.org/ebooks.opds/</id>
+<updated>2021-04-02T13:27:36Z</updated>
+<title>Project Gutenberg</title>
+<subtitle>Free ebooks since 1971.</subtitle>
+<author>
+<name>Project Gutenberg</name>
+<uri>https://www.gutenberg.org</uri>
+<email>webmaster@gutenberg.org</email>
+</author>
+<icon>https://www.gutenberg.org/gutenberg/favicon.ico</icon>
+<link rel="search" type="application/opensearchdescription+xml" title="Project Gutenberg Catalog Search" href="https://www.gutenberg.org/catalog/osd-books.xml"/>
+<link rel="self" title="This Page" type="application/atom+xml;profile=opds-catalog" href="/ebooks.opds/"/>
+<link rel="alternate" type="text/html" title="HTML Page" href="/ebooks/"/>
+<link rel="start" title="Start Page" type="application/atom+xml;profile=opds-catalog" href="/ebooks.opds/"/>
+<opensearch:itemsPerPage>25</opensearch:itemsPerPage>
+<opensearch:startIndex>1</opensearch:startIndex>
+<entry>
+<updated>2021-04-02T13:27:36Z</updated>
+<id>https://www.gutenberg.org/ebooks/search.opds/?sort_order=downloads</id>
+<title>Popular</title>
+<content type="text">Our most popular books.</content>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/search.opds/?sort_order=downloads"/>
+<link type="image/png" rel="http://opds-spec.org/image/thumbnail" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAAABGdBTUEAAK/INwWK6QAAABl0RVh0U29mdHdhcmUAQWRvYmUgSW1hZ2VSZWFkeXHJZTwAAAS4SURBVHjaYvz//z8DLQBAADEx0AgABABZAKb/AWYuLgAAAAAA+QEBAPoAACcE9fVaGwAAQhMBASUA/f0C8Pv74c7+/sTxDw+mHQYGGBXy8lcY/f01CQUFFPkAAPLj/f3Ux/LytOD4+KwPBwft+fr6AOn09AACCGzwP6ChP75/j9NiY2t0d3FRULa0ZOAREADa9pPh++3bDA83b2bYe+XKBzF2dm5rFxdWcRcXBmYREYZ/wGB8/fgxw7XduxmWnDhx4uC3b4Vff/488ebrVwaAAGJM19Ji+PbjR4aXouK0kNJSRhZ9fYhfYGHPwsLA8PYtA8PSpQwMKioMDG5uDAxMwBD89w8amED2t28Mr9atY+ibPv3FvGfPwl5//34YIICY9QQEdC14eBbHlZdzMSsqMjC8eMHA8P49BH/4wMDw7h0Dw+/fDAyGhgwMEhIMDG/eQMRg8p8+gc3nNjVlMGBk5Ll88aLOzW/fNgIEEAv3t28pHm5uQkwgr9+5w8AADBasAOYDmDwrKwMDGxvDv9evGb5dvMjw9ckTBhFg+Mbz85se/fIlCiCAWOSZmJxkhYUZGJ4/Z2D48YOI6AYazMXF8O/pU4Yf+/czfAbibyDDgVKgwDGUlWWQZGe3BAggFj4GBmlmYGCDwxFoI07XggwEuhAUtn/27mX4vmsXw4+XLxn+QtMsCyhlAeODFxjmvP//8wMEEMufv38//XvyRJCJnx+cCrAaCopAoKH/gUH1C2jor5s3Gf4gK4G6lpmZmeEPMIh+/f3LABBALPf//j376fZteQEhIZAMIrZh3gYq/P/9O8OvK1cY/pw7x/AXyAap+IuGQRYJ8vExXAfqefHr12uAAGIGev6PHiNjuAIwfEHpmfHPH0iQAPF/YDL6BUzHXw4cALvyL1AO3TAQ/R2IeYDhLgwM36kfPnzf+fHjXIAAYv7679/9T//+aQCTipYwMKx/A4PjFzAZfX/0iOHjpUsMn69eZfiD5so/UPwbaigvLy+DjLIywwZgjut++XLn+79/JwIEEPOv////3P316/CzX790FdjYVKSAYfr8+nWGV0CD/4IiFRp+/9BcCTIUFCNikpIMogoKDCuB6brx6dNjd3//bgIKXwIIIGZWiOIvl3792nLjyxdhMVZWY0N5eYa/QJd//vYNbjByEIDSzl9g7MsCcyKTuDjDxIcPf7c8f77xwd+/1UCp4yA9AAEEii4GZmDYAjX8eP3v345Lnz59Yf/718pcVZWNAxhxb4Au+YtkOCils3ByMqgCy5gX7OwMTdevv5/24cNcYF5sBkpdhcU7QAAxgFzMDs1NIkBX8ABpKQaGwFYBgWevra3/fzA0/H+Kmfk/0Bn/jwHxDWHh/38cHP4f19L6783M/BCoPA+IBdBTKUAAYRgsAmUDVRqnsbGduGlq+v+rjc3/03x8/+8qKPz/4eLyf6Ws7H9gyXESqCwYiNmw5SmAAMJqMKy0AGYZST9GxmXHNDX///X1/f/Byel/j4DAXxkGhjVAaVN8OR8ggHAaDAp7YVAeYWDgsAaG3zwxsfcFXFxvgUVAL1BYnlCRAhBAeA0WRfInLwODOzBjh4KUEVM1AQQQI60qU4AAAwBnu/BQIoGoSgAAAABJRU5ErkJggg=="/>
+</entry>
+<entry>
+<updated>2021-04-02T13:27:36Z</updated>
+<id>https://www.gutenberg.org/ebooks/search.opds/?sort_order=release_date</id>
+<title>Latest</title>
+<content type="text">Our latest releases.</content>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/search.opds/?sort_order=release_date"/>
+<link type="image/png" rel="http://opds-spec.org/image/thumbnail" href="data:image/png;base64,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"/>
+</entry>
+<entry>
+<updated>2021-04-02T13:27:36Z</updated>
+<id>https://www.gutenberg.org/ebooks/search.opds/?sort_order=random</id>
+<title>Random</title>
+<content type="text">Random books.</content>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/search.opds/?sort_order=random"/>
+<link type="image/png" rel="http://opds-spec.org/image/thumbnail" href="data:image/png;base64,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"/>
+</entry>
+</feed>
+]]
+
+-- https://www.gutenberg.org/ebooks/42474.opds
+local acquisition_sample = [[
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+
+DON'T USE THIS PAGE FOR SCRAPING.
+
+Seriously. You'll only get your IP blocked.
+
+Download https://www.gutenberg.org/feeds/catalog.rdf.bz2 instead,
+which contains *all* Project Gutenberg metadata in one RDF/XML file.
+
+--><feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:relevance="http://a9.com/-/opensearch/extensions/relevance/1.0/">
+<id>http://www.gutenberg.org/ebooks/42474.opds</id>
+<updated>2021-04-02T13:29:52Z</updated>
+<title>1000 Mythological Characters Briefly Described by Edward Sylvester Ellis</title>
+<subtitle>Free ebooks since 1971.</subtitle>
+<author>
+<name>Project Gutenberg</name>
+<uri>https://www.gutenberg.org</uri>
+<email>webmaster@gutenberg.org</email>
+</author>
+<icon>https://www.gutenberg.org/gutenberg/favicon.ico</icon>
+<link rel="search" type="application/opensearchdescription+xml" title="Project Gutenberg Catalog Search" href="https://www.gutenberg.org/catalog/osd-books.xml"/>
+<link rel="self" title="This Page" type="application/atom+xml;profile=opds-catalog" href="/ebooks/42474.opds"/>
+<link rel="alternate" type="text/html" title="HTML Page" href="/ebooks/42474"/>
+<link rel="start" title="Start Page" type="application/atom+xml;profile=opds-catalog" href="/ebooks.opds/"/>
+<opensearch:itemsPerPage>25</opensearch:itemsPerPage>
+<opensearch:startIndex>1</opensearch:startIndex>
+<entry>
+<updated>2021-04-02T13:29:52Z</updated>
+<title>1000 Mythological Characters Briefly Described</title>
+<content type="xhtml">
+<div xmlns="http://www.w3.org/1999/xhtml">
+<p>This edition had all images removed.</p>
+<p>
+LoC No.:
+00001011
+</p>
+<p>
+Title:
+1000 Mythological Characters Briefly Described<br />Adapted to Private Schools, High Schools and Academies
+</p>
+<p>
+Alternate Title:
+One Thousand Mythological Characters Briefly Described
+<br />Adapted to Private Schools, High Schools and Academies
+</p>
+<p>Author: Ellis, Edward Sylvester, 1840-1916</p>
+<p>Ebook No.: 42474</p>
+<p>Published: 7 apr. 2013</p>
+<p>Downloads: 401</p>
+<p>Language: English</p>
+<p>Subject: Mythology -- Dictionaries</p>
+<p>LoCC: Philosophy, Psychology, Religion: Religion: General, Miscellaneous and Atheism</p>
+<p>Category: Text</p>
+<p>Rights: Public domain in the USA.</p>
+</div>
+</content>
+<id>urn:gutenberg:42474:2</id>
+<published>2013-04-07T00:00:00+00:00</published>
+<rights>Public domain in the USA.</rights>
+<author>
+<name>Ellis, Edward Sylvester</name>
+</author>
+<category scheme="http://purl.org/dc/terms/LCSH" term="Mythology -- Dictionaries"/>
+<category scheme="http://purl.org/dc/terms/LCC" term="BL" label="Philosophy, Psychology, Religion: Religion: General, Miscellaneous and Atheism"/>
+<category scheme="http://purl.org/dc/terms/DCMIType" term="Text"/>
+<dcterms:language>en</dcterms:language>
+<dcterms:identifier>urn:lccn:00001011</dcterms:identifier>
+<relevance:score>1</relevance:score>
+<link type="application/epub+zip" rel="http://opds-spec.org/acquisition" title="EPUB (no images)" length="143854" href="https://www.gutenberg.org/ebooks/42474.epub.noimages"/>
+<link type="application/x-mobipocket-ebook" rel="http://opds-spec.org/acquisition" title="Kindle (no images)" length="550462" href="https://www.gutenberg.org/ebooks/42474.kindle.noimages"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image" href="https://www.gutenberg.org/cache/epub/42474/pg42474.cover.medium.jpg"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/42474/pg42474.cover.small.jpg"/>
+<link type="application/atom+xml;profile=opds-catalog" rel="related" href="/ebooks/42474/also/.opds" title="Readers also downloaded…"/>
+<link type="application/atom+xml;profile=opds-catalog" rel="related" href="/ebooks/author/2569.opds" title="By Ellis, Edward Sylvester…"/>
+<link type="application/atom+xml;profile=opds-catalog" rel="related" href="/ebooks/subject/25016.opds" title="On Mythology -- Dictionaries…"/>
+</entry>
+<entry>
+<updated>2021-04-02T13:29:52Z</updated>
+<title>1000 Mythological Characters Briefly Described</title>
+<content type="xhtml">
+<div xmlns="http://www.w3.org/1999/xhtml">
+<p>This edition has images.</p>
+<p>
+LoC No.:
+00001011
+</p>
+<p>
+Title:
+1000 Mythological Characters Briefly Described<br />Adapted to Private Schools, High Schools and Academies
+</p>
+<p>
+Alternate Title:
+One Thousand Mythological Characters Briefly Described
+<br />Adapted to Private Schools, High Schools and Academies
+</p>
+<p>Author: Ellis, Edward Sylvester, 1840-1916</p>
+<p>Ebook No.: 42474</p>
+<p>Published: 7 apr. 2013</p>
+<p>Downloads: 401</p>
+<p>Language: Engels</p>
+<p>Subject: Mythology -- Dictionaries</p>
+<p>LoCC: Philosophy, Psychology, Religion: Religion: General, Miscellaneous and Atheism</p>
+<p>Category: Text</p>
+<p>Rights: Public domain in the USA.</p>
+</div>
+</content>
+<id>urn:gutenberg:42474:3</id>
+<published>2013-04-07T00:00:00+00:00</published>
+<rights>Public domain in the USA.</rights>
+<author>
+<name>Ellis, Edward Sylvester</name>
+</author>
+<category scheme="http://purl.org/dc/terms/LCSH" term="Mythology -- Dictionaries"/>
+<category scheme="http://purl.org/dc/terms/LCC" term="BL" label="Philosophy, Psychology, Religion: Religion: General, Miscellaneous and Atheism"/>
+<category scheme="http://purl.org/dc/terms/DCMIType" term="Text"/>
+<dcterms:language>en</dcterms:language>
+<dcterms:identifier>urn:lccn:00001011</dcterms:identifier>
+<relevance:score>1</relevance:score>
+<link type="application/epub+zip" rel="http://opds-spec.org/acquisition" title="EPUB (with images)" length="646067" href="https://www.gutenberg.org/ebooks/42474.epub.images"/>
+<link type="application/x-mobipocket-ebook" rel="http://opds-spec.org/acquisition" title="Kindle (with images)" length="1552799" href="https://www.gutenberg.org/ebooks/42474.kindle.images"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image" href="https://www.gutenberg.org/cache/epub/42474/pg42474.cover.medium.jpg"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/42474/pg42474.cover.small.jpg"/>
+<link type="application/atom+xml;profile=opds-catalog" rel="related" href="/ebooks/42474/also/.opds" title="Readers also downloaded…"/>
+<link type="application/atom+xml;profile=opds-catalog" rel="related" href="/ebooks/author/2569.opds" title="By Ellis, Edward Sylvester…"/>
+<link type="application/atom+xml;profile=opds-catalog" rel="related" href="/ebooks/subject/25016.opds" title="On Mythology -- Dictionaries…"/>
+</entry>
+</feed>
+]]
+
+-- https://www.gutenberg.org/catalog/osd-books.xml
+local opensearch_sample = [[
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">
+   <LongName>Project Gutenberg</LongName>
+   <ShortName>Gutenberg</ShortName>
+   <Description>Search the Project Gutenberg ebook catalog.</Description>
+   <Tags>free ebooks books public domain</Tags>
+   <Developer>Marcello Perathoner</Developer>
+   <Contact>webmaster@gutenberg.org</Contact>
+
+   <Url type="text/html"
+        template="http://www.gutenberg.org/ebooks/search/?query={searchTerms}"/>
+
+   <Url type="application/atom+xml"
+        template="http://m.gutenberg.org/ebooks/search.opds/?query={searchTerms}"/>
+
+   <Url type="application/x-suggestions+json"
+    rel="suggestions"
+        template="http://www.gutenberg.org/ebooks/suggest/?query={searchTerms}"/>
+
+   <Query role="example" searchTerms="shakespeare hamlet" />
+   <Query role="example" searchTerms="doyle detective" />
+   <Query role="example" searchTerms="love stories" />
+
+   <Attribution>Search Data Copyright 1971-2012, Project Gutenberg, All Rights Reserved.</Attribution>
+   <SyndicationRight>open</SyndicationRight>
+   <Language>en-us</Language>
+   <OutputEncoding>UTF-8</OutputEncoding>
+   <InputEncoding>UTF-8</InputEncoding>
+</OpenSearchDescription>
+]]
+
+local popular_new_sample = [[
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xml:lang="en" xmlns:app="http://www.w3.org/2007/app" xmlns:thr="http://purl.org/syndication/thread/1.0" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>https://catalog.feedbooks.com/catalog/public_domain.atom</id>
+  <title>Public Domain Books</title>
+  <updated>2014-11-30T17:54:01Z</updated>
+  <icon>https://catalog.feedbooks.com/favicon.ico</icon>
+  <author>
+    <name>Feedbooks</name>
+    <uri>http://www.feedbooks.com</uri>
+    <email>help@demarque.com</email>
+  </author>
+  <link rel="self" type="application/atom+xml;profile=opds-catalog;kind=navigation; charset=utf-8" href="https://catalog.feedbooks.com/catalog/public_domain.atom"/>
+  <link rel="start" type="application/atom+xml;profile=opds-catalog;kind=navigation" title="Home" href="https://catalog.feedbooks.com/catalog/index.atom"/>
+  <link rel="search" href="https://catalog.feedbooks.com/opensearch.xml" type="application/opensearchdescription+xml" title="Search on Feedbooks"/>
+<link rel="http://opds-spec.org/featured" type="application/atom+xml;profile=opds-catalog;kind=acquisition" title="Featured books" href="https://catalog.feedbooks.com/publicdomain/browse/homepage_selection.atom?lang=en"/>
+<link rel="http://opds-spec.org/sort/popular" type="application/atom+xml;profile=opds-catalog;kind=acquisition" title="Literary" href="https://catalog.feedbooks.com/publicdomain/browse/best.atom?cat=FBFIC019000&amp;lang=en"/>
+<link rel="http://opds-spec.org/sort/popular" type="application/atom+xml;profile=opds-catalog;kind=acquisition" title="Mystery &amp; detective" href="https://catalog.feedbooks.com/publicdomain/browse/best.atom?cat=FBFIC022000&amp;lang=en"/>
+<link rel="http://opds-spec.org/sort/popular" type="application/atom+xml;profile=opds-catalog;kind=acquisition" title="Science fiction" href="https://catalog.feedbooks.com/publicdomain/browse/best.atom?cat=FBFIC028000&amp;lang=en"/>
+<entry>
+  <title>Most popular</title>
+  <link type="application/atom+xml;profile=opds-catalog;kind=acquisition" rel="http://opds-spec.org/sort/popular" href="https://catalog.feedbooks.com/publicdomain/browse/top.atom?lang=en"/>
+  <updated>2024-07-19T16:19:38Z</updated>
+  <id>https://catalog.feedbooks.com/publicdomain/browse/top.atom?lang=en</id>
+  <content type="text">Based on last week's downloads</content>
+</entry>
+<entry>
+  <title>Recently added</title>
+  <link type="application/atom+xml;profile=opds-catalog;kind=acquisition" rel="http://opds-spec.org/sort/new" href="https://catalog.feedbooks.com/publicdomain/browse/recent.atom?lang=en"/>
+  <updated>2024-07-19T16:19:38Z</updated>
+  <id>https://catalog.feedbooks.com/publicdomain/browse/recent.atom?lang=en</id>
+  <content type="text">Find the latest books available</content>
+</entry>
+<entry>
+  <title>Fiction</title>
+  <link type="application/atom+xml;profile=opds-catalog;kind=navigation" rel="subsection" href="https://catalog.feedbooks.com/publicdomain/category/FBFIC000000/sub.atom"/>
+  <updated>2024-07-19T16:19:38Z</updated>
+  <id>https://catalog.feedbooks.com/publicdomain/category/FBFIC000000/sub.atom</id>
+  <content type="text">Browse books by category</content>
+</entry>
+<entry>
+  <title>Nonfiction</title>
+  <link type="application/atom+xml;profile=opds-catalog;kind=navigation" rel="subsection" href="https://catalog.feedbooks.com/publicdomain/category/FBNFC000000/sub.atom"/>
+  <updated>2024-07-19T16:19:38Z</updated>
+  <id>https://catalog.feedbooks.com/publicdomain/category/FBNFC000000/sub.atom</id>
+  <content type="text">Browse books by category</content>
+</entry>
+</feed>
+]]
+
+local facet_sample = [[
+<?xml version="1.0" encoding="utf-8"?>
+ <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog"> <id>tag:root:authors:Санд</id>
+ <title>Книги по авторам</title>
+ <updated>2014-11-30T17:27:27+01:00</updated>
+ <icon>/favicon.ico</icon>
+ <link href="/opds-opensearch.xml" rel="search" type="application/opensearchdescription+xml" />
+ <link href="/opds/search?searchTerm={searchTerms}" rel="search" type="application/atom+xml" />
+ <link href="/opds" rel="start" type="application/atom+xml;profile=opds-catalog" />
+ <link href="/opds/authors/%D0%A1%D0%B0%D0%BD%D0%B4/1" rel="next" type="application/atom+xml;profile=opds-catalog" />
+ <entry> <updated>2014-11-30T17:27:27+01:00</updated>
+ <id>tag:author:75357</id>
+ <title>Санд Жаклин</title>
+ <content type="text">6 книг</content>
+ <link href="/opds/author/75357" type="application/atom+xml;profile=opds-catalog" />
+ <link href="/opds/authorsequences/75357" rel="http://www.feedbooks.com/opds/facet" type="application/atom+xml;profile=opds-catalog" title="Книги автора по сериям" />
+ <link href="/opds/authorsequenceless/75357" rel="http://www.feedbooks.com/opds/facet" type="application/atom+xml;profile=opds-catalog" title="Книги автора вне серий" />
+</entry>
+</feed>
+]]
+
+-- https://archive2.cbeta.org/opds (single-quoted attributes)
+local single_quote_sample = [[
+<?xml version='1.0' encoding='UTF-8' ?>
+<feed xmlns="https://www.w3.org/2005/Atom">
+<id>https://www.cbeta.org/opds/index.php</id>
+<link rel="self"
+    href="https://www.cbeta.org/opds/index.php"
+    type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+<link rel="start"
+    href="https://www.cbeta.org/opds/index.php"
+    type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+<title>CBETA ePub OPDS Catalog</title>
+<updated>2023-11-13T00:00:00Z</updated>
+<entry>
+    <title>Entry One</title>
+    <link rel='subsection'
+        href='https://www.cbeta.org/opds/index.php?vol=T'
+        type='application/atom+xml;profile=opds-catalog;kind=navigation'/>
+    <updated>2023-11-13T10:03:10Z</updated>
+    <id>https://www.cbeta.org/opds/index.php?vol=T</id>
+</entry>
+<entry>
+    <title>Entry Two</title>
+    <link rel='subsection'
+        href='https://www.cbeta.org/opds/index.php?vol=X'
+        type='application/atom+xml;profile=opds-catalog;kind=navigation'/>
+    <updated>2023-11-13T10:03:10Z</updated>
+    <id>https://www.cbeta.org/opds/index.php?vol=X</id>
+</entry>
+</feed>
+]]
+
+local pdf_query_sample = [[
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog">
+    <id>tag:root:pdfquery</id>
+    <title>PDF Query Test</title>
+    <updated>2025-09-11T00:00:00Z</updated>
+    <entry>
+        <title>Sample PDF With Query</title>
+        <id>urn:pdf:with:query</id>
+        <updated>2025-09-11T00:00:00Z</updated>
+        <content type="text">A PDF that already has .pdf before a query parameter.</content>
+        <link href="http://example.org/books/file.pdf?opds" type="application/pdf" title="pdf" rel="related" />
+    </entry>
+</feed>
+]]
+
+local pdf_acquisition_sample = [[
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog">
+    <id>tag:root:pdfacquisition</id>
+    <title>PDF Acquisition Test</title>
+    <updated>2025-09-11T00:00:00Z</updated>
+    <entry>
+        <title>Sample PDF Without Suffix</title>
+        <id>urn:pdf:no:suffix</id>
+        <updated>2025-09-11T00:00:00Z</updated>
+        <content type="text">A PDF whose download link carries no .pdf suffix.</content>
+        <link href="/get/PDF/123/library" type="application/pdf" rel="http://opds-spec.org/acquisition" />
+    </entry>
+</feed>
+]]
+
+local multiple_authors_sample = [[
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <id>urn:multiple:authors</id>
+    <title>Multiple authors</title>
+    <updated>2026-10-25T00:00:00Z</updated>
+    <entry>
+        <title>The Wrong Box</title>
+        <id>urn:wrong:box</id>
+        <updated>2026-10-25T00:00:00Z</updated>
+        <author><name>Robert Louis Stevenson</name></author>
+        <author><name>Lloyd Osbourne</name></author>
+        <link href="/opds/download/97/epub/" type="application/epub+zip" rel="http://opds-spec.org/acquisition" />
+    </entry>
+    <entry>
+        <title>Treasure Island</title>
+        <id>urn:treasure:island</id>
+        <updated>2026-10-25T00:00:00Z</updated>
+        <author><name>Robert Louis Stevenson</name></author>
+        <link href="/opds/download/68/epub/" type="application/epub+zip" rel="http://opds-spec.org/acquisition" />
+    </entry>
+</feed>
+]]
+
+describe("OPDS module", function()
+    local socketutil
+    local CookieJar, OPDSClient, OPDSParser, OPDSBrowser
+    local orig_path, orig_lbt, orig_ltt, orig_fbt, orig_ftt
+
+    setup(function()
+        orig_path = package.path
+        package.path = "plugins/opds.koplugin/?.lua;" .. package.path
+        require("commonrequire")
+        socketutil = require("socketutil")
+        CookieJar = require("cookiejar")
+        OPDSClient = require("opdsclient")
+        OPDSParser = require("opdsparser")
+        OPDSBrowser = require("opdsbrowser")
+
+        -- Make the timeouts more lenient to avoid spurious test failures
+        orig_lbt = socketutil.LARGE_BLOCK_TIMEOUT
+        socketutil.LARGE_BLOCK_TIMEOUT = socketutil.DEFAULT_BLOCK_TIMEOUT
+        orig_ltt = socketutil.LARGE_TOTAL_TIMEOUT
+        socketutil.LARGE_TOTAL_TIMEOUT = socketutil.DEFAULT_TOTAL_TIMEOUT
+        orig_fbt = socketutil.FILE_BLOCK_TIMEOUT
+        socketutil.FILE_BLOCK_TIMEOUT = socketutil.DEFAULT_BLOCK_TIMEOUT
+        orig_ftt = socketutil.FILE_TOTAL_TIMEOUT
+        socketutil.FILE_TOTAL_TIMEOUT = socketutil.DEFAULT_TOTAL_TIMEOUT
+    end)
+
+    teardown(function()
+        package.path = orig_path
+        socketutil.LARGE_BLOCK_TIMEOUT = orig_lbt
+        socketutil.LARGE_TOTAL_TIMEOUT = orig_ltt
+        socketutil.FILE_BLOCK_TIMEOUT = orig_fbt
+        socketutil.FILE_TOTAL_TIMEOUT = orig_ftt
+    end)
+
+    describe("OPDS parser module", function()
+        it("should parse OPDS navigation catalog", function()
+            local catalog = OPDSParser:parse(navigation_sample)
+            local feed = catalog.feed
+            assert.truthy(feed)
+            assert.are.same(feed.title, "Project Gutenberg")
+            local entries = feed.entry
+            assert.truthy(entries)
+            assert.are.same(#entries, 3)
+            local entry = entries[3]
+            assert.are.same(entry.title, "Random")
+            assert.are.same(entry.id, "https://www.gutenberg.org/ebooks/search.opds/?sort_order=random")
+            assert.are.same(
+                "/ebooks/search.opds/?sort_order=random",
+                entry.link[1].href)
+        end)
+        it("should parse OPDS acquisition catalog", function()
+            local catalog = OPDSParser:parse(acquisition_sample)
+            local feed = catalog.feed
+            assert.truthy(feed)
+            local entries = feed.entry
+            assert.truthy(entries)
+            assert.are.same(#entries, 2)
+            local entry = entries[2]
+            assert.are.same(entry.title, "1000 Mythological Characters Briefly Described")
+            assert.are.same(entry.link[1].href, "https://www.gutenberg.org/ebooks/42474.epub.images")
+            assert.are.same(entry.link[1].title, "EPUB (with images)")
+        end)
+        it("should not desync entries when a content tag is self-closing", function()
+            -- Regression for #15511: a self-closing <content type="text"/> used to make
+            -- the content rewrite over-match into the next entry, dropping entries and
+            -- pairing covers with the wrong titles.
+            local self_closing_content_sample = [[
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<title>Self-closing content</title>
+<entry>
+<title>First</title>
+<id>urn:first</id>
+<content type="text"/>
+<link type="image/png" rel="http://opds-spec.org/image/thumbnail" href="FIRST_IMG"/>
+</entry>
+<entry>
+<title>Second</title>
+<id>urn:second</id>
+<content type="text">A description.</content>
+<link type="image/png" rel="http://opds-spec.org/image/thumbnail" href="SECOND_IMG"/>
+</entry>
+</feed>
+]]
+            local catalog = OPDSParser:parse(self_closing_content_sample)
+            local feed = catalog.feed
+            assert.truthy(feed)
+            local entries = feed.entry
+            assert.truthy(entries)
+            assert.are.same(#entries, 2)
+            assert.are.same(entries[1].title, "First")
+            assert.are.same(entries[1].link[1].href, "FIRST_IMG")
+            assert.are.same(entries[2].title, "Second")
+            assert.are.same(entries[2].link[1].href, "SECOND_IMG")
+        end)
+        it("should keep attribute values that are not ASCII", function()
+            local non_ascii_sample = [[
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<title>Non-ASCII attributes</title>
+<entry>
+<title>Двадцать тысяч льё под водой</title>
+<id>urn:third</id>
+<category term="Приключения" label="Приключения"/>
+<link href="/opds/sequencebooks/109084" rel="related" type="application/atom+xml" title="Все книги серии «Капитан Немо»"/>
+</entry>
+</feed>
+]]
+            local catalog = OPDSParser:parse(non_ascii_sample)
+            local entry = catalog.feed.entry[1]
+            assert.are.same(entry.category.label, "Приключения")
+            assert.are.same(entry.link[1].title, "Все книги серии «Капитан Немо»")
+        end)
+        it("should keep every author of an entry", function()
+            local catalog = OPDSParser:parse(multiple_authors_sample)
+            local entries = catalog.feed.entry
+            assert.are.same(#entries[1].author, 2)
+            assert.are.same(entries[1].author[1].name, "Robert Louis Stevenson")
+            assert.are.same(entries[1].author[2].name, "Lloyd Osbourne")
+            assert.are.same(#entries[2].author, 1)
+            assert.are.same(entries[2].author[1].name, "Robert Louis Stevenson")
+        end)
+    end)
+
+    describe("OPDS browser module", function()
+        before_each(function()
+            local Cache = require("cache")
+            stub(Cache, "check", function() return nil end)
+        end)
+
+        after_each(function()
+            local Cache = require("cache")
+            if Cache.check.revert then
+                Cache.check:revert()
+            end
+        end)
+
+        describe("URL generation", function()
+            it("should generate search url and catalog items #internet", function()
+                local fetch_feed_stub = stub(OPDSBrowser, "getSearchTemplate", function(self, osd_url)
+                    local search_descriptor = OPDSParser:parse(opensearch_sample)
+                    if search_descriptor and search_descriptor.OpenSearchDescription and search_descriptor.OpenSearchDescription.Url then
+                        for _, candidate in ipairs(search_descriptor.OpenSearchDescription.Url) do
+                            if candidate.type and candidate.template and candidate.type:find(self.search_template_type) then
+                                return candidate.template:gsub("{searchTerms}", "%%s")
+                            end
+                        end
+                    end
+                    return nil
+                end)
+
+                local main_catalog = OPDSParser:parse(navigation_sample)
+                local item_table = OPDSBrowser:genItemTableFromCatalog(main_catalog, "https://www.gutenberg.org/ebooks.opds/?format=opds")
+
+                assert.truthy(OPDSBrowser.search_url)
+                assert.are.same("http://m.gutenberg.org/ebooks/search.opds/?query=%s", OPDSBrowser.search_url)
+
+                assert.truthy(item_table)
+                assert.are.same(3, #item_table)
+                assert.are.same("Popular", item_table[1].title)
+                assert.are.same("Latest", item_table[2].title)
+                assert.are.same("Random", item_table[3].title)
+
+                fetch_feed_stub:revert()
+            end)
+            it("should generate URL on rel=subsection #internet", function()
+                local catalog = OPDSParser:parse(navigation_sample)
+                local item_table = OPDSBrowser:genItemTableFromCatalog(catalog, "https://www.gutenberg.org/ebooks.opds/?format=opds")
+
+                assert.truthy(item_table)
+                assert.are.same(item_table[1].title, "Popular")
+                assert.are.same(item_table[1].url, "https://www.gutenberg.org/ebooks/search.opds/?sort_order=downloads")
+            end)
+            it("should generate URL on rel=popular and rel=new #internet", function()
+                local catalog = OPDSParser:parse(popular_new_sample)
+                local item_table = OPDSBrowser:genItemTableFromCatalog(catalog, "http://www.feedbooks.com/publicdomain/catalog.atom")
+
+                assert.truthy(item_table)
+                assert.are.same(item_table[1].title, "Most popular")
+                assert.are.same(item_table[1].url, "https://catalog.feedbooks.com/publicdomain/browse/top.atom?lang=en")
+                assert.are.same(item_table[2].title, "Recently added")
+                assert.are.same(item_table[2].url, "https://catalog.feedbooks.com/publicdomain/browse/recent.atom?lang=en")
+            end)
+            it("should parse single-quoted attributes", function()
+                local catalog = OPDSParser:parse(single_quote_sample)
+                local item_table = OPDSBrowser:genItemTableFromCatalog(catalog, "https://www.cbeta.org/opds/index.php")
+
+                assert.truthy(item_table)
+                assert.are.same(2, #item_table)
+                assert.are.same("Entry One", item_table[1].title)
+                assert.are.same("https://www.cbeta.org/opds/index.php?vol=T", item_table[1].url)
+                assert.are.same("Entry Two", item_table[2].title)
+                assert.are.same("https://www.cbeta.org/opds/index.php?vol=X", item_table[2].url)
+            end)
+            it("should list every author of an entry", function()
+                local catalog = OPDSParser:parse(multiple_authors_sample)
+                local item_table = OPDSBrowser:genItemTableFromCatalog(catalog, "https://example.com/opds/")
+
+                assert.are.same("Robert Louis Stevenson, Lloyd Osbourne", item_table[1].author)
+                assert.are.same("The Wrong Box - Robert Louis Stevenson, Lloyd Osbourne", item_table[1].text)
+                assert.are.same("Robert Louis Stevenson", item_table[2].author)
+                assert.are.same("Robert Louis Stevenson, Lloyd Osbourne - The Wrong Box", (OPDSBrowser:getFileName(item_table[1])))
+            end)
+            it("should use the main URL for faceted links as long as faceted links aren't properly supported #internet", function()
+                local catalog = OPDSParser:parse(facet_sample)
+                local item_table = OPDSBrowser:genItemTableFromCatalog(catalog, "http://flibusta.is/opds")
+
+                assert.truthy(item_table)
+                assert.are.same(item_table[1].url, "http://flibusta.is/opds/author/75357")
+            end)
+        end)
+
+        it("should not fill item table incorrectly with thumbnail or image URL #internet", function()
+            local catalog = OPDSParser:parse(facet_sample)
+            local item_table = OPDSBrowser:genItemTableFromCatalog(catalog, "http://flibusta.is/opds")
+
+            assert.truthy(item_table)
+            assert.are_not.same(item_table[1].image, "http://flibusta.is/opds/author/75357")
+        end)
+
+        it("should not append .pdf after query parameters or duplicate acquisition entries #14300 #internet", function()
+            local catalog = OPDSParser:parse(pdf_query_sample)
+            local item_table = OPDSBrowser:genItemTableFromCatalog(catalog, "http://example.org/opds")
+
+            assert.truthy(item_table)
+            assert.are.same(1, #item_table)
+            local acquisitions = item_table[1].acquisitions
+            assert.truthy(acquisitions)
+            -- Only one acquisition entry should be present (generic provider entry).
+            assert.are.same(1, #acquisitions)
+            local href = acquisitions[1].href
+            assert.truthy(href)
+            -- It must contain the original query parameter unchanged.
+            assert(href:match("file%.pdf%?opds$"))
+            -- And must NOT have an extra .pdf appended after the query string.
+            assert(not href:match("opds%.pdf$"))
+        end)
+
+        it("should not duplicate a PDF acquisition whose href has no .pdf suffix #internet", function()
+            local catalog = OPDSParser:parse(pdf_acquisition_sample)
+            local item_table = OPDSBrowser:genItemTableFromCatalog(catalog, "http://example.org/opds")
+
+            assert.truthy(item_table)
+            assert.are.same(1, #item_table)
+            local acquisitions = item_table[1].acquisitions
+            assert.truthy(acquisitions)
+            -- The acquisition link is added once, by the rel handling above.
+            assert.are.same(1, #acquisitions)
+            assert.are.same("http://example.org/get/PDF/123/library", acquisitions[1].href)
+        end)
+
+        it("should retain response cookies only for matching URLs", function()
+            local cookie_jar = CookieJar:new()
+            cookie_jar:store("https://flibusta.is/opds", {
+                ["set-cookie"] = "session=abc; Path=/; Secure",
+            })
+            cookie_jar:store("https://flibusta.is/opds", {
+                ["set-cookie"] = "shared=def; Domain=.flibusta.is; Path=/b",
+            })
+
+            assert.are.same("session=abc", cookie_jar:headerFor("https://flibusta.is/opds/polka"))
+            assert.are.same("shared=def; session=abc", cookie_jar:headerFor("https://flibusta.is/b/619104/fb2"))
+            assert.are.same("shared=def", cookie_jar:headerFor("https://static.flibusta.is/b/619104/fb2"))
+            assert.are.same("shared=def", cookie_jar:headerFor("http://flibusta.is/b/619104/fb2"))
+        end)
+
+        it("should split combined response cookies without splitting quoted values or expiry dates", function()
+            local cookie_jar = CookieJar:new()
+            cookie_jar:store("https://example.test/catalog", {
+                ["set-cookie"] = 'quoted="a,b"; Path=/, session=abc; Expires=Wed, 21 Oct 2030 07:28:00 GMT; Path=/',
+            })
+
+            assert.are.same(2, #cookie_jar.cookies)
+            assert.are.same('"a,b"', cookie_jar.cookies[1].value)
+            assert.are.same("abc", cookie_jar.cookies[2].value)
+        end)
+
+        it("should retain shared-domain cookies but not credentials across redirects", function()
+            local http = require("socket.http")
+            local requests = {}
+            local responses = {
+                { 302, { location = "https://static.example.test/book", ["set-cookie"] = "session=abc; Domain=.example.test; Path=/" } },
+                { 200, {} },
+            }
+            local request_stub = stub(http, "request", function(request)
+                table.insert(requests, request)
+                local response = table.remove(responses, 1)
+                request.response_headers(response[1], response[2])
+                return 1, response[1], response[2], "HTTP " .. response[1]
+            end)
+            finally(function() request_stub:revert() end)
+
+            local client = OPDSClient:new{
+                cookie_jar = CookieJar:new(),
+            }
+            local code = client:request{
+                url = "https://example.test/catalog",
+                headers = { ["Accept-Encoding"] = "identity" },
+                username = "reader",
+                password = "secret",
+            }
+
+            assert.are.same(200, code)
+            assert.are.same("reader", requests[1].user)
+            assert.are.same("secret", requests[1].password)
+            assert.is_nil(requests[2].user)
+            assert.is_nil(requests[2].password)
+            assert.are.same("session=abc", requests[2].headers.Cookie)
+        end)
+
+        it("should retry an interrupted TLS handshake for idempotent requests", function()
+            local http = require("socket.http")
+            local requests = 0
+            local request_stub = stub(http, "request", function()
+                requests = requests + 1
+                if requests == 1 then
+                    return nil, socketutil.SSL_HANDSHAKE_CODE
+                end
+                return 1, 200, {}, "HTTP 200"
+            end)
+            finally(function() request_stub:revert() end)
+
+            local client = OPDSClient:new{
+                cookie_jar = CookieJar:new(),
+            }
+            local code = client:request{
+                url = "https://example.test/catalog",
+                method = "GET",
+                sink = function() end,
+            }
+
+            assert.are.same(200, code)
+            assert.are.same(2, requests)
+        end)
+
+        it("should add the file extension to a server filename that lacks a usable one #internet", function()
+            local orig_fetchFeed = OPDSBrowser.fetchFeed
+            OPDSBrowser.fetchFeed = function() return nil end -- no headers: fall back to the URL
+            finally(function() OPDSBrowser.fetchFeed = orig_fetchFeed end)
+
+            -- No suffix at all.
+            assert.are.same("library.pdf",
+                OPDSBrowser:getServerFileName("http://example.org/get/PDF/123/library", "pdf"))
+            -- A dotted tail that is not a known extension is not a suffix either.
+            assert.are.same("2509.07924v1.pdf",
+                OPDSBrowser:getServerFileName("http://arxiv.org/pdf/2509.07924v1", "pdf"))
+            -- An existing, usable extension is left alone.
+            assert.are.same("file.pdf",
+                OPDSBrowser:getServerFileName("http://example.org/books/file.pdf?opds", "pdf"))
+        end)
+
+        it("should conditionally revalidate cached catalog feeds", function()
+            local headers = OPDSBrowser:getConditionalFeedHeaders{
+                etag = '"catalog-v1"',
+                last_modified = "Wed, 21 Oct 2015 07:28:00 GMT",
+            }
+
+            assert.are.same('"catalog-v1"', headers["If-None-Match"])
+            assert.are.same("Wed, 21 Oct 2015 07:28:00 GMT", headers["If-Modified-Since"])
+            assert.is_nil(OPDSBrowser:getConditionalFeedHeaders())
+        end)
+
+        it("should restore a cached parent catalog when returning", function()
+            local parent_items = { { text = "Parent book" } }
+            local browser = OPDSBrowser:extend{
+                paths = {
+                    {
+                        url = "https://example.org/parent",
+                        snapshot = {
+                            catalog_title = "Parent",
+                            facet_groups = { Genre = {} },
+                            item_table = parent_items,
+                            search_url = "https://example.org/search?q=%s",
+                        },
+                    },
+                    { url = "https://example.org/child" },
+                },
+                switchItemTable = function(self, title, items)
+                    self.restored_title = title
+                    self.restored_items = items
+                end,
+                setTitleBarLeftIcon = function(self, icon)
+                    self.restored_icon = icon
+                end,
+                updateCatalog = function()
+                    error("cached parent should not be fetched")
+                end,
+            }
+
+            browser:onReturn()
+
+            assert.are.same("Parent", browser.restored_title)
+            assert.are.same(parent_items, browser.restored_items)
+            assert.are.same("appbar.menu", browser.restored_icon)
+            assert.are.same(1, #browser.paths)
+        end)
+
+        describe("sync settings", function()
+            it("should resolve sync paths for each catalog without a global folder", function()
+                local browser = OPDSBrowser:extend{
+                    settings = {},
+                    sync = true,
+                    sync_server = { sync_dir = "/comics" },
+                }
+                assert.are.same("/comics", browser:getCurrentDownloadDir())
+                browser.sync_server = { sync_dir = "/ebooks" }
+                assert.are.same("/ebooks", browser:getCurrentDownloadDir())
+                browser.sync_server = {}
+                assert.is_nil(browser:getCurrentDownloadDir())
+                browser.settings.sync_dir = "/default"
+                assert.are.same("/default", browser:getCurrentDownloadDir())
+            end)
+
+            describe("dialogs", function()
+                local UIManager, browser, shown
+
+                before_each(function()
+                    UIManager = require("ui/uimanager")
+                    local ButtonDialog = require("ui/widget/buttondialog")
+                    stub(ButtonDialog, "new", function(_, options) return options end)
+                    stub(UIManager, "show", function(_, dialog) shown = dialog end)
+                    stub(UIManager, "close")
+                    browser = OPDSBrowser:extend{
+                        paths = {},
+                        settings = { sync_dir = "/default" },
+                        servers = {{ title = "Catalog", url = "http://example.org/opds" }},
+                        _manager = {},
+                    }
+                end)
+
+                after_each(function()
+                    require("ui/widget/buttondialog").new:revert()
+                    UIManager.show:revert()
+                    UIManager.close:revert()
+                end)
+
+                it("should put sync settings first without a following separator", function()
+                    browser:onMenuHold{ idx = 2, text = "Catalog" }
+                    assert.are.same("Sync settings", shown.buttons[1][1].text)
+                    assert.are.same("Force sync", shown.buttons[2][1].text)
+                    shown.buttons[1][1].callback()
+                    assert.are.same("Choose catalog sync folder", shown.buttons[1][1].text)
+                end)
+
+                it("should explain fallback and offer only the two folder actions", function()
+                    browser:showSyncSettingsDialog{ idx = 2 }
+                    assert.truthy(shown.title:find("default sync folder", 1, true))
+                    assert.are.same(2, #shown.buttons)
+                    assert.are.same("Choose catalog sync folder", shown.buttons[1][1].text)
+                    assert.are.same("Use default sync folder", shown.buttons[2][1].text)
+                    assert.is_false(shown.buttons[2][1].enabled)
+                end)
+
+                it("should clear only the catalog folder and refresh the dialog", function()
+                    local server = browser.servers[1]
+                    server.sync_dir = "/catalog"
+                    server.last_download = "latest"
+                    browser:showSyncSettingsDialog{ idx = 2 }
+                    assert.is_true(shown.buttons[2][1].enabled)
+                    shown.buttons[2][1].callback()
+                    assert.is_nil(server.sync_dir)
+                    assert.are.same("/default", browser.settings.sync_dir)
+                    assert.are.same("latest", server.last_download)
+                    assert.is_true(browser._manager.updated)
+                    assert.is_false(shown.buttons[2][1].enabled)
+                end)
+
+                it("should choose and persist a catalog folder without changing the default", function()
+                    local DownloadMgr = require("ui/downloadmgr")
+                    local Device = require("device")
+                    local picker, initial_dir
+                    stub(DownloadMgr, "new", function(_, options)
+                        picker = options
+                        options.chooseDir = function(_, path) initial_dir = path end
+                        return options
+                    end)
+                    stub(Device, "isAndroid", function() return false end)
+                    finally(function()
+                        DownloadMgr.new:revert()
+                        Device.isAndroid:revert()
+                    end)
+                    browser:showSyncSettingsDialog{ idx = 2 }
+                    shown.buttons[1][1].callback()
+                    assert.are.same("/default", initial_dir)
+                    picker.onConfirm("/catalog")
+                    assert.are.same("/catalog", browser.servers[1].sync_dir)
+                    assert.are.same("/default", browser.settings.sync_dir)
+                    assert.is_true(browser._manager.updated)
+                    assert.is_true(shown.buttons[2][1].enabled)
+                end)
+            end)
+
+            describe("sync selection", function()
+                local UIManager, browser, collected, downloaded, messages
+
+                before_each(function()
+                    UIManager = require("ui/uimanager")
+                    stub(require("ui/widget/infomessage"), "new", function(_, options) return options end)
+                    stub(UIManager, "show", function(_, dialog) table.insert(messages, dialog.text) end)
+                    stub(UIManager, "close")
+                    stub(UIManager, "forceRePaint")
+                    stub(require("ui/trapper"), "wrap", function(_, callback) callback() end)
+                    collected, messages = {}, {}
+                    downloaded = false
+                    browser = OPDSBrowser:extend{
+                        settings = {},
+                        servers = {
+                            { url = "comics", sync = true, sync_dir = "/comics" },
+                            { url = "ebooks", sync = true, sync_dir = "/ebooks" },
+                            { url = "disabled", sync_dir = "/disabled" },
+                            { url = "no-folder", sync = true },
+                        },
+                        pending_syncs = {},
+                        fillPendingSyncs = function(self, server)
+                            table.insert(collected, server.url)
+                            self.sync_server_list[server.url] = true
+                        end,
+                        downloadPendingSyncs = function() downloaded = true end,
+                    }
+                end)
+
+                after_each(function()
+                    require("ui/widget/infomessage").new:revert()
+                    require("ui/trapper").wrap:revert()
+                    UIManager.show:revert()
+                    UIManager.close:revert()
+                    UIManager.forceRePaint:revert()
+                end)
+
+                it("should sync enabled catalogs with their own folders without a global folder", function()
+                    browser:checkSyncDownload()
+                    assert.are.same({ "comics", "ebooks" }, collected)
+                    assert.is_false(browser.sync)
+                    assert.is_false(downloaded)
+                end)
+
+                it("should include catalogs using the global fallback", function()
+                    browser.settings.sync_dir = "/default"
+                    browser:checkSyncDownload()
+                    assert.are.same({ "comics", "ebooks", "no-folder" }, collected)
+                end)
+
+                it("should allow explicit sync of a catalog excluded from automatic sync", function()
+                    browser:checkSyncDownload(4)
+                    assert.are.same({ "disabled" }, collected)
+                end)
+
+                it("should ignore pending downloads from a previous catalog selection", function()
+                    browser.sync_server_list = { ebooks = true }
+                    browser.pending_syncs = {{ catalog = "ebooks" }}
+                    browser:checkSyncDownload(2)
+                    assert.is_false(downloaded)
+                    assert.is_nil(browser.sync_server_list.ebooks)
+                    browser.pending_syncs = {{ catalog = "comics" }}
+                    browser:checkSyncDownload(2)
+                    assert.is_true(downloaded)
+                end)
+
+                it("should request a folder when the selected catalog has no destination", function()
+                    browser:checkSyncDownload(5)
+                    assert.are.same({}, collected)
+                    assert.are.same("Please choose a folder for this catalog's sync downloads first", messages[1])
+                    assert.is_false(downloaded)
+                end)
+
+                it("should leave sync mode after feed collection fails", function()
+                    browser.fillPendingSyncs = function() error("feed failed") end
+                    local ok, err = pcall(function() browser:checkSyncDownload(2) end)
+                    assert.is_false(ok)
+                    assert.truthy(err:find("feed failed", 1, true))
+                    assert.is_false(browser.sync)
+                    assert.is_false(downloaded)
+                end)
+            end)
+
+            it("should prefer a catalog sync folder and fall back to the default sync folder", function()
+                local browser = OPDSBrowser:extend{
+                    settings = {
+                        sync_dir = "/default",
+                    },
+                }
+
+                assert.are.same("/catalog", browser:getSyncDir{
+                    sync_dir = "/catalog",
+                })
+                assert.are.same("/default", browser:getSyncDir{})
+            end)
+
+            it("should preserve sync metadata when editing a catalog", function()
+                local browser = OPDSBrowser:extend{
+                    servers = {
+                        {
+                            title = "Old catalog",
+                            url = "http://example.org/opds",
+                            sync_dir = "/catalog",
+                            last_download = "http://example.org/book.epub",
+                        },
+                    },
+                    item_table = {
+                        {},
+                        {},
+                    },
+                    _manager = {},
+                }
+
+                browser:editCatalogFromInput({
+                    "New catalog",
+                    "http://example.org/opds",
+                    "",
+                    "",
+                    nil,
+                    true,
+                }, { idx = 2 }, true)
+
+                assert.are.same("/catalog", browser.servers[1].sync_dir)
+                assert.are.same("http://example.org/book.epub", browser.servers[1].last_download)
+            end)
+
+            it("should reset last download when editing a catalog URL", function()
+                local browser = OPDSBrowser:extend{
+                    servers = {
+                        {
+                            title = "Old catalog",
+                            url = "http://example.org/opds",
+                            sync_dir = "/catalog",
+                            last_download = "http://example.org/book.epub",
+                        },
+                    },
+                    item_table = {
+                        {},
+                        {},
+                    },
+                    _manager = {},
+                }
+
+                browser:editCatalogFromInput({
+                    "New catalog",
+                    "http://example.com/opds",
+                    "",
+                    "",
+                    nil,
+                    true,
+                }, { idx = 2 }, true)
+
+                assert.are.same("/catalog", browser.servers[1].sync_dir)
+                assert.is_nil(browser.servers[1].last_download)
+            end)
+
+            it("should keep sync folders on servers without copying them to root items", function()
+                local browser = OPDSBrowser:extend{
+                    servers = {
+                        {
+                            title = "Catalog",
+                            url = "http://example.org/opds",
+                            sync_dir = "/catalog",
+                        },
+                    },
+                    downloads = {},
+                }
+
+                local items = browser:genItemTableFromRoot()
+
+                assert.is_nil(items[2].sync_dir)
+                assert.are.same("/catalog", browser.servers[1].sync_dir)
+                assert.are.same("/catalog", browser:getSyncDir(browser.servers[1]))
+            end)
+        end)
+    end)
+end)

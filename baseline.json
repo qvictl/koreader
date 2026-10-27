@@ -1,0 +1,148 @@
+{
+  "date": "2026-10-27",
+  "overall": {
+    "covered": 35401,
+    "total": 93984,
+    "percent": 37.667,
+    "files": 491
+  },
+  "diff_unit": {
+    "covered": 0,
+    "total": 0,
+    "percent": 100.000
+  },
+  "diff_combined": {
+    "covered": 0,
+    "total": 0,
+    "percent": 100.000
+  },
+  "owned": {
+    "covered": 546,
+    "total": 618,
+    "percent": 88.350,
+    "min": 80,
+    "ok": true,
+    "modules": {
+      "frontend/memorytuning.lua": {
+        "scope": "file",
+        "covered": 49,
+        "total": 49,
+        "percent": 100.000
+      },
+      "frontend/apps/reader/modules/readerdictionary.lua": {
+        "scope": "fork",
+        "covered": 319,
+        "total": 375,
+        "percent": 85.067
+      },
+      "frontend/ui/widget/dictquicklookup.lua": {
+        "scope": "fork",
+        "covered": 37,
+        "total": 42,
+        "percent": 88.095
+      },
+      "frontend/ui/trapper.lua": {
+        "scope": "fork",
+        "covered": 5,
+        "total": 6,
+        "percent": 83.333
+      },
+      "frontend/ui/uimanager.lua": {
+        "scope": "func:UIManager:widgetInvert",
+        "covered": 17,
+        "total": 17,
+        "percent": 100.000
+      },
+      "frontend/ui/widget/button.lua": {
+        "scope": "fork",
+        "covered": 3,
+        "total": 3,
+        "percent": 100.000
+      },
+      "frontend/ui/widget/iconbutton.lua": {
+        "scope": "fork",
+        "covered": 4,
+        "total": 4,
+        "percent": 100.000
+      },
+      "frontend/document/credocument.lua": {
+        "scope": "fork",
+        "covered": 1,
+        "total": 1,
+        "percent": 100.000
+      },
+      "frontend/document/doccache.lua": {
+        "scope": "fork",
+        "covered": 2,
+        "total": 2,
+        "percent": 100.000
+      },
+      "frontend/apps/reader/readerui.lua": {
+        "scope": "fork",
+        "covered": 3,
+        "total": 3,
+        "percent": 100.000
+      },
+      "frontend/device/generic/device.lua": {
+        "scope": "fork",
+        "covered": 1,
+        "total": 1,
+        "percent": 100.000
+      },
+      "frontend/ui/font.lua": {
+        "scope": "fork",
+        "covered": 3,
+        "total": 3,
+        "percent": 100.000
+      },
+      "frontend/apps/reader/modules/readerfont.lua": {
+        "scope": "fork",
+        "covered": 3,
+        "total": 3,
+        "percent": 100.000
+      },
+      "plugins/japanese.koplugin/main.lua": {
+        "scope": "fork",
+        "covered": 21,
+        "total": 21,
+        "percent": 100.000
+      },
+      "base/ffi/util.lua": {
+        "scope": "func:util.runInSubProcess,util.isSubProcessDone,util.terminateSubProcess,util.readAllFromFD",
+        "covered": 78,
+        "total": 88,
+        "percent": 88.636
+      }
+    }
+  },
+  "gates": [
+    {
+      "id": "diff",
+      "name": "Diff coverage, unit tests",
+      "ok": true,
+      "enforced": false
+    },
+    {
+      "id": "diff",
+      "name": "Diff coverage, unit + integration",
+      "ok": true,
+      "enforced": false
+    },
+    {
+      "id": "ratchet",
+      "name": "Overall coverage (ratchet)",
+      "ok": true,
+      "enforced": false
+    },
+    {
+      "id": "owned",
+      "name": "Fork-owned modules",
+      "ok": true,
+      "enforced": false
+    }
+  ],
+  "ok": true,
+  "commit": "2e86f5405fffc4bd4e53170f9cc7bcc574609802",
+  "event": "push",
+  "updated": "2026-10-27T15:03:20Z"
+}
