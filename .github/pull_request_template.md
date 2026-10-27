@@ -1,3 +1,28 @@
+<!--
+Thanks for your contribution! PRs written by people or by AI are equally welcome here:
+we gate on tests (see CONTRIBUTING.md). Please fill in every section.
+-->
 
+### What and why
 
-<!-- This pull request may be closed if you did not write the description explaining the change yourself. A tool does not know why you want to make this change. -->
+<!-- What does this change, and why? Link the issue if any. -->
+
+### Tests
+
+<!-- Which tests did you add or change, and what do they check?
+     - unit tests: spec/unit/…
+     - emulator integration scenarios: spec/integration/scenarios/…
+     If no test is possible, explain why: a maintainer may then apply `no-tests-needed`. -->
+
+### Test evidence
+
+<!-- How did you run them, and what was the result? e.g.
+     - `make testfront`: N successes / 0 failures
+     - `./tools/run_integration_tests.sh`: all scenarios passed (paste the summary table)
+     - device testing (model, firmware), before/after numbers for performance or memory changes -->
+
+### Checklist
+
+- [ ] Tests added or updated for every code change (or the reason why not is explained above)
+- [ ] `./tools/run_integration_tests.sh` passes locally (or I rely on CI and checked its results)
+- [ ] The changed Lua lines are covered (Diff coverage check ≥ 70%)
