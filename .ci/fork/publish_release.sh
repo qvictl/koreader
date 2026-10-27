@@ -58,7 +58,7 @@ overlays=(koreader-lua-overlay-*.zip)
     fi
     echo
     echo "- \`koreader-kindlehf-*.zip\`, \`koreader-kindlepw2-*.zip\`: full KOReader packages for Kindle (install like upstream's)."
-    echo "- \`koreader-emulator-x86_64-*.tar.xz\`: the x86_64 Linux emulator build (\`koreader/\` tree; run \`./luajit reader.lua\` in it), as used by the integration tests."
+    echo "- \`koreader-emulator-x86_64-*.tar.xz\`: the x86_64 Linux emulator build (\`koreader/\` tree; run \`./luajit reader.lua\` in it), as used by the integration tests. It uses the system's SDL3: run it in the \`koreader/kobase:5.0.0-22.04\` docker image (or install SDL 3), headless with \`SDL_VIDEODRIVER=dummy\`."
     if [[ ${#overlays[@]} -gt 0 ]]; then
         echo "- \`koreader-lua-overlay-<upstream tag>-*.zip\`: the fork's Lua changes for devices running that upstream stable release (see README.txt inside)."
     fi

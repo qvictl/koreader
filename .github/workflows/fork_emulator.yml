@@ -37,7 +37,8 @@ on:
 
 env:
   IMAGE: koreader/kobase:5.0.0-22.04
-  EMU_DIR: koreader-emulator-x86_64-linux-gnu
+  # (INSTALL_DIR, as set by .ci/build_environment_setup.sh)
+  EMU_DIR: install
 
 jobs:
 

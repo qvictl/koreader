@@ -3,7 +3,8 @@
 #
 # Usage: diff_coverage.sh koreader|base ARTIFACTS_DIR
 #
-# ARTIFACTS_DIR must hold the `koreader-emulator-x86_64` artifact (for luajit & luacov)
+# ARTIFACTS_DIR must hold the `koreader-emulator-x86_64` artifact (or, for koreader-base,
+# `base-luajit`: a koreader/{luajit,spec/rocks} tarball), for luajit & luacov,
 # and the coverage artifacts (any `*.stats.out` file under it is used).
 #
 # Environment: EVENT_NAME, PR_NUMBER, PR_BASE, PUSH_BEFORE, GH_TOKEN, GITHUB_REPOSITORY,
@@ -71,7 +72,8 @@ git diff -U0 "${base}" HEAD -- "${pathspecs[@]}" >"${RUNNER_TEMP:-/tmp}/change.d
 emu="${RUNNER_TEMP:-/tmp}/emu"
 rm -rf "${emu}"
 mkdir -p "${emu}"
-tarball="$(find "${artifacts}" -name 'koreader-emulator-x86_64.tar.xz' | head -n1)"
+# (koreader: the emulator build; koreader-base: a minimal luajit + test rocks tarball)
+tarball="$(find "${artifacts}" -name 'koreader-emulator-x86_64.tar.xz' -o -name 'base-luajit.tar.xz' | head -n1)"
 tar -C "${emu}" -xJf "${tarball}" koreader/luajit koreader/spec/rocks koreader/libs koreader/common 2>/dev/null ||
     tar -C "${emu}" -xJf "${tarball}"
 mapfile -t stats < <(find "${artifacts}" -name '*.stats.out' | sort)

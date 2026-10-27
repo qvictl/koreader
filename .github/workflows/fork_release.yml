@@ -129,6 +129,9 @@ jobs:
     needs: emulator
     runs-on: ubuntu-26.04
     timeout-minutes: 60
+    # Same image as the build (the emulator uses the system's SDL3).
+    container:
+      image: koreader/kobase:5.0.0-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
