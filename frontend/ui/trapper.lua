@@ -383,6 +383,10 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
         end
         own_trap_widget = true
     end
+    -- Remember the caller's dismiss_callback, so we can restore it when we're done:
+    -- otherwise a later tap on a caller-provided widget would resume our coroutine
+    -- at whatever unrelated yield it is then parked on.
+    local orig_dismiss_callback = trap_widget.dismiss_callback
     trap_widget.dismiss_callback = function()
         -- this callback will resume us at coroutine.yield() below
         -- with a go_on = false
@@ -452,6 +456,8 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
         if not own_trap_widget_invisible then
             UIManager:forceRePaint()
         end
+    else
+        trap_widget.dismiss_callback = orig_dismiss_callback
     end
     -- return what we got or not to our caller
     return completed, output
@@ -535,6 +541,10 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
         end
         own_trap_widget = true
     end
+    -- Remember the caller's dismiss_callback, so we can restore it when we're done:
+    -- otherwise a later tap on a caller-provided widget would resume our coroutine
+    -- at whatever unrelated yield it is then parked on.
+    local orig_dismiss_callback = trap_widget.dismiss_callback
     trap_widget.dismiss_callback = function()
         -- this callback will resume us at coroutine.yield() below
         -- with a go_on = false
@@ -574,6 +584,10 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
         ffiutil.writeToFD(child_write_fd, output_str, true)
     end, true) -- with_pipe = true
 
+    if not pid then
+        -- On failure, the 2nd return value is the error message (e.g., fork failed under memory pressure)
+        logger.warn("dismissableRunInSubprocess: could not start subprocess:", parent_read_fd)
+    end
     if pid then
         -- We check regularly if subprocess is done, and we give control
         -- in the meantime to UIManager so our trap_widget's dismiss_callback
@@ -674,6 +688,8 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
         if not own_trap_widget_invisible then
             UIManager:forceRePaint()
         end
+    else
+        trap_widget.dismiss_callback = orig_dismiss_callback
     end
     -- return what we got or not to our caller
     if ret_values then
