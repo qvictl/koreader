@@ -60,5 +60,5 @@ Changes made here are **not** submitted upstream. Upstream is merged weekly into
 
 ## Releases
 
-- Push a tag `vYYYY.MM-qN` (e.g. `v2026.10-q1`) on a commit of `main`: the *Fork release* workflow builds the Kindle packages (kindlehf, kindlepw2), the x86_64 emulator and the Lua overlays for upstream stable releases, runs the integration tests, and publishes a GitHub release.
+- Push a tag `vYYYY.MM.qN` (e.g. `v2026.10.q1`; no `-`: `tools/describe.sh` and the version parsing expect `vYYYY.MM[.P]` before any `-`) on a commit of `main`: the *Fork release* workflow builds the Kindle packages (kindlehf, kindlepw2), the x86_64 emulator and the Lua overlays for upstream stable releases, runs the integration tests, and publishes a GitHub release.
 - The rolling `nightly` prerelease is rebuilt from `main` daily when it changed (or manually: run *Fork release* on `main`). Its assets have stable names, e.g. `koreader-emulator-x86_64-latest.tar.xz`.

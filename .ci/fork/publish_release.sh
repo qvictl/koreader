@@ -21,7 +21,7 @@ shopt -s nullglob
 suffix="${TAG}"
 [[ "${CHANNEL}" != nightly ]] || suffix=latest
 for f in koreader-kindle*.zip; do
-    # koreader-kindlehf-v2026.10-q1_2026-10-27.zip -> koreader-kindlehf-<suffix>.zip
+    # koreader-kindlehf-v2026.10.q1.zip -> koreader-kindlehf-<suffix>.zip
     target="$(sed -E 's/^(koreader-kindle[a-z0-9-]*[a-z0-9])-v[0-9].*\.zip$/\1/' <<<"${f}")-${suffix}.zip"
     [[ "${f}" == "${target}" ]] || mv -v "${f}" "${target}"
 done

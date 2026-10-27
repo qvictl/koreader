@@ -1,7 +1,7 @@
 # Fork-owned workflow (qvictl/koreader): not part of upstream KOReader.
 #
 # Releases of the fork:
-#   - stable: push a `v*` tag on a commit of `main` (convention: vYYYY.MM-qN, e.g. v2026.10-q1;
+#   - stable: push a `v*` tag on a commit of `main` (convention: vYYYY.MM.qN, e.g. v2026.10.q1;
 #     upstream's own tags, mirrored by the upstream sync, are ignored) -> GitHub release
 #     `<tag>` with the Kindle packages (kindlehf, kindlepw2), the x86_64 emulator, and Lua
 #     overlays for devices on upstream stable releases;
