@@ -92,7 +92,12 @@ function CreDocument.cacheInit()
     -- People who would get out of memory crashes with big books on
     -- older devices can decrease that with setting:
     --   "cre_storage_size_factor"=1    (or 2, or 5)
-    local default_cre_storage_size_factor = 40
+    -- On low memory devices (<= 512 MiB), we default to 4: this changes nothing
+    -- for books with less than ~10 MB of text, and for bigger ones (e.g., a
+    -- 20 MB-text CJK novel) keeps ~13 MB less of the DOM in RAM (the rest is
+    -- swapped to the cache file and reloaded on demand), with no measurable
+    -- impact on page turns and re-rendering.
+    local default_cre_storage_size_factor = require("memorytuning"):pick(40, 4)
     cre.initCache(DataStorage:getDataDir() .. "/cache/cr3cache",
         (G_reader_settings:readSetting("cre_disk_cache_max_size") or default_cre_disk_cache_max_size)*1024*1024,
         G_reader_settings:nilOrTrue("cre_compress_cached_data"),
