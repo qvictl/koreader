@@ -16,7 +16,7 @@ return {
         exclude = { "^frontend/luxl%.lua$", "^plugins/newsdownloader%.koplugin/lib/" },
         -- Day-one measurement (unit + integration), and targets relative to it (report only;
         -- the ratchet against main is what blocks).
-        baseline = { date = "2026-10-27", percent = nil },
+        baseline = { date = "2026-10-27", percent = 37.67 }, -- main @ 2e86f5405
         targets = {
             { from = "2026-11-24", delta_pp = 5 },
             { from = "2026-12-22", delta_pp = 10 },

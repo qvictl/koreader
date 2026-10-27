@@ -116,16 +116,28 @@ return {
             table.insert(fillers, fd)
         end
         local failures = {}
+        local trapper_failed = {}
         for _, extra in ipairs({ 0, 2 }) do
             local pipes_now = pipes()
             lim.cur = highest + 1 + extra
             C.setrlimit(RLIMIT_NOFILE, lim)
             local ok_, err = ffiutil.runInSubProcess(function() end, "bidi")
+            if extra == 0 then
+                -- Trapper: a subprocess that can't be started is logged, and the task reported as not completed.
+                local done = false
+                Trapper:wrap(function()
+                    trapper_failed = { Trapper:dismissableRunInSubprocess(function() return "x" end, nil, true) }
+                    done = true
+                end)
+                trapper_failed.done = done
+            end
             lim.cur = saved_cur
             C.setrlimit(RLIMIT_NOFILE, lim)
             failures[extra] = { ok = ok_, err = err, leaked = pipes() - pipes_now }
         end
         for _, fd in ipairs(fillers) do C.close(fd) end
+        T:check(trapper_failed.done, "Trapper task whose subprocess could not start returned at once")
+        T:check(not trapper_failed[1], "... as not completed")
         for extra, r in pairs(failures) do
             T:log("fd limit +" .. extra .. ":", tostring(r.ok), tostring(r.err))
             T:check(r.ok == false and tostring(r.err):find("pipe", 1, true), "pipe failure reported (limit +" .. extra .. ")")
