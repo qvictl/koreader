@@ -4,4 +4,5 @@ Unit + emulator integration tests (luacov). Updated by CI on every push to main;
 
 | Date | Commit | Overall | Fork-owned modules | Owned target |
 |---|---|---:|---:|---:|
+| 2026-10-27 | [25089632de](https://github.com/qvictl/koreader/commit/25089632deff5fbe00f05f3e7a320688820e5aff) | 37.7% | 88.51% | 80% |
 | 2026-10-27 | [2e86f5405f](https://github.com/qvictl/koreader/commit/2e86f5405fffc4bd4e53170f9cc7bcc574609802) | 37.67% | 88.35% | 80% |
