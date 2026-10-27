@@ -159,6 +159,7 @@ local DictQuickLookup = InputContainer:extend{
     is_wiki_fullpage = false,
     is_html = false,
     dict_index = 1,
+    results_pending = false, -- more results may still come in (see updateResults())
     width = nil,
     height = nil,
     in_definition_search = false, -- search on an entry's definition
@@ -171,6 +172,7 @@ local DictQuickLookup = InputContainer:extend{
     html_dictionary_link_tapped_callback = nil,
 
     dict_close_callback = nil, -- called when closing DictQuickLookup
+    close_widget_callback = nil, -- called when this widget is closed, whatever the way
 
     -- Static class member, holds a ref to the currently opened widgets (in instantiation order).
     window_list = {},
@@ -441,6 +443,7 @@ function DictQuickLookup:init()
             self.displaynb_text,
         }
         lookup_word_nb_w = lookup_word_nb:getSize().w
+        self.lookup_word_nb = lookup_word_nb -- (for updateResults())
     end
     -- Lookup word
     self.lookup_word_text = TextWidget:new{
@@ -1384,6 +1387,11 @@ function DictQuickLookup:getInitialVisibleArea()
 end
 
 function DictQuickLookup:onCloseWidget()
+    if self.close_widget_callback then
+        -- (i.e., to stop any lookup still going on in the background for us)
+        self.close_widget_callback()
+    end
+
     -- Our TextBoxWidget/HtmlBoxWidget/TextWidget/ImageWidget are proper child widgets,
     -- so this event will propagate to 'em, and they'll free their resources.
 
@@ -1492,7 +1500,7 @@ function DictQuickLookup:changeDictionary(index, skip_update)
     else
         self.displayword = self.lookupword
         -- show "dict_index / nbresults" so we know where we're at and what's yet to see
-        self.displaynb = T("%1 / %2", index, #self.results)
+        self.displaynb = self:getDisplayNb()
         -- add queried word to 1st result's definition, so we can see
         -- what was the selected text and if we selected wrong
         if index == 1 then
@@ -1516,6 +1524,72 @@ function DictQuickLookup:changeDictionary(index, skip_update)
     -- Don't call update when called from init
     if not skip_update then
         self:update()
+    end
+end
+
+function DictQuickLookup:getDisplayNb()
+    local nb = T("%1 / %2", self.dict_index, #self.results)
+    if self.results_pending then
+        -- Hint that more results are on their way
+        nb = nb .. "\u{2026}"
+    end
+    return nb
+end
+
+--- Updates the list of results, i.e. when more results came in from a lookup still
+-- going on in the background, or when it is done (results_pending = false).
+-- The result currently shown is kept shown as is (only its "n / N" is updated),
+-- so we don't disturb reading or scrolling.
+-- @tparam table results the full list of results, that must include the current one (same table)
+-- @bool results_pending whether more results may still come in
+function DictQuickLookup:updateResults(results, results_pending)
+    local current_result = self.results[self.dict_index]
+    self.results = results
+    self.results_pending = results_pending
+    -- Any opened results menu is now stale (and its items may point to the wrong results)
+    for menu in pairs(self.menu_opened) do
+        UIManager:close(menu)
+    end
+    self.menu_opened = {}
+    local index = util.arrayContains(results, current_result)
+    if not index then
+        -- Should not happen, but let's not show an outdated "n / N"
+        self:changeDictionary(1)
+        return
+    end
+    self.dict_index = index
+    if self.is_wiki_fullpage or not self.displaynb_text then
+        return
+    end
+    -- Only refresh what may have changed: "n / N", and the prev/next buttons
+    local refresh_widgets = {}
+    self.displaynb = self:getDisplayNb()
+    if self.displaynb ~= self.displaynb_text.text then
+        self.displaynb_text:setText(self.displaynb)
+        table.insert(refresh_widgets, self.lookup_word_nb)
+    end
+    for _, button_id in ipairs{ "prev_dict", "next_dict" } do
+        local button = self.button_table:getButtonById(button_id)
+        if button then
+            local enabled
+            if button_id == "prev_dict" then
+                enabled = self:isPrevDictAvaiable()
+            else
+                enabled = self:isNextDictAvaiable()
+            end
+            if enabled ~= button.enabled then
+                button:enableDisable(enabled)
+                table.insert(refresh_widgets, button)
+            end
+        end
+    end
+    for _, widget in ipairs(refresh_widgets) do
+        -- (The previous "n / N" may have been wider)
+        local prev_dimen = widget.dimen and widget.dimen:copy()
+        UIManager:setDirty(self, function()
+            local dimen = widget.dimen or self.dict_frame.dimen
+            return "ui", prev_dimen and dimen:combine(prev_dimen) or dimen
+        end)
     end
 end
 
