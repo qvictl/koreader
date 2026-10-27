@@ -265,8 +265,10 @@ end
 -- @string font
 -- @int size optional size
 -- @int faceindex optional index of font face in font file
+-- @bool uncached optional, don't keep a newly built face in our cache, so it can be garbage
+--       collected once unused (for one-off uses, like previewing every font in the font menu)
 -- @treturn table @{FontFaceObj}
-function Font:getFace(font, size, faceindex)
+function Font:getFace(font, size, faceindex, uncached)
     -- default to content font
     if not font then font = self.fontmap.cfont end
 
@@ -341,7 +343,9 @@ function Font:getFace(font, size, faceindex)
             hash = hash,
             is_real_bold = is_real_bold,
         }
-        self.faces[hash] = face_obj
+        if not uncached then
+            self.faces[hash] = face_obj
+        end
 
         -- Callback to be used by libkoreader-xtext.so to get Freetype
         -- instantiated fallback fonts when needed for shaping text
