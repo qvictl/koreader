@@ -45,11 +45,35 @@ function Japanese:init()
     self.deinflector = SingleInstanceDeinflector
     self.dictionary = (self.ui and self.ui.dictionary) or ReaderDictionary:new()
     self.max_scan_length = G_reader_settings:readSetting("language_japanese_text_scan_length") or DEFAULT_TEXT_SCAN_LENGTH
+    self.handle_other_languages = G_reader_settings:isTrue("language_japanese_handle_other_languages")
     LanguageSupport:registerPlugin(self)
 end
 
 function Japanese:supportsLanguage(language_code)
     return language_code == "ja" or language_code == "jpn"
+end
+
+local function hasKana(text)
+    -- Hiragana and Katakana (U+3040-30FF), Katakana Phonetic Extensions (U+31F0-31FF),
+    -- Halfwidth Katakana (U+FF66-FF9F)
+    return text:find("\227[\129-\131][\128-\191]") or text:find("\227\135[\176-\191]")
+        or text:find("\239\189[\166-\191]") or text:find("\239\190[\128-\159]")
+end
+
+--- Whether we should handle this text.
+-- We are also called (as a fallback, see LanguageSupport) for text in books in
+-- other languages. If such text has no kana, it's most probably not Japanese (i.e.,
+-- Chinese, for text with only Han characters): don't waste time (and dictionary
+-- lookups) on it, unless the user asked us to.
+function Japanese:shouldHandleText(text)
+    local language = self.ui and self.ui.doc_props and self.ui.doc_props.language
+    language = language and language:lower():match("^%a+")
+    if not language or language == "und" or self:supportsLanguage(language)
+        or self.handle_other_languages or hasKana(text) then
+        return true
+    end
+    logger.dbg("japanese.koplugin: ignoring kana-less text in a book in", language)
+    return false
 end
 
 --- Called from @{languagesupport.extraDictionaryFormCandidates} for Japanese
@@ -62,7 +86,7 @@ function Japanese:onWordLookup(args)
     local text = args.text
 
     -- If there are no CJK characters in the text, there's nothing to do.
-    if not util.hasCJKChar(text) then
+    if not util.hasCJKChar(text) or not self:shouldHandleText(text) then
         return
     end
 
@@ -119,6 +143,11 @@ function Japanese:onWordSelection(args)
     -- and their full-width equivalents for instance -- but they are selected
     -- by crengine correctly already and are full words by themselves).
     if current_text ~= "" and not util.hasCJKChar(current_text) then
+        return
+    end
+    -- And there's no point either for some text in a book in another language,
+    -- that is not Japanese (this would cost a dictionary lookup, see below).
+    if not self:shouldHandleText(current_text) then
         return
     end
 
@@ -235,6 +264,19 @@ Default value: %1]]), DEFAULT_TEXT_SCAN_LENGTH),
             end,
         },
     }
+    table.insert(sub_item_table, {
+        text = _("Handle text without kana in non-Japanese books"),
+        help_text = _([[
+By default, text without any hiragana or katakana in a book whose language is set and is not Japanese (i.e., Chinese text) is left alone, as handling it would make word selection and dictionary lookups slower.
+Enable this to have such text handled as Japanese anyway (i.e., to have selections of Chinese text expanded to the longest word found in your dictionaries).]]),
+        checked_func = function()
+            return self.handle_other_languages
+        end,
+        callback = function()
+            self.handle_other_languages = not self.handle_other_languages
+            G_reader_settings:saveSetting("language_japanese_handle_other_languages", self.handle_other_languages)
+        end,
+    })
     -- self.deinflector configuration
     util.arrayAppend(sub_item_table, self.deinflector:genMenuItems())
 
