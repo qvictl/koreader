@@ -15,6 +15,11 @@ local DHINTCOUNT = G_defaults:readSetting("DHINTCOUNT")
 local function calcCacheMemSize()
     local min = G_defaults:readSetting("DGLOBAL_CACHE_SIZE_MINIMUM")
     local max = G_defaults:readSetting("DGLOBAL_CACHE_SIZE_MAXIMUM")
+    -- This is computed once, at startup, when free memory is at its highest: on low memory
+    -- devices, don't let it grow past 32 MiB (~15 full-screen 8bpp pages on a 1264x1680 screen).
+    if require("memorytuning"):isLowMemory() and not G_defaults:hasBeenCustomized("DGLOBAL_CACHE_SIZE_MAXIMUM") then
+        max = math.min(max, 32*1024*1024)
+    end
     local memfree, _ = util.calcFreeMem() or 0, 0
     local calc = memfree * G_defaults:readSetting("DGLOBAL_CACHE_FREE_PROPORTION")
     return math.min(max, math.max(min, calc))
