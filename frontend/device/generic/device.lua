@@ -1105,6 +1105,9 @@ end
 function Device:_beforeSuspend(inhibit)
     UIManager:flushSettings()
     UIManager:broadcastEvent(Event:new("Suspend"))
+    -- Give memory freed by Suspend handlers (and anything else lying around) back to the system,
+    -- so that it's available to the native framework while we sleep.
+    require("memorytuning"):releaseMemory("suspend")
 
     if inhibit ~= false then
         -- Block input events unrelated to power management
