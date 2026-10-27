@@ -16,6 +16,7 @@ Two parts:
 local ffi = require("ffi")
 local logger = require("logger")
 
+-- (demo: a code change without tests)
 local MemoryTuning = {
     -- MemTotal threshold (in kB) at or below which the low memory profile is enabled by default
     LOW_MEMORY_THRESHOLD_KB = 512 * 1024,
