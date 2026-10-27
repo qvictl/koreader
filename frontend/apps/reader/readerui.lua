@@ -23,6 +23,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
 local LanguageSupport = require("languagesupport")
+local MemoryTuning = require("memorytuning")
 local NetworkListener = require("ui/network/networklistener")
 local Notification = require("ui/widget/notification")
 local PluginLoader = require("pluginloader")
@@ -521,6 +522,9 @@ function ReaderUI:init()
         v()
     end
     self.postReaderReadyCallback = nil
+    -- Loading and rendering a document allocates and frees a lot of temporary memory:
+    -- hand it back to the system once the first page has been shown.
+    UIManager:scheduleIn(2, MemoryTuning.releaseMemory, MemoryTuning, "document ready")
     self.reloading = nil
     if self.after_open_callback then
         self:after_open_callback()
@@ -888,6 +892,8 @@ function ReaderUI:onClose(full_refresh)
     if file then
         BookList.setBookInfoCacheProperty(file, "percent_finished", self.doc_settings:readSetting("percent_finished"))
         -- other cached properties of the currently opened document are updated in real time
+        -- The document's memory is now freed, but would mostly stay in our heap: give it back.
+        UIManager:nextTick(MemoryTuning.releaseMemory, MemoryTuning, "document close")
     end
 end
 
