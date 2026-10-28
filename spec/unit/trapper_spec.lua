@@ -723,23 +723,22 @@ describe("Trapper module", function()
             assert.is_true(isReaped(pid))
         end)
 
-        it("drains the pipe of a dismissed child blocked in write() so that it can exit", function()
-            local flag = tmpPath()
+        it("closes a dismissed writer pipe and reaps it without a scheduling assumption", function()
+            local await_release, release = ipcGate()
             local size = 512 * 1024
             local res = runSub(function()
-                waitForFile(flag)
+                await_release()
                 return string.rep("y", size)
             end, false, true)
             local trap = shown[1]
             assert.is_false(trap.resend_event)
             runNextTask()
             -- let the child fill the pipe, then dismiss before Trapper reads it
-            touch(flag)
+            release()
             local fd = child_fds[1]
-            for _ = 1, 500 do
-                if ffiutil.getNonBlockingReadSize(fd) ~= 0 then break end
-                ffiutil.usleep(2000)
-            end
+            local ready = ffi.new("struct pollfd[1]")
+            ready[0].fd, ready[0].events = fd, C.POLLIN
+            assert.is_true(C.poll(ready, 1, -1) > 0)
             assert.are_not.equal(0, ffiutil.getNonBlockingReadSize(fd))
             -- Simulate a child that SIGKILL did not reach (yet).
             stub(ffiutil, "terminateSubProcess")
@@ -749,10 +748,10 @@ describe("Trapper module", function()
             assert.are.same({ false, n = 1 }, res.values)
             local pid = child_pids[1]
             assert.is_false(isReaped(pid))
-            -- 1st collector run drains the pipe (the child can then exit) and
-            -- reschedules itself; a later run reaps the child.
+            -- Closing the reader releases the blocked writer. It may exit
+            -- before the first collector runs, or need another poll.
+            assert.are.equal(-1, C.fcntl(fd, C.F_GETFD))
             runNextTask(0)
-            assert.are.equal(1, #tasks)
             assert.is_true(runUntil(function() return #tasks == 0 end, 500))
             assert.is_true(isReaped(pid))
         end)
