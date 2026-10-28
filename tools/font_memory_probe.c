@@ -61,13 +61,6 @@ static void *resolve_next(const char *name) {
                 name, expected ? expected : "(unset)");
         abort();
     }
-    const char *log = getenv("FONT_PROBE_LOG");
-    if (log) {
-        FILE *file = fopen(log, "a");
-        if (!file) { perror("font_memory_probe: library log"); abort(); }
-        fprintf(file, "library\t%s\t%s\n", name, actual_path);
-        fclose(file);
-    }
     return symbol;
 }
 
@@ -105,10 +98,12 @@ int font_probe_made(void) { return made; }
 int font_probe_dropped(void) { return dropped; }
 int font_probe_peak(void) { return peak; }
 
-void font_probe_snapshot(const char *stage) {
-    const char *path = getenv("FONT_PROBE_LOG");
-    if (!path) return;
-    FILE *file = fopen(path, "a");
+const char *font_probe_snapshot(const char *stage) {
+    static char *snapshot;
+    size_t size;
+    free(snapshot);
+    snapshot = NULL;
+    FILE *file = open_memstream(&snapshot, &size);
     if (!file) abort();
     fprintf(file, "summary\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n", stage, made, dropped, live, peak, explicit_drops, internal_drops);
     for (int i = 0; i < 4096; ++i) {
@@ -119,4 +114,5 @@ void font_probe_snapshot(const char *stage) {
         }
     }
     fclose(file);
+    return snapshot;
 }

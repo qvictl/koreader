@@ -16,7 +16,7 @@ return {
         local Blitbuffer = require("ffi/blitbuffer")
         local Device = require("device")
         local out = os.getenv("FONT_BENCH_OUT")
-        local records
+        local records, traces
         if out then
             ffi.cdef[[
                 int font_probe_live(void);
@@ -25,9 +25,9 @@ return {
                 int font_probe_peak(void);
                 int font_probe_explicit(void);
                 int font_probe_internal(void);
-                void font_probe_snapshot(const char *stage);
+                const char *font_probe_snapshot(const char *stage);
             ]]
-            records = assert(io.open(out .. "/memory.jsonl", "w"))
+            records, traces = {}, {}
         end
         local function snapshot(stage, elapsed)
             T:run(function()
@@ -38,6 +38,8 @@ return {
                     faces_dropped = ffi.C.font_probe_dropped(), faces_peak = ffi.C.font_probe_peak(),
                     faces_explicit = ffi.C.font_probe_explicit(),
                     faces_library_cleanup = ffi.C.font_probe_internal(), lua_kb = collectgarbage("count") }
+                -- Procfs must sample this process at the measurement boundary.
+                -- A fork would itself alter PSS; these reads are test-only kernel data.
                 for line in io.lines("/proc/self/smaps_rollup") do
                     local key, value = line:match("^(%w+):%s+(%d+) kB")
                     if key then row[key] = tonumber(value) end
@@ -46,9 +48,8 @@ return {
                     local value = line:match("^VmHWM:%s+(%d+) kB")
                     if value then row.peak_rss_kb = tonumber(value) end
                 end
-                ffi.C.font_probe_snapshot(stage)
-                records:write(require("json").encode(row), "\n"); records:flush()
-                T:log("FONT_MEMORY", stage, require("json").encode(row))
+                traces[#traces + 1] = ffi.string(ffi.C.font_probe_snapshot(stage))
+                records[#records + 1] = require("json").encode(row)
                 if stage:match("^closed_") and os.getenv("FONT_BENCH_EXPECT_ZERO") == "1" then
                     T:eq(row.faces_live, 0, "all native faces are destroyed after closing the book")
                 end
@@ -95,6 +96,13 @@ return {
             T:check(T:reader() == nil, "the reader is released after closing")
             T:check(T:topWidget() == T:fileManager(), "closing returns to the browser")
         end
-        if records then records:close() end
+        if records then
+            -- Export only after every measurement: disk I/O is outside the
+            -- measured book lifecycle and cannot change a sampled PSS value.
+            local file = assert(io.open(out .. "/memory.jsonl", "w"))
+            file:write(table.concat(records, "\n"), "\n"); file:close()
+            file = assert(io.open(out .. "/faces.tsv", "w"))
+            file:write(table.concat(traces)); file:close()
+        end
     end,
 }

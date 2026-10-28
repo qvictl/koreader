@@ -105,3 +105,8 @@ runtime library. Immediate `closed_` and 0.5-second `settled_` samples are separ
 normal integration tests add no fixed wait after closing. Output paths cannot
 contain whitespace or colons because of LD_PRELOAD parsing. These are host measurements; device savings must
 be measured separately. Use a fresh output directory for each run.
+
+The benchmark samples `/proc/self` synchronously at each measurement boundary;
+forking a sampler would alter the target process PSS. JSON and face traces are
+kept in memory and exported together after the final sample. Reusing an output
+directory clears both files before starting the observer.

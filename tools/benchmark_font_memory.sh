@@ -52,6 +52,8 @@ cc -shared -fPIC -O2 "${root}/tools/font_memory_probe.c" "${freetype_flags[@]}" 
     -Wl,--no-as-needed "${FONT_PROBE_FREETYPE}" -ldl -o "${output}/font_memory_probe.so"
 export FONT_BENCH_OUT="${output}" FONT_BENCH_BOOK="${book}" FONT_BENCH_FONT="${font}"
 export FONT_PROBE_LOG="${output}/faces.tsv"
+: >"${FONT_PROBE_LOG}"
+: >"${output}/memory.jsonl"
 original_preload=${LD_PRELOAD-}
 probe_preload="${output}/font_memory_probe.so${original_preload:+:${original_preload}}"
 # Match the integration runner's library search order and verify that preloading
