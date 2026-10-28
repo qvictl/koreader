@@ -104,7 +104,7 @@ const char *font_probe_snapshot(const char *stage) {
     free(snapshot);
     snapshot = NULL;
     FILE *file = open_memstream(&snapshot, &size);
-    if (!file) abort();
+    if (!file) { perror("font_memory_probe: open_memstream"); abort(); }
     fprintf(file, "summary\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n", stage, made, dropped, live, peak, explicit_drops, internal_drops);
     for (int i = 0; i < 4096; ++i) {
         if (entries[i].face) {
@@ -113,6 +113,9 @@ const char *font_probe_snapshot(const char *stage) {
                     entries[i].index, face->size ? face->size->metrics.y_ppem : 0);
         }
     }
-    fclose(file);
+    if (fclose(file) != 0 || !snapshot) {
+        fprintf(stderr, "font_memory_probe: cannot build snapshot for %s\n", stage);
+        abort();
+    }
     return snapshot;
 }
