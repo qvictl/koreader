@@ -71,13 +71,24 @@ end
 --- Attempt to send all queued items in order, stopping on the first failure.
 -- @param send_func function(item, callback): reports success through callback(bool)
 -- @param done_func optional function(sent): called when the drain finishes
-function KOSyncQueue:drain(send_func, done_func)
+-- @param priority_document optional document digest to attempt first
+function KOSyncQueue:drain(send_func, done_func, priority_document)
     -- Network events may arrive while an asynchronous request is still in flight.
     if self._draining then return end
     local queue = self:load()
     if #queue == 0 then
         if done_func then done_func(0) end
         return
+    end
+    if priority_document then
+        local ordered = {}
+        for _, item in ipairs(queue) do
+            if item.document == priority_document then ordered[#ordered + 1] = item end
+        end
+        for _, item in ipairs(queue) do
+            if item.document ~= priority_document then ordered[#ordered + 1] = item end
+        end
+        queue = ordered
     end
     self._draining = true
     local generation = self._generation

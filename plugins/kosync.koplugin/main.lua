@@ -189,8 +189,29 @@ end
 
 function KOSync:onReaderReady()
     if self.settings.auto_sync then
+        local ui = self.ui
         UIManager:nextTick(function()
-            self:getProgress(true, false)
+            if not ui.document then return end
+            local KOSyncQueue = require("KOSyncQueue")
+            if KOSyncQueue:count() == 0 then
+                self:getProgress(true, false)
+                return
+            end
+            local document = self:getDocumentDigest()
+            local upload_pending
+            upload_pending = function()
+                if not ui.document then return end
+                -- An existing drain may be waiting on another book. Once it settles,
+                -- give this document its own prioritized attempt before deciding to pull.
+                if KOSyncQueue._draining then
+                    UIManager:scheduleIn(0.25, upload_pending)
+                    return
+                end
+                self:drainQueue(function()
+                    self:_pullIfNoPendingProgress(document)
+                end, document)
+            end
+            NetworkMgr:runWhenOnline(upload_pending)
         end)
     end
     -- NOTE: Keep in mind that, on Android, turning on WiFi requires a focus switch, which will trip a Suspend/Resume pair.
@@ -1026,18 +1047,27 @@ function KOSync:_onSuspend()
     self:updateProgress(true, false, true)
 end
 
+function KOSync:_pullIfNoPendingProgress(document)
+    if not self.ui.document then return end
+    for _, item in ipairs(require("KOSyncQueue"):load()) do
+        if item.document == document then return end
+    end
+    self:getProgress(false, false)
+end
+
 function KOSync:_onNetworkConnected()
     logger.dbg("KOSync: onNetworkConnected")
     UIManager:scheduleIn(0.5, function()
-        -- Drain any queued progress updates first
+        if not self.ui.document then return end
+        local document = self:getDocumentDigest()
+        -- Failed or unfinished updates for this book must not be overwritten by a pull.
         self:drainQueue(function()
-            -- Pull only after queued uploads have completed.
-            self:getProgress(false, false)
-        end)
+            self:_pullIfNoPendingProgress(document)
+        end, document)
     end)
 end
 
-function KOSync:drainQueue(done_func)
+function KOSync:drainQueue(done_func, priority_document)
     local KOSyncQueue = require("KOSyncQueue")
     if KOSyncQueue:count() == 0 then
         if done_func then done_func() end
@@ -1061,7 +1091,7 @@ function KOSync:drainQueue(done_func)
             item.device,
             item.device_id,
             callback)
-    end, done_func)
+    end, done_func, priority_document)
 end
 
 function KOSync:_onNetworkDisconnecting()
