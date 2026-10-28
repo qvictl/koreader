@@ -43,7 +43,7 @@
     "frontend/version.lua",
     "frontend/ui/otamanager.lua",
     "base",
-    "plugins/kosync.koplugin/main.lua"
+    "plugins/kosync.koplugin/**"
   ],
   "sensitive_line_patterns": [
     {
