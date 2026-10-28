@@ -218,6 +218,9 @@ describe("ReaderDictionary sdcv lookups", function()
 
     after_each(function()
         closeAll()
+        -- Per-instance state some tests change: reset it even when they fail.
+        rd.doc_disabled_dicts = {}
+        rd.disable_lookup_history = false
         rd.getSdcvArgs = nil
         rd.quick_dismiss_before_delay = time.s(3)
     end)
@@ -239,6 +242,11 @@ describe("ReaderDictionary sdcv lookups", function()
                 file_by_name[ifo.name] = ifo.file
             end
             local orig_order = rd.dicts_order
+            finally(function()
+                rd.dicts_order = orig_order
+                rd:sortAvailableIfos()
+                rd:updateSdcvDictNamesOptions()
+            end)
             rd.dicts_order = { [file_by_name.Gamma] = 1, [file_by_name.Ext] = 2 }
             rd:sortAvailableIfos()
             rd:updateSdcvDictNamesOptions()
@@ -423,9 +431,9 @@ describe("ReaderDictionary sdcv lookups", function()
                 rd.doc_disabled_dicts[name] = true
             end
             local run = spy.on(rd, "runSdcv")
+            finally(function() rd.runSdcv:revert() end)
             local w = lookup("harbor")
             assert.spy(run).was_not_called()
-            rd.runSdcv:revert()
             assert.is_true(w.results[1].no_result)
             assert.matches("no enabled dictionaries", w.results[1].definition)
             rd.doc_disabled_dicts = {}
@@ -513,6 +521,7 @@ describe("ReaderDictionary sdcv lookups", function()
             local expected = classic("harbor")
             local updates = {}
             local orig_update = DictQuickLookup.updateResults
+            finally(function() DictQuickLookup.updateResults = orig_update end)
             DictQuickLookup.updateResults = function(this, results, pending)
                 table.insert(updates, { n = #results, pending = pending, shown = this.dict_index })
                 return orig_update(this, results, pending)
