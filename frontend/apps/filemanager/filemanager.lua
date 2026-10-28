@@ -1255,15 +1255,20 @@ function FileManager:renameFile(file, basename, is_file)
     local dest = ffiUtil.joinPath(ffiUtil.dirname(file), basename)
 
     local function doRenameFile()
+        -- mv moves a folder *inside* an already existing folder of the same name
+        local new_path = dest
+        if not is_file and lfs.attributes(dest, "mode") == "directory" then
+            new_path = ffiUtil.joinPath(dest, ffiUtil.basename(file))
+        end
         if self:moveFile(file, dest) then
             if is_file then
                 DocSettings.updateLocation(file, dest)
                 ReadHistory:updateItem(file, dest) -- (will update "lastfile" if needed)
                 ReadCollection:updateItem(file, dest)
             else
-                ReadHistory:updateItemsByPath(file, dest)
-                ReadCollection:updateItemsByPath(file, dest)
-                self.folder_shortcuts:updateItemsByPath(file, dest) -- will update system folders in settings
+                ReadHistory:updateItemsByPath(file, new_path)
+                ReadCollection:updateItemsByPath(file, new_path)
+                self.folder_shortcuts:updateItemsByPath(file, new_path) -- will update system folders in settings
             end
             self:onRefresh()
         else
