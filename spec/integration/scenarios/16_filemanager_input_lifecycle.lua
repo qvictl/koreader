@@ -14,13 +14,19 @@ return {
             text = "Synthetic browser-owned dialog",
             dismiss_callback = function() dismissed_while_alive = FileManager.instance == previous end,
         }
-        T:run(function() UIManager:show(overlay) end)
+        T:run(function()
+            previous.history:onShowHist()
+            previous.history.filter = "reading"
+            UIManager:show(overlay)
+        end)
         T:repaint()
         T:check(overlay.dimen and overlay.dimen.w > 0, "browser-owned dialog is painted")
         T:run(function() FileManager:showFiles(T:fixture("books")) end)
         T:waitUntil(function() return T:fileManager() and T:fileManager() ~= previous end, 5, "new file manager")
         T:check(not UIManager:isWidgetShown(overlay), "old browser-owned dialog is removed")
         T:check(dismissed_while_alive, "dialog closes before its owner is destroyed")
+        T:eq(G_reader_settings:readSetting("history_filter"), "reading", "closing the history menu persists its filter")
+        T:eq(previous.history.booklist_menu, nil, "history menu close callback releases its reference")
         T:check(T:topWidget() == T:fileManager(), "new file manager is the top window")
 
         T:run(function()
@@ -62,7 +68,7 @@ return {
         end)
         local reader = T:openBook(T:fixture("books/en.epub"))
         T:tap(math.floor(T.screen_w * 0.9), math.floor(T.screen_h / 2))
-        T:waitUntil(function() return reader:getCurrentPage() == 2 end, 5, "real input still turns pages")
+        T:waitUntil(function() return reader:getCurrentPage() == 2 end, 5, "synthetic tap still turns pages")
         T:closeBook()
     end,
 }
