@@ -49,6 +49,20 @@ describe("Trapper module", function()
         return false
     end
 
+    -- Readiness is the success condition; the deadline only bounds a broken worker.
+    local function waitForReadable(fd)
+        local time = require("ui/time")
+        local deadline = time.to_ms(time.now()) + 5000
+        local ready = ffi.new("struct pollfd[1]")
+        ready[0].fd, ready[0].events = fd, C.POLLIN
+        local status
+        repeat
+            local remaining = math.max(0, math.ceil(deadline - time.to_ms(time.now())))
+            status = C.poll(ready, 1, remaining)
+        until status >= 0 or ffi.errno() ~= C.EINTR or time.to_ms(time.now()) >= deadline
+        assert.is_true(status > 0, "pipe notification timed out or failed")
+    end
+
     -- A worker waits for an explicit parent release, with no timing assumption.
     local function ipcGate()
         guard_blocking_reads = true
@@ -65,13 +79,17 @@ describe("Trapper module", function()
         end
         gate_releases[#gate_releases + 1] = release
         return function()
-            released = true
             C.close(writer)
-            local byte = ffi.new("char[1]")
-            local count
-            repeat count = C.read(reader, byte, 1) until count >= 0 or ffi.errno() ~= C.EINTR
+            local ok, err = xpcall(function()
+                waitForReadable(reader)
+                local byte = ffi.new("char[1]")
+                local count
+                repeat count = C.read(reader, byte, 1) until count >= 0 or ffi.errno() ~= C.EINTR
+                assert.are.equal(1, count)
+            end, debug.traceback)
             C.close(reader)
-            assert.are.equal(1, count)
+            released = true
+            if not ok then error(err, 0) end
         end, release
     end
 
@@ -723,23 +741,20 @@ describe("Trapper module", function()
             assert.is_true(isReaped(pid))
         end)
 
-        it("drains the pipe of a dismissed child blocked in write() so that it can exit", function()
-            local flag = tmpPath()
+        it("closes a dismissed writer pipe and reaps it without a scheduling assumption", function()
+            local await_release, release = ipcGate()
             local size = 512 * 1024
             local res = runSub(function()
-                waitForFile(flag)
+                await_release()
                 return string.rep("y", size)
             end, false, true)
             local trap = shown[1]
             assert.is_false(trap.resend_event)
             runNextTask()
             -- let the child fill the pipe, then dismiss before Trapper reads it
-            touch(flag)
+            release()
             local fd = child_fds[1]
-            for _ = 1, 500 do
-                if ffiutil.getNonBlockingReadSize(fd) ~= 0 then break end
-                ffiutil.usleep(2000)
-            end
+            waitForReadable(fd)
             assert.are_not.equal(0, ffiutil.getNonBlockingReadSize(fd))
             -- Simulate a child that SIGKILL did not reach (yet).
             stub(ffiutil, "terminateSubProcess")
@@ -749,12 +764,41 @@ describe("Trapper module", function()
             assert.are.same({ false, n = 1 }, res.values)
             local pid = child_pids[1]
             assert.is_false(isReaped(pid))
-            -- 1st collector run drains the pipe (the child can then exit) and
-            -- reschedules itself; a later run reaps the child.
+            -- Closing the reader releases the blocked writer. It may exit
+            -- before the first collector runs, or need another poll.
+            assert.are.equal(-1, C.fcntl(fd, C.F_GETFD))
             runNextTask(0)
-            assert.are.equal(1, #tasks)
             assert.is_true(runUntil(function() return #tasks == 0 end, 500))
             assert.is_true(isReaped(pid))
+        end)
+
+        it("reschedules a dismissed collector while its worker is still alive", function()
+            local await_release, release = ipcGate()
+            local await_ready, ready = ipcGate()
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "", true)
+                    ready()
+                    await_release()
+                end, with_pipe)
+            end
+            local res = runSub(function() end, "Working", true)
+            await_ready()
+            stub(ffiutil, "terminateSubProcess")
+            local ok, err = xpcall(function() shown[1].dismiss_callback() end, debug.traceback)
+            ffiutil.terminateSubProcess:revert()
+            if not ok then error(err, 0) end
+            assert.are.same({ false, n = 1 }, res.values)
+            assert.are.equal(1, #tasks)
+            assert.are.equal(5, tasks[1].delay)
+            runNextTask()
+            assert.are.equal(1, #tasks)
+            assert.are.equal(5, tasks[1].delay)
+            assert.is_false(ffiutil.isSubProcessDone(child_pids[1]))
+            release()
+            assert.is_true(runUntil(function() return #tasks == 0 end))
+            assert.is_true(isReaped(child_pids[1]))
         end)
 
         it("resends the dismissing tap with an invisible TrapWidget", function()
