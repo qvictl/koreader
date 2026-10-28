@@ -873,6 +873,10 @@ end
 
 function ReaderUI:onClose(full_refresh)
     logger.dbg("closing reader")
+    -- Close the (non-modal) widgets still shown above us first, while the document is still open, as if dismissed
+    -- (e.g., the end of book dialog, when closing the book with it shown): they would otherwise be hidden forever
+    -- under the next fullscreen widget, keeping us (and our document's memory) alive through their callbacks.
+    UIManager:closeWidgetsAbove(self.dialog)
     PluginLoader:finalize()
     Device:notifyBookState(nil, nil)
     -- if self.dialog is us, we'll have our onFlushSettings() called
