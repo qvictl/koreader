@@ -1,35 +1,35 @@
 {
   "date": "2026-10-28",
   "overall": {
-    "covered": 51670,
-    "total": 98894,
-    "percent": 52.248,
+    "covered": 51776,
+    "total": 98927,
+    "percent": 52.338,
     "files": 491
   },
   "overall_unit": {
-    "covered": 46927,
-    "total": 98247,
-    "percent": 47.764,
+    "covered": 47032,
+    "total": 98280,
+    "percent": 47.855,
     "min": null
   },
   "diff_unit": {
-    "covered": 0,
-    "total": 0,
+    "covered": 66,
+    "total": 66,
     "percent": 100.000
   },
   "diff_combined": {
-    "covered": 0,
-    "total": 0,
+    "covered": 66,
+    "total": 66,
     "percent": 100.000
   },
   "ratchet": {
-    "baseline": 52.253,
-    "label": "main@5fe8072f (this change's base)"
+    "baseline": 52.248,
+    "label": "main@49e61901 (this change's base)"
   },
   "owned": {
-    "covered": 614,
-    "total": 625,
-    "percent": 98.240,
+    "covered": 629,
+    "total": 640,
+    "percent": 98.281,
     "min": 80,
     "ok": true,
     "modules": {
@@ -41,9 +41,9 @@
       },
       "frontend/apps/reader/modules/readerdictionary.lua": {
         "scope": "fork",
-        "covered": 374,
-        "total": 380,
-        "percent": 98.421
+        "covered": 375,
+        "total": 381,
+        "percent": 98.425
       },
       "frontend/ui/widget/dictquicklookup.lua": {
         "scope": "fork",
@@ -53,8 +53,8 @@
       },
       "frontend/ui/trapper.lua": {
         "scope": "fork",
-        "covered": 6,
-        "total": 6,
+        "covered": 17,
+        "total": 17,
         "percent": 100.000
       },
       "frontend/ui/uimanager.lua": {
@@ -83,14 +83,14 @@
       },
       "frontend/document/doccache.lua": {
         "scope": "fork",
-        "covered": 2,
-        "total": 2,
+        "covered": 4,
+        "total": 4,
         "percent": 100.000
       },
       "frontend/apps/reader/readerui.lua": {
         "scope": "fork",
-        "covered": 4,
-        "total": 4,
+        "covered": 5,
+        "total": 5,
         "percent": 100.000
       },
       "frontend/device/generic/device.lua": {
@@ -158,7 +158,7 @@
     }
   ],
   "ok": true,
-  "commit": "49e61901100b796a2ede0ccdf1c7acbeaca2a160",
+  "commit": "6f649f8b2dc92b3a7582b82e23c76d1f40d74374",
   "event": "push",
-  "updated": "2026-10-28T17:16:20Z"
+  "updated": "2026-10-28T17:22:31Z"
 }
