@@ -58,4 +58,32 @@ describe("Readerui module", function()
         new_readerui:closeDocument()
         new_readerui:onClose()
     end)
+    it("should close the end of book dialog when closing the book", function()
+        -- Closing the book (e.g. Home) while ReaderStatus' end of book dialog is shown used to
+        -- leave the dialog on the window stack, hidden under the next fullscreen widget forever
+        -- (and flagged in UIManager._dirty), keeping this ReaderUI alive through its callbacks.
+        UIManager:quit()
+        ReaderUI:doShowReader(sample_epub)
+        local ui = ReaderUI.instance
+        ui.status:onEndOfBook()
+        local dialog = UIManager:getTopmostVisibleWidget()
+        assert.are.same("end_document", dialog.name)
+        -- Modal widgets and toasts shown above the reader are left alone (they stay on top of
+        -- whatever comes next, as before).
+        local InfoMessage = require("ui/widget/infomessage")
+        local Notification = require("ui/widget/notification")
+        local info = InfoMessage:new{ text = "modal" }
+        local toast = Notification:new{ text = "toast" }
+        UIManager:show(info)
+        UIManager:show(toast)
+        ui:onClose()
+        assert.is_nil(ReaderUI.instance)
+        assert.is_false(UIManager:isWidgetShown(ui))
+        assert.is_false(UIManager:isWidgetShown(dialog))
+        assert.is_nil(UIManager._dirty[dialog])
+        assert.is_true(UIManager:isWidgetShown(info))
+        assert.is_true(UIManager:isWidgetShown(toast))
+        UIManager:close(toast)
+        UIManager:close(info)
+    end)
 end)
