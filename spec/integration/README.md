@@ -80,3 +80,4 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `11_memory_budget` | 10 open/turn/TOC/end of book/close cycles of 2 books: books reopen at their last page, each book is closed with its end of book dialog shown, which must go away with it; the RSS & Lua heap floors must not rise after warm-up (leak check) |
 | `12_japanese_kana_guard` | Japanese plugin leaves kana-less text alone in non-Japanese books (no lookups), still handles kana / Japanese books; its menu option |
 | `13_font_menu_faces` | font menu previews (incl. font-family sub-menus) don't keep their faces cached |
+| `14_base_archive_serialization` | archive error recovery and packaging/reloading radix-safe serializer output, including infinities and NaN |
