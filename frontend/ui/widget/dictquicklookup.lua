@@ -1393,7 +1393,7 @@ function DictQuickLookup:getInitialVisibleArea()
     elseif self.align == "bottom" then
         area.y = self.region.y + self.region.h - dict_size.h
     elseif self.align == "center" then
-        area.x = self.region.y + math.floor((self.region.h - dict_size.h)/2)
+        area.y = self.region.y + math.floor((self.region.h - dict_size.h)/2)
     end
     return area
 end
