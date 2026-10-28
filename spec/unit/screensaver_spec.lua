@@ -486,8 +486,7 @@ describe("Screensaver", function()
         end)
 
         it("caps the number of files considered", function()
-            -- (The cap counts every file scanned, images or not, in directory order: use a
-            -- folder with images only, so that the outcome doesn't depend on that order.)
+            -- The cap limits the number of candidate images.
             local only_images = img_dir .. "_only"
             require("util").makePath(only_images)
             for _, name in ipairs{ "a.png", "b.png" } do
@@ -503,6 +502,46 @@ describe("Screensaver", function()
             assert.are.equal(first, pick())
             assert.are.equal(1, G_reader_settings:readSetting("screensaver_cycle_index"))
         end)
+
+        for _, alphabetical in ipairs{ true, false } do
+            it("ignores non-images before the image limit (alphabetical=" .. tostring(alphabetical) .. ")", function()
+                local lfs = require("libs/libkoreader-lfs")
+                local real_dir = lfs.dir
+                local ordered = { ".", "..", "notes.txt", "._img0.png", "img1.png", "img2.png", "img11.png" }
+                local dir_stub = stub(lfs, "dir", function(dir)
+                    if dir ~= img_dir then return real_dir(dir) end
+                    local index = 0
+                    return function()
+                        index = index + 1
+                        return ordered[index]
+                    end, { close = function() end }
+                end)
+                finally(function() dir_stub:revert() end)
+                G_reader_settings:saveSetting("screensaver_cycle_images_alphabetically", alphabetical)
+                G_reader_settings:saveSetting("screensaver_max_files", 1)
+                assert.are.equal(img_dir .. "/img1.png", pick())
+                assert.are.equal(img_dir .. "/img1.png", pick())
+            end)
+
+            it("bounds unrelated directory entries (alphabetical=" .. tostring(alphabetical) .. ")", function()
+                local lfs = require("libs/libkoreader-lfs")
+                local real_dir = lfs.dir
+                local produced, closed = 0, 0
+                local dir_stub = stub(lfs, "dir", function(dir)
+                    if dir ~= img_dir then return real_dir(dir) end
+                    return function()
+                        produced = produced + 1
+                        if produced < 100000 then return "unrelated-" .. produced .. ".txt" end
+                    end, { close = function() closed = closed + 1 end }
+                end)
+                finally(function() dir_stub:revert() end)
+                G_reader_settings:saveSetting("screensaver_cycle_images_alphabetically", alphabetical)
+                G_reader_settings:saveSetting("screensaver_max_files", 1)
+                assert.are.equal("resources/koreader.png", pick())
+                assert.equals(1025, produced)
+                assert.equals(1, closed)
+            end)
+        end
 
         it("falls back to the bundled image when the folder has no image", function()
             G_reader_settings:saveSetting("screensaver_dir", empty_dir)
