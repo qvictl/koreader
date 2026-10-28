@@ -3123,7 +3123,7 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
     if conn_income:rowexec(ambiguous_books_sql) then
         logger.warn("statistics sync refused ambiguous legacy book identities in remote DB")
         conn_income:close()
-        return false
+        return false, _("Statistics synchronization stopped: the remote database contains duplicate book identities without file hashes.")
     end
 
     local sql = "attach '" .. income_path:gsub("'", "''") .."' as income_db;"
@@ -3190,7 +3190,7 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
     if conn:rowexec(ambiguous_books_sql) then
         logger.warn("statistics sync refused ambiguous legacy book identities in local DB")
         conn:close()
-        return false
+        return false, _("Statistics synchronization stopped: the local database contains duplicate book identities without file hashes.")
     end
 
     -- NOTE: We could replace this first `UPDATE` with an "upsert" by adding an `ON CONFLICT` clause to the

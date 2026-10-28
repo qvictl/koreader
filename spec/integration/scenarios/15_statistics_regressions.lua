@@ -81,6 +81,20 @@ return {
                 WHERE b.title = 'Legacy synthetic book' AND b.md5 IS NULL]])), 3,
                 "cloud sync retains all legacy reading records")
             conn:close()
+            conn = SQ3.open(path)
+            local count_before = tonumber(conn:rowexec("SELECT count(*) FROM page_stat_data"))
+            conn:exec([[INSERT INTO book(title, authors, pages) VALUES
+                ('Legacy synthetic book', 'Synthetic author', 100);]])
+            conn:close()
+            local ok, message = stats.onSync(path, settings .. "/legacy-sync-cache.sqlite3",
+                settings .. "/legacy-import.sqlite3")
+            T:eq(ok, false, "ambiguous legacy identities are rejected")
+            T:eq(message, require("gettext")("Statistics synchronization stopped: the local database contains duplicate book identities without file hashes."),
+                "ambiguous identity refusal explains the database conflict")
+            conn = SQ3.open(path)
+            T:eq(tonumber(conn:rowexec("SELECT count(*) FROM page_stat_data")), count_before,
+                "refused synchronization preserves local readings")
+            conn:close()
         end)
     end,
 }
