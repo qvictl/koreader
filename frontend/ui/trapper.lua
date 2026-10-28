@@ -22,19 +22,6 @@ local C = ffi.C
 
 require("ffi/posix_h")
 
--- Whether a popen()'d command's output can be read now without blocking: either it has
--- output pending, or it is done (end of file: the command exited, possibly without
--- printing anything, which the FIONREAD check alone can't tell from "not yet").
-local function isPipeReadable(luafile)
-    if ffiutil.getNonBlockingReadSize(luafile) ~= 0 then
-        return true
-    end
-    local pfd = ffi.new("struct pollfd[1]")
-    pfd[0].fd = C.fileno(luafile)
-    pfd[0].events = C.POLLIN
-    return C.poll(pfd, 1, 0) > 0 and bit.band(pfd[0].revents, C.POLLHUP) ~= 0
-end
-
 local Trapper = {}
 
 --[[--
@@ -328,11 +315,10 @@ Dismissable wrapper for @{io.popen|io.popen(`cmd`)}.
 
 Notes and limitations:
 
-1) It is dismissable as long as `cmd` as not yet output anything.
-   Once output has started, the reading will block till it is done.
-   (Some shell tricks, included in `cmd`, could probably be used to
-   accumulate `cmd` output in some variable, and to output the whole
-   variable to stdout at the end.)
+1) Output is collected in bounded non-blocking batches. Dismissing stops
+   waiting but leaves the command running; a background task drains its output
+   and reaps the shell without blocking the UI. A command that never exits may
+   therefore remain pending indefinitely.
 
 2) `cmd` may exit without outputting anything: that is detected (end of file),
    and the output is then the empty string.
@@ -344,21 +330,16 @@ Notes and limitations:
    an invisible TrapWidget will be used instead (if nil or true, the event will be
    resent; if false, the event will not be resent).
 
-If we really need to have more control, we would need to use `select()` via `ffi`
-or do low level non-blocking reading on the file descriptor.
-If there are `cmd` that may not exit, that we would be trying to
-collect indefinitely, the best option would be to compile any `timeout.c`
-and use it as a wrapper.
-
 @string cmd shell `cmd` to execute and get output from
 @param trap_widget_or_string already shown widget, string, or nil, true or false
 @treturn boolean completed (`true` if not interrupted, `false` if dismissed)
 @treturn string output of command
+@treturn string optional start_failed/read_failed reason; nil on dismissal
 ]]
 function Trapper:dismissablePopen(cmd, trap_widget_or_string)
-    local _coroutine = coroutine.running()
+    local _coroutine, is_main = coroutine.running()
     -- assert(_coroutine ~= nil, "Need to be called from a coroutine")
-    if not _coroutine then
+    if not _coroutine or is_main then
         logger.warn("unwrapped dismissablePopen(), falling back to blocking io.popen()")
         local std_out = io.popen(cmd, "r")
         if std_out then
@@ -366,7 +347,7 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
             std_out:close()
             return true, output
         end
-        return false
+        return false, nil, "start_failed"
     end
 
     local trap_widget
@@ -416,56 +397,71 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
 
     local completed = false
     local output = nil
+    local failure_reason
 
-    local std_out = io.popen(cmd, "r")
-    if std_out then
-        -- We check regularly if data is available to be read, and we give control
-        -- in the meantime to UIManager so our trap_widget's dismiss_callback
-        -- get a chance to be triggered, in which case we won't wait for reading,
-        -- We'll schedule a background function to collect the unneeded output and
-        -- close the pipe later.
+    local pid, read_fd = ffiutil.openCommandPipe(cmd)
+    if pid then
+        local chunks, process_done, failed = {}, false, false
+        local function collect(discard)
+            local drained, got_output = true, false
+            if read_fd then
+                local chunk, eof, read_drained, err = ffiutil.readAvailableFromFD(read_fd)
+                drained = read_drained
+                got_output = chunk ~= nil and chunk ~= ""
+                if err then
+                    logger.warn("dismissablePopen: could not read command output:", err)
+                    failed, eof = true, true
+                    failure_reason = "read_failed"
+                elseif not discard and chunk ~= "" then
+                    chunks[#chunks + 1] = chunk
+                end
+                if eof then C.close(read_fd); read_fd = nil end
+            end
+            process_done = process_done or ffiutil.isSubProcessDone(pid)
+            return read_fd == nil and process_done, drained, got_output
+        end
+        local collect_and_clean
+        collect_and_clean = function()
+            local done, drained, got_output = collect(true)
+            if not done then
+                UIManager:scheduleIn((got_output or not drained) and 0.01 or collect_interval_sec, collect_and_clean)
+            end
+        end
         while true do
-            -- Every 10 iterations, increase interval until a max of 1 sec is reached
             check_num = check_num + 1
             if check_interval_sec < 1 and check_num % 10 == 0 then
                 check_interval_sec = math.min(check_interval_sec * 2, 1)
             end
-            -- The following function will resume us at coroutine.yield() below
-            -- with a go_on = true
             local go_on_func = function() coroutine.resume(_coroutine, true) end
-            UIManager:scheduleIn(check_interval_sec, go_on_func) -- called in 100ms by default
-            local go_on = coroutine.yield() -- gives control back to UIManager
-            if not go_on then -- the dismiss_callback resumed us
+            UIManager:scheduleIn(check_interval_sec, go_on_func)
+            local go_on = coroutine.yield()
+            if not go_on then
                 UIManager:unschedule(go_on_func)
-                -- We forget cmd here, but something has to collect
-                -- its output and close the pipe to not leak file handles and
-                -- zombie processes.
-                local collect_and_clean
-                collect_and_clean = function()
-                    if isPipeReadable(std_out) then -- cmd started outputting, or is done
-                        std_out:read("*all")
-                        std_out:close()
-                        logger.dbg("collected cancelled cmd output")
-                    else -- no output yet, reschedule
-                        UIManager:scheduleIn(collect_interval_sec, collect_and_clean)
-                        logger.dbg("cancelled cmd output not yet collectable")
-                    end
-                end
+                chunks = nil -- cancelled output is discarded, not accumulated
                 UIManager:scheduleIn(collect_interval_sec, collect_and_clean)
                 break
             end
-            -- The go_on_func resumed us: we have not been dismissed.
-            -- Check if pipe is ready to be read
-            if isPipeReadable(std_out) then
-                -- Some data is available for reading (or cmd is done): read it all,
-                -- but we may block from now on
-                output = std_out:read("*all")
-                std_out:close()
-                completed = true
+            local done, drained, got_output = collect(false)
+            -- Yield between batches without throttling a ready writer to the
+            -- idle polling interval (small kernel pipe buffers are common).
+            if got_output or not drained then
+                check_interval_sec, check_num = 0.01, 0
+            elseif check_interval_sec < 0.125 then
+                check_interval_sec = 0.125
+            end
+            if failed then
+                chunks = nil
+                if not done then UIManager:scheduleIn(collect_interval_sec, collect_and_clean) end
+                break
+            elseif done then
+                completed, output = true, table.concat(chunks)
+                chunks = nil -- transport data must not survive the following UI repaint
                 break
             end
-            -- logger.dbg("no cmd output yet, will check again soon")
         end
+    else
+        logger.warn("dismissablePopen: could not start command:", read_fd)
+        failure_reason = "start_failed"
     end
     if own_trap_widget then
         -- Remove our own trap_widget
@@ -477,6 +473,7 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
         trap_widget.dismiss_callback = orig_dismiss_callback
     end
     -- return what we got or not to our caller
+    if failure_reason then return false, nil, failure_reason end
     return completed, output
 end
 
@@ -661,6 +658,8 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
                     ffiutil.terminateSubProcess(pid)
                 else
                     local ret_str = table.concat(output_chunks)
+                    -- Let GC reclaim transport chunks before decoding large results.
+                    output_chunks = nil -- luacheck: ignore 311
                     if #ret_str > 0 then
                         if task_returns_simple_string then
                             ret_values = ret_str

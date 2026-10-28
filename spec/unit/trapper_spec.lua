@@ -18,6 +18,7 @@ describe("Trapper module", function()
     local repaints   -- number of UIManager:forceRePaint() calls
     local saved_ui
     local orig_run_in_subprocess, orig_read_all
+    local orig_command_pipe, orig_read_available
     local guard_blocking_reads
     local child_pids, child_fds
     local tmp_files, gate_releases
@@ -49,6 +50,20 @@ describe("Trapper module", function()
         return false
     end
 
+    -- Readiness is the success condition; the deadline only bounds a broken worker.
+    local function waitForReadable(fd)
+        local time = require("ui/time")
+        local deadline = time.to_ms(time.now()) + 5000
+        local ready = ffi.new("struct pollfd[1]")
+        ready[0].fd, ready[0].events = fd, C.POLLIN
+        local status
+        repeat
+            local remaining = math.max(0, math.ceil(deadline - time.to_ms(time.now())))
+            status = C.poll(ready, 1, remaining)
+        until status >= 0 or ffi.errno() ~= C.EINTR or time.to_ms(time.now()) >= deadline
+        assert.is_true(status > 0, "pipe notification timed out or failed")
+    end
+
     -- A worker waits for an explicit parent release, with no timing assumption.
     local function ipcGate()
         guard_blocking_reads = true
@@ -65,13 +80,17 @@ describe("Trapper module", function()
         end
         gate_releases[#gate_releases + 1] = release
         return function()
-            released = true
             C.close(writer)
-            local byte = ffi.new("char[1]")
-            local count
-            repeat count = C.read(reader, byte, 1) until count >= 0 or ffi.errno() ~= C.EINTR
+            local ok, err = xpcall(function()
+                waitForReadable(reader)
+                local byte = ffi.new("char[1]")
+                local count
+                repeat count = C.read(reader, byte, 1) until count >= 0 or ffi.errno() ~= C.EINTR
+                assert.are.equal(1, count)
+            end, debug.traceback)
             C.close(reader)
-            assert.are.equal(1, count)
+            released = true
+            if not ok then error(err, 0) end
         end, release
     end
 
@@ -155,6 +174,8 @@ describe("Trapper module", function()
         replaceUI("forceRePaint", function() repaints = repaints + 1 end)
         replaceUI("preventStandby", spy.new(function() end))
         replaceUI("allowStandby", spy.new(function() end))
+        orig_command_pipe = ffiutil.openCommandPipe
+        orig_read_available = ffiutil.readAvailableFromFD
         orig_run_in_subprocess = ffiutil.runInSubProcess
         ffiutil.runInSubProcess = function(...)
             local pid, fd = orig_run_in_subprocess(...)
@@ -169,6 +190,8 @@ describe("Trapper module", function()
     end)
 
     after_each(function()
+        ffiutil.openCommandPipe = orig_command_pipe
+        ffiutil.readAvailableFromFD = orig_read_available
         ffiutil.readAllFromFD = orig_read_all
         ffiutil.runInSubProcess = orig_run_in_subprocess
         for name, fn in pairs(saved_ui) do
@@ -280,6 +303,21 @@ describe("Trapper module", function()
             local completed, output = Trapper:dismissablePopen("echo hello")
             assert.is_true(completed)
             assert.are.equal("hello\n", output)
+            assert.are.equal(0, #shown)
+        end)
+
+        it("dismissablePopen() uses the blocking fallback for an explicit main-thread flag", function()
+            local running_stub = stub(coroutine, "running", function() return {}, true end)
+            local start = spy.on(ffiutil, "openCommandPipe")
+            local ok, completed, output = pcall(function()
+                return Trapper:dismissablePopen("printf main-thread", "unused")
+            end)
+            running_stub:revert()
+            ffiutil.openCommandPipe:revert()
+            assert.is_true(ok)
+            assert.is_true(completed)
+            assert.are.equal("main-thread", output)
+            assert.spy(start).was_not.called()
             assert.are.equal(0, #shown)
         end)
 
@@ -468,6 +506,31 @@ describe("Trapper module", function()
             assert.are.equal(2, repaints)
             -- the child was collected
             assert.is_true(runUntil(function() return isReaped(child_pids[1]) end, 500))
+        end)
+
+        it("releases transport chunks before decoding results", function()
+            local weak = setmetatable({}, { __mode = "v" })
+            local concat, decode = table.concat, require("string.buffer").decode
+            table.concat = function(chunks, ...) -- luacheck: ignore 122
+                weak[1] = chunks
+                return concat(chunks, ...)
+            end
+            local checked = false
+            stub(require("string.buffer"), "decode", function(...)
+                collectgarbage("collect")
+                assert.is_nil(weak[1])
+                checked = true
+                return decode(...)
+            end)
+            local ok, err = pcall(function()
+                local res = runSub(function() return { payload = "transport" } end)
+                assert.is_true(runUntil(done(res)))
+                assert.is_true(res.values[1])
+                assert.is_true(checked)
+            end)
+            table.concat = concat -- luacheck: ignore 122
+            require("string.buffer").decode:revert()
+            assert(ok, err)
         end)
 
         it("returns a simple string with task_returns_simple_string", function()
@@ -723,23 +786,20 @@ describe("Trapper module", function()
             assert.is_true(isReaped(pid))
         end)
 
-        it("drains the pipe of a dismissed child blocked in write() so that it can exit", function()
-            local flag = tmpPath()
+        it("closes a dismissed writer pipe and reaps it without a scheduling assumption", function()
+            local await_release, release = ipcGate()
             local size = 512 * 1024
             local res = runSub(function()
-                waitForFile(flag)
+                await_release()
                 return string.rep("y", size)
             end, false, true)
             local trap = shown[1]
             assert.is_false(trap.resend_event)
             runNextTask()
             -- let the child fill the pipe, then dismiss before Trapper reads it
-            touch(flag)
+            release()
             local fd = child_fds[1]
-            for _ = 1, 500 do
-                if ffiutil.getNonBlockingReadSize(fd) ~= 0 then break end
-                ffiutil.usleep(2000)
-            end
+            waitForReadable(fd)
             assert.are_not.equal(0, ffiutil.getNonBlockingReadSize(fd))
             -- Simulate a child that SIGKILL did not reach (yet).
             stub(ffiutil, "terminateSubProcess")
@@ -749,12 +809,41 @@ describe("Trapper module", function()
             assert.are.same({ false, n = 1 }, res.values)
             local pid = child_pids[1]
             assert.is_false(isReaped(pid))
-            -- 1st collector run drains the pipe (the child can then exit) and
-            -- reschedules itself; a later run reaps the child.
+            -- Closing the reader releases the blocked writer. It may exit
+            -- before the first collector runs, or need another poll.
+            assert.are.equal(-1, C.fcntl(fd, C.F_GETFD))
             runNextTask(0)
-            assert.are.equal(1, #tasks)
             assert.is_true(runUntil(function() return #tasks == 0 end, 500))
             assert.is_true(isReaped(pid))
+        end)
+
+        it("reschedules a dismissed collector while its worker is still alive", function()
+            local await_release, release = ipcGate()
+            local await_ready, ready = ipcGate()
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "", true)
+                    ready()
+                    await_release()
+                end, with_pipe)
+            end
+            local res = runSub(function() end, "Working", true)
+            await_ready()
+            stub(ffiutil, "terminateSubProcess")
+            local ok, err = xpcall(function() shown[1].dismiss_callback() end, debug.traceback)
+            ffiutil.terminateSubProcess:revert()
+            if not ok then error(err, 0) end
+            assert.are.same({ false, n = 1 }, res.values)
+            assert.are.equal(1, #tasks)
+            assert.are.equal(5, tasks[1].delay)
+            runNextTask()
+            assert.are.equal(1, #tasks)
+            assert.are.equal(5, tasks[1].delay)
+            assert.is_false(ffiutil.isSubProcessDone(child_pids[1]))
+            release()
+            assert.is_true(runUntil(function() return #tasks == 0 end))
+            assert.is_true(isReaped(child_pids[1]))
         end)
 
         it("resends the dismissing tap with an invisible TrapWidget", function()
@@ -811,12 +900,105 @@ describe("Trapper module", function()
     end)
 
     describe("dismissablePopen", function()
+        local popen_guard
+        before_each(function()
+            popen_guard = stub(io, "popen", function()
+                error("wrapped commands must not reintroduce blocking stdio ownership", 0)
+            end)
+        end)
+        after_each(function() popen_guard:revert() end)
+
         local function runPopen(cmd, trap)
             return runWrapped(function()
                 return Trapper:dismissablePopen(cmd, trap)
             end)
         end
         local function done(res) return function() return res.done end end
+
+        local function shellGate()
+            local pipe = ffi.new("int[2]")
+            assert.are.equal(0, C.pipe(pipe))
+            local released = false
+            local function release()
+                if released then return end
+                released = true
+                C.write(pipe[1], "go\n", 3)
+                C.close(pipe[1]); C.close(pipe[0])
+            end
+            gate_releases[#gate_releases + 1] = release
+            local run = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(func, with_pipe)
+                return run(function(pid, fd)
+                    assert(C.dup2(pipe[0], 0) == 0)
+                    C.close(pipe[1])
+                    if pipe[0] ~= 0 then C.close(pipe[0]) end
+                    func(pid, fd)
+                end, with_pipe)
+            end
+            return "read ready", release
+        end
+
+        it("remains dismissable after a prefix, and its collector never waits for the suffix", function()
+            local gate, release = shellGate()
+            local saw_prefix = false
+            ffiutil.readAvailableFromFD = function(fd)
+                local chunk, eof, drained, err = orig_read_available(fd)
+                saw_prefix = saw_prefix or chunk == "prefix"
+                return chunk, eof, drained, err
+            end
+            local res = runPopen("printf prefix; " .. gate .. "; printf suffix")
+            assert.is_true(runUntil(function() return saw_prefix end))
+            assert.is_false(res.done)
+            local pid = child_pids[#child_pids]
+            shown[1]:onTapDismiss(nil, { ges = "tap" })
+            assert.are.same({ false, nil, n = 2 }, res.values)
+            runNextTask(0) -- the background drain sees EAGAIN, never read('*all')
+            assert.are.equal(1, #tasks)
+            assert.are.equal(0, C.kill(pid, 0)) -- cancellation does not kill it
+            release()
+            assert.is_true(runUntil(function() return #tasks == 0 end))
+            assert.is_true(isReaped(pid))
+        end)
+
+        it("keeps yielding after stdout EOF until the shell exits", function()
+            local gate, release = shellGate()
+            local saw_eof = false
+            ffiutil.readAvailableFromFD = function(fd)
+                local chunk, eof, drained, err = orig_read_available(fd)
+                saw_eof = saw_eof or eof
+                return chunk, eof, drained, err
+            end
+            local res = runPopen("exec 1>&-; " .. gate)
+            assert.is_true(runUntil(function() return saw_eof end))
+            assert.is_false(res.done)
+            runNextTask(0) -- no pclose or blocking waitpid after EOF
+            assert.is_false(res.done)
+            release()
+            assert.is_true(runUntil(done(res)))
+            assert.are.same({ true, "", n = 2 }, res.values)
+        end)
+
+        it("reports a read failure immediately and reaps the live command later", function()
+            local gate, release = shellGate()
+            ffiutil.readAvailableFromFD = function() return nil, false, false, "expected read error" end
+            local res = runPopen(gate)
+            assert.is_true(runUntil(done(res)))
+            assert.are.same({ false, nil, "read_failed", n = 3 }, res.values)
+            local pid = child_pids[#child_pids]
+            assert.are.equal(0, C.kill(pid, 0))
+            runNextTask(0)
+            assert.are.equal(1, #tasks)
+            release()
+            assert.is_true(runUntil(function() return #tasks == 0 end))
+            assert.is_true(isReaped(pid))
+        end)
+
+        it("reports spawn failures distinctly from dismissal", function()
+            ffiutil.openCommandPipe = function() return false, "expected spawn error" end
+            local res = runPopen("printf ignored")
+            assert.is_true(res.done)
+            assert.are.same({ false, nil, "start_failed", n = 3 }, res.values)
+        end)
 
         it("returns the command output, with a visible TrapWidget", function()
             local res = runPopen("printf 'some output'", "Running")
@@ -827,6 +1009,30 @@ describe("Trapper module", function()
             assert.are.same({ true, "some output", n = 2 }, res.values)
             assert.are.same({ trap }, closed)
             assert.are.equal(2, repaints)
+        end)
+
+        it("releases command transport chunks before repainting", function()
+            local weak = setmetatable({}, { __mode = "v" })
+            local concat = table.concat
+            table.concat = function(chunks, ...) -- luacheck: ignore 122
+                weak[1] = chunks
+                return concat(chunks, ...)
+            end
+            local checked = false
+            UIManager.forceRePaint = function()
+                if #closed == 0 then return end
+                collectgarbage("collect")
+                assert.is_nil(weak[1])
+                checked = true
+            end
+            local ok, err = pcall(function()
+                local res = runPopen("printf transport", "Working")
+                assert.is_true(runUntil(done(res)))
+                assert.are.same({ true, "transport", n = 2 }, res.values)
+                assert.is_true(checked)
+            end)
+            table.concat = concat -- luacheck: ignore 122
+            assert(ok, err)
         end)
 
         it("returns large outputs entirely", function()
