@@ -36,6 +36,7 @@ return {
   ['include'] = {
     'frontend/.*$',
     'plugins/.*$',
+    'ffi/.*$', -- base's ffi/ modules (base/ffi/ in the repo), e.g. fork-owned ffi/util.lua
   },
 
   -- Patterns for files to exclude when reporting
