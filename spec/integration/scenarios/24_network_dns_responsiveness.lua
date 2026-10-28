@@ -142,7 +142,23 @@ return {
             T:check(T:topWidget().dimen, "the Wallabag result is painted")
             T:tapWidget(T:topWidget(), "dismiss Wallabag result")
 
-
+            local failed_calls = 0
+            T:run(function()
+                local run = ffiUtil.runInSubProcess
+                ffiUtil.runInSubProcess = function() return nil, "synthetic fork failure" end
+                local started, failure = pcall(NetworkMgr.runWhenOnline, NetworkMgr,
+                    function() failed_calls = failed_calls + 1 end)
+                ffiUtil.runInSubProcess = run
+                if not started then error(failure, 0) end
+            end)
+            T:waitUntil(function()
+                return T:topWidget().text == require("gettext")("Network connectivity check failed. Please try again.")
+            end, 5, "worker startup failure displays a clear retry message")
+            T:repaint()
+            T:eq(failed_calls, 0, "worker failure does not run an unverified online action")
+            T:eq(reconnect_calls, 0, "worker startup failure does not reconnect Wi-Fi")
+            T:check(T:topWidget().dimen, "the worker failure message is painted")
+            T:tapWidget(T:topWidget(), "dismiss the failed connectivity check")
 
             local Queue = require("KOSyncQueue")
             local sent, held_uploads = {}, nil
