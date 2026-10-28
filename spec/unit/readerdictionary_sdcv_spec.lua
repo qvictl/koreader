@@ -803,11 +803,12 @@ describe("ReaderDictionary sdcv lookups", function()
         end)
 
         it("should yield but check a ready short lookup within five milliseconds", function()
+            local now = stub(time, "now", function() return time.s(10) end)
             local scheduled
             local schedule = stub(UIManager, "scheduleIn", function(_, delay, callback)
                 scheduled = { delay = delay, callback = callback }
             end)
-            finally(function() schedule:revert() end)
+            finally(function() schedule:revert(); now:revert() end)
             local completed, output
             local process = {
                 poll = function() return true end,
@@ -846,7 +847,7 @@ describe("ReaderDictionary sdcv lookups", function()
             clock = clock + time.ms(500)
             scheduled[1].callback()
             assert.is_nil(completed)
-            assert.is_true(scheduled[2].delay >= 0.05 and scheduled[2].delay <= 0.25)
+            assert.is_true(scheduled[2].delay >= 0.05 and scheduled[2].delay < 0.25)
             clock = clock + time.s(10)
             scheduled[2].callback()
             assert.is_true(scheduled[3].delay >= 0.2 and scheduled[3].delay <= 0.25)

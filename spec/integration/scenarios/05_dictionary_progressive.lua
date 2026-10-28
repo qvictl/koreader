@@ -31,6 +31,26 @@ return {
         T:budget("first_result_ms", max_first, 3000, "ms")
         T:budget("all_results_ms", max_total, 6000, "ms")
 
+        -- Repeat a short public-dictionary query after fonts and dictionary data
+        -- are warm. Unit tests fix the clock to guard the startup poll deadline;
+        -- real UI budgets retain headroom for slower emulator workers.
+        local expected = DictHelper.classic(T, ui, "harbor")
+        for _, progressive in ipairs({ false, true }) do
+            G_reader_settings:saveSetting("dict_progressive_lookup", progressive)
+            local first_paints = {}
+            for _ = 1, 3 do
+                local r = DictHelper.lookup(T, ui, "harbor")
+                T:eq(r.results, expected, "repeated short lookup keeps every dictionary result")
+                first_paints[#first_paints + 1] = r.first_ms
+                DictHelper.close(T, ui)
+            end
+            table.sort(first_paints)
+            local mode = progressive and "progressive" or "classic"
+            T:metric("short_lookup_" .. mode .. "_first_median_ms", first_paints[2], "ms")
+            T:budget("short_lookup_" .. mode .. "_first_max_ms", first_paints[3], 1000, "ms")
+        end
+        G_reader_settings:saveSetting("dict_progressive_lookup", true)
+
         -- Closing the window while the background lookup runs kills it (no sdcv left behind).
         local holder = DictHelper.instrument(T)
         holder.cur = { word = "harbor" }
