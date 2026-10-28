@@ -418,10 +418,15 @@ function DocSettings:purge(sidecar_to_keep, data_to_purge)
     DocSettings.setIsHashLocationEnabled(nil) -- reset this in case last hash book is purged
 end
 
+-- Whether path is base_dir or inside it (a plain prefix test would also match e.g. base_dir .. "-old").
+local function isInDir(path, base_dir)
+    return path == base_dir or util.stringStartsWith(path, base_dir .. "/")
+end
+
 --- Removes sidecar dir iff empty.
 function DocSettings.removeSidecarDir(dir)
     if dir and isDir(dir) then
-        if util.stringStartsWith(dir, DOCSETTINGS_DIR) or util.stringStartsWith(dir, DOCSETTINGS_HASH_DIR) then
+        if isInDir(dir, DOCSETTINGS_DIR) or isInDir(dir, DOCSETTINGS_HASH_DIR) then
             util.removePath(dir) -- remove empty parent folders
         else
             os.remove(dir) -- keep parent folders
