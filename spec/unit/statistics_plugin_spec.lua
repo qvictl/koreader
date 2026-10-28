@@ -244,6 +244,29 @@ describe("Statistics plugin", function()
     end)
 
     describe("database setup", function()
+        it("imports legacy stat files without a currently open book", function()
+            local legacy_dir = DataStorage:getDataDir() .. "/statistics"
+            util.makePath(legacy_dir)
+            finally(function() require("ffi/util").purgeDir(legacy_dir) end)
+            for i, title in ipairs{ "Legacy A", "Legacy B", "Legacy A" } do
+                local file = assert(io.open(legacy_dir .. "/book" .. i .. ".stat", "w"))
+                file:write(string.format([[return {
+                    title = %q, authors = "Synthetic author", notes = 0, highlights = 0,
+                    pages = 100, series = "", language = "en", total_time = 60,
+                    details = { { time = 1000, page = 1 }, { time = 1030, page = 2 } },
+                }]], title))
+                file:close()
+            end
+            local stats = setmetatable({ settings = { max_sec = 120 } }, { __index = ReaderStatistics })
+            withConn(db_path, function(conn)
+                assert.are.equal(3, stats:migrateToDB(conn))
+            end)
+            assert.are.same({ { "Legacy A", 2, 90 }, { "Legacy B", 2, 90 } },
+                dbRows("SELECT title, total_read_pages, total_read_time FROM book ORDER BY title;"))
+            assert.are.equal(6, dbNum("SELECT count(*) FROM page_stat_data;"))
+            assert.are.equal(6, dbNum("SELECT count(*) FROM page_stat;"))
+        end)
+
         it("creates the current schema on first run and marks the conversion as done", function()
             local stats = newStats{ no_doc = true }
             assert.is_true(stats.settings.convert_to_db)
@@ -989,6 +1012,21 @@ describe("Statistics plugin", function()
             assert.are.equal(3, #kv.kv_pairs)
         end)
 
+        it("lists and resets a half-open period without touching the next midnight", function()
+            dbExec("DELETE FROM page_stat_data;")
+            insertPageStat(1, 1, TODAY0, 20, 100)
+            insertPageStat(1, 2, TODAY0 + 86400, 30, 100)
+            insertPageStat(2, 3, TODAY0 + 86400, 40, 100)
+            local books = stats:getBooksFromPeriod(TODAY0, TODAY0 + 86400)
+            assert.are.equal(1, #books)
+            assert.are.equal(1, books[1].book_id)
+            assert.are.equal(20, books[1].duration)
+            stats:resetStatsForBookForPeriod(1, TODAY0, TODAY0 + 86400, false)
+            lastShown("ConfirmBox").ok_callback()
+            assert.are.same({ { 1, 2 }, { 2, 3 } },
+                dbRows("SELECT id_book, page FROM page_stat_data ORDER BY id_book;"))
+        end)
+
         it("summarizes all books, most recently opened first", function()
             local title, list = stats:getTotalStats()
             assert.are.equal("Total time spent reading: " .. datetime.secondsToClockDuration(nil, 450, false), title)
@@ -1386,6 +1424,62 @@ describe("Statistics plugin", function()
             assert.are.equal(1, dbNum("SELECT count(*) FROM page_stat_data;"))
         end)
 
+        it("rejects an empty local database without attempting the sync SQL", function()
+            newStats{ no_doc = true }
+            local income = settings_dir .. "/income.sqlite3"
+            require("ffi/util").copyFile(db_path, income)
+            local empty = settings_dir .. "/empty.sqlite3"
+            os.remove(empty)
+            finally(function() os.remove(empty) end)
+            local result
+            assert.has_no.errors(function()
+                result = ReaderStatistics.onSync(empty, settings_dir .. "/cached.sqlite3", income)
+            end)
+            assert.is_false(result)
+            assert.are.equal(0, dbNum("PRAGMA schema_version;", empty))
+        end)
+
+        it("merges legacy books without hashes and still imports unrelated remote books", function()
+            newStats{ no_doc = true }
+            insertBook{ id = 1, title = "Legacy", last_open = NOW }
+            dbExec("UPDATE book SET md5 = NULL;")
+            insertPageStat(1, 1, 1000, 30, 100)
+            local income = settings_dir .. "/income.sqlite3"
+            withConn(income, function(conn) ReaderStatistics:createDB(conn) end)
+            insertBook({ id = 10, title = "Legacy", last_open = NOW + 10 }, income)
+            dbExec("UPDATE book SET md5 = NULL;", income)
+            insertPageStat(10, 2, 1100, 40, 100, income)
+            insertBook({ id = 11, title = "Remote only", md5 = "remote-only" }, income)
+            insertPageStat(11, 1, 1200, 50, 100, income)
+            assert.is_true(ReaderStatistics.onSync(db_path, settings_dir .. "/cached.sqlite3", income))
+            assert.are.equal(2, dbNum("SELECT count(*) FROM book;"))
+            assert.are.equal(3, dbNum("SELECT count(*) FROM page_stat_data;"))
+            assert.are.equal(NOW + 10, dbNum("SELECT last_open FROM book WHERE title = 'Legacy';"))
+            assert.are.equal(70, dbNum("SELECT total_read_time FROM book WHERE title = 'Legacy';"))
+        end)
+
+        for _, duplicate_remote in ipairs{ false, true } do
+            it("rejects ambiguous legacy identities in the " .. (duplicate_remote and "remote" or "local") .. " DB", function()
+                newStats{ no_doc = true }
+                insertBook{ id = 1, title = "Legacy" }
+                insertPageStat(1, 1, 1000, 30, 100)
+                local income = settings_dir .. "/income.sqlite3"
+                makeDB(income)
+                insertBook({ id = 10, title = "Legacy" }, income)
+                insertPageStat(10, 2, 1100, 40, 100, income)
+                insertBook({ id = duplicate_remote and 11 or 2, title = "Legacy", md5 = "duplicate" },
+                    duplicate_remote and income or db_path)
+                dbExec("UPDATE book SET md5 = NULL;")
+                dbExec("UPDATE book SET md5 = NULL;", income)
+                local ok, message = ReaderStatistics.onSync(db_path, settings_dir .. "/cached.sqlite3", income)
+                assert.is_false(ok)
+                assert.truthy(message:find("duplicate book identities", 1, true))
+                assert.truthy(message:find(duplicate_remote and "remote" or "local", 1, true))
+                assert.are.equal(1, dbNum("SELECT count(*) FROM page_stat_data;"))
+                assert.are.equal(1, dbNum("SELECT count(*) FROM page_stat_data;", income))
+            end)
+        end
+
         it("merges a remote DB into the local one", function()
             local stats = newStats{ title = "Shared", md5 = "s" }
             insertPageStat(1, 1, 1000, 30, 100)
@@ -1413,35 +1507,42 @@ describe("Statistics plugin", function()
             assert.are.equal(4, dbNum("SELECT count(*) FROM page_stat_data;"))
         end)
 
-        it("propagates deletions using the DB cached at the previous sync", function()
-            newStats{ no_doc = true }
-            insertBook{ id = 1, title = "Kept", md5 = "k" }
-            insertBook{ id = 2, title = "Deleted remotely", md5 = "dr" }
-            insertPageStat(1, 1, 1000, 30, 100)
-            insertPageStat(1, 2, 1100, 30, 100)
-            insertPageStat(2, 1, 1000, 30, 100)
-            -- previous sync state: everything above, plus a book since deleted locally
-            local cached = settings_dir .. "/cached.sqlite3"
-            os.remove(cached)
-            require("ffi/util").copyFile(db_path, cached)
-            insertBook({ id = 3, title = "Deleted locally", md5 = "dl" }, cached)
-            insertPageStat(3, 1, 1000, 30, 100, cached)
-            -- a page stat deleted locally since last sync
-            dbExec("DELETE FROM page_stat_data WHERE id_book = 1 AND page = 2;")
-            -- remote: deleted "Deleted remotely", still has "Deleted locally" and the deleted page stat
-            local income = settings_dir .. "/income.sqlite3"
-            makeDB(income)
-            insertBook({ id = 10, title = "Kept", md5 = "k" }, income)
-            insertBook({ id = 11, title = "Deleted locally", md5 = "dl" }, income)
-            insertPageStat(10, 1, 1000, 30, 100, income)
-            insertPageStat(10, 2, 1100, 30, 100, income)
-            insertPageStat(11, 1, 1000, 30, 100, income)
+        for _, missing_hash in ipairs{ false, true } do
+            it("propagates cached deletions " .. (missing_hash and "without hashes" or "with hashes"), function()
+                newStats{ no_doc = true }
+                insertBook{ id = 1, title = "Kept", md5 = "k" }
+                insertBook{ id = 2, title = "Deleted remotely", md5 = "dr" }
+                insertPageStat(1, 1, 1000, 30, 100)
+                insertPageStat(1, 2, 1100, 30, 100)
+                insertPageStat(2, 1, 1000, 30, 100)
+                -- previous sync state: everything above, plus a book since deleted locally
+                local cached = settings_dir .. "/cached.sqlite3"
+                os.remove(cached)
+                require("ffi/util").copyFile(db_path, cached)
+                insertBook({ id = 3, title = "Deleted locally", md5 = "dl" }, cached)
+                insertPageStat(3, 1, 1000, 30, 100, cached)
+                -- a page stat deleted locally since last sync
+                dbExec("DELETE FROM page_stat_data WHERE id_book = 1 AND page = 2;")
+                -- remote: deleted "Deleted remotely", still has "Deleted locally" and the deleted page stat
+                local income = settings_dir .. "/income.sqlite3"
+                makeDB(income)
+                insertBook({ id = 10, title = "Kept", md5 = "k" }, income)
+                insertBook({ id = 11, title = "Deleted locally", md5 = "dl" }, income)
+                insertPageStat(10, 1, 1000, 30, 100, income)
+                insertPageStat(10, 2, 1100, 30, 100, income)
+                insertPageStat(11, 1, 1000, 30, 100, income)
 
-            assert.is_true(ReaderStatistics.onSync(db_path, cached, income))
+                if missing_hash then
+                    for _, path in ipairs{ db_path, cached, income } do
+                        dbExec("UPDATE book SET md5 = NULL;", path)
+                    end
+                end
+                assert.is_true(ReaderStatistics.onSync(db_path, cached, income))
 
-            assert.are.same({ { "Kept" } }, dbRows("SELECT title FROM book;"))
-            assert.are.same({ { 1, 1 } }, dbRows("SELECT id_book, page FROM page_stat_data;"))
-        end)
+                assert.are.same({ { "Kept" } }, dbRows("SELECT title FROM book;"))
+                assert.are.same({ { 1, 1 } }, dbRows("SELECT id_book, page FROM page_stat_data;"))
+            end)
+        end
 
         it("manages the sync server from the settings dialog", function()
             local cs = {
