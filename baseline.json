@@ -1,15 +1,15 @@
 {
   "date": "2026-10-28",
   "overall": {
-    "covered": 51675,
+    "covered": 51670,
     "total": 98894,
-    "percent": 52.253,
+    "percent": 52.248,
     "files": 491
   },
   "overall_unit": {
-    "covered": 46932,
+    "covered": 46927,
     "total": 98247,
-    "percent": 47.769,
+    "percent": 47.764,
     "min": null
   },
   "diff_unit": {
@@ -21,6 +21,10 @@
     "covered": 0,
     "total": 0,
     "percent": 100.000
+  },
+  "ratchet": {
+    "baseline": 52.253,
+    "label": "main@5fe8072f (this change's base)"
   },
   "owned": {
     "covered": 614,
@@ -154,7 +158,7 @@
     }
   ],
   "ok": true,
-  "commit": "5fe8072fe41b0f6f948f7c08fa3cae8663beea26",
+  "commit": "49e61901100b796a2ede0ccdf1c7acbeaca2a160",
   "event": "push",
-  "updated": "2026-10-28T16:19:33Z"
+  "updated": "2026-10-28T17:16:20Z"
 }
