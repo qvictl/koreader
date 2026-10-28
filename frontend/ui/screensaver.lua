@@ -95,13 +95,14 @@ local function _getRandomImage(dir)
     if G_reader_settings:isTrue("screensaver_cycle_images_alphabetically") then
         local start_time = time.now()
         local files = {}
+        -- Independently bound directory visits on the synchronous suspend path.
         util.findFiles(dir, function(file)
             if match_func(file) then
                 table.insert(files, file)
                 return true
             end
             return false
-        end, false, max_files)
+        end, false, max_files, math.max(1024, max_files * 4))
         if #files == 0 then return end
         -- we have files, sort them in natural order, i.e z2 < z11 < z20
         local sort = require("sort")

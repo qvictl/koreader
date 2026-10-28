@@ -786,14 +786,20 @@ end
 -- The callback may return false to exclude a file from the max_files count.
 -- @bool recursive
 -- @int max_files (maximum number of files to find)
-function util.findFiles(dir, cb, recursive, max_files)
+-- @int max_entries (maximum directory entries to visit, including rejected files)
+function util.findFiles(dir, cb, recursive, max_files, max_entries)
     recursive = recursive ~= false
     local count = 0
+    local visited = 0
     local function scan(current)
         local ok, iter, dir_obj = pcall(lfs.dir, current)
         if not ok then return end
         for f in iter, dir_obj do
-            if max_files and count >= max_files then return end
+            if (max_files and count >= max_files) or (max_entries and visited >= max_entries) then
+                dir_obj:close()
+                return
+            end
+            visited = visited + 1
             local path = current.."/"..f
             -- lfs can return nil here, as it will follow symlinks!
             local attr = lfs.attributes(path) or {}

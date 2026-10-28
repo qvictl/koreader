@@ -514,13 +514,32 @@ describe("Screensaver", function()
                     return function()
                         index = index + 1
                         return ordered[index]
-                    end
+                    end, { close = function() end }
                 end)
                 finally(function() dir_stub:revert() end)
                 G_reader_settings:saveSetting("screensaver_cycle_images_alphabetically", alphabetical)
                 G_reader_settings:saveSetting("screensaver_max_files", 1)
                 assert.are.equal(img_dir .. "/img1.png", pick())
                 assert.are.equal(img_dir .. "/img1.png", pick())
+            end)
+
+            it("bounds unrelated directory entries (alphabetical=" .. tostring(alphabetical) .. ")", function()
+                local lfs = require("libs/libkoreader-lfs")
+                local real_dir = lfs.dir
+                local produced, closed = 0, 0
+                local dir_stub = stub(lfs, "dir", function(dir)
+                    if dir ~= img_dir then return real_dir(dir) end
+                    return function()
+                        produced = produced + 1
+                        if produced < 100000 then return "unrelated-" .. produced .. ".txt" end
+                    end, { close = function() closed = closed + 1 end }
+                end)
+                finally(function() dir_stub:revert() end)
+                G_reader_settings:saveSetting("screensaver_cycle_images_alphabetically", alphabetical)
+                G_reader_settings:saveSetting("screensaver_max_files", 1)
+                assert.are.equal("resources/koreader.png", pick())
+                assert.equals(1025, produced)
+                assert.equals(1, closed)
             end)
         end
 

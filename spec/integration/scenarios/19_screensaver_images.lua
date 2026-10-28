@@ -13,10 +13,6 @@ return {
         local lfs = require("libs/libkoreader-lfs")
         local ffiUtil = require("ffi/util")
         local dir = T:fixture("screensaver-images")
-        require("util").makePath(dir)
-        for _, name in ipairs{ "00-notes.txt", "._cover.png", "20-cover.png", "30-cover.png" } do
-            ffiUtil.copyFile("resources/koreader.png", dir .. "/" .. name)
-        end
         local real_dir = lfs.dir
         -- Fix enumeration order, while using real files, decoding and widgets.
         -- File systems need not return directory entries in creation order.
@@ -29,9 +25,13 @@ return {
             return function()
                 index = index + 1
                 return names[index]
-            end
+            end, { close = function() end }
         end
         local ok, err = xpcall(function()
+            require("util").makePath(dir)
+            for _, name in ipairs{ "00-notes.txt", "._cover.png", "20-cover.png", "30-cover.png" } do
+                ffiUtil.copyFile("resources/koreader.png", dir .. "/" .. name)
+            end
             T:run(function()
                 G_reader_settings:saveSetting("screensaver_dir", dir)
                 lfs.dir = ordered_dir
@@ -53,6 +53,7 @@ return {
             lfs.dir = real_dir
             Screensaver:close()
             Screensaver:cleanup()
+            ffiUtil.purgeDir(dir)
         end)
         if not ok then error(err, 0) end
     end,

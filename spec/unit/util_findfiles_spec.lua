@@ -1,11 +1,12 @@
 describe("util.findFiles accepted file limit", function()
-    local util, lfs, dir_stub, attr_stub
+    local util, lfs, dir_stub, attr_stub, closes
     setup(function()
         require("commonrequire")
         util = require("util")
         lfs = require("libs/libkoreader-lfs")
     end)
     before_each(function()
+        closes = 0
         local entries = {
             root = { ".", "..", "notes.txt", "._cover.png", "cover.png", "next.png", "subdir" },
             ["root/subdir"] = { ".", "..", "nested.png" },
@@ -16,7 +17,7 @@ describe("util.findFiles accepted file limit", function()
             return function()
                 index = index + 1
                 return entries[path][index]
-            end
+            end, { close = function() closes = closes + 1 end }
         end)
         attr_stub = stub(lfs, "attributes", function(path)
             return { mode = (path:match("/%.%.?$") or entries[path]) and "directory" or "file" }
@@ -37,6 +38,7 @@ describe("util.findFiles accepted file limit", function()
         end, false, 1)
         assert.same({ "notes.txt", "._cover.png", "cover.png" }, visited)
         assert.same({ "root/cover.png" }, images)
+        assert.equals(1, closes)
     end)
 
     it("preserves the legacy count for callbacks returning nil", function()
@@ -65,5 +67,12 @@ describe("util.findFiles accepted file limit", function()
         local callback = spy.new(function() end)
         util.findFiles("root", callback, true, 0)
         assert.spy(callback).was_not_called()
+    end)
+
+    it("bounds rejected entries independently of the accepted file count", function()
+        local count = 0
+        util.findFiles("root", function() count = count + 1 return false end, false, 1, 3)
+        assert.equals(1, count) -- dot entries and the first rejected file exhaust the visit budget
+        assert.equals(1, closes)
     end)
 end)
