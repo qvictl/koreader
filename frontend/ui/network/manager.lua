@@ -659,10 +659,17 @@ function NetworkMgr:checkOnline(callback)
     end
     local Trapper = require("ui/trapper")
     Trapper:wrap(function()
-        local completed, online = Trapper:dismissableRunInSubprocess(function()
+        local completed, online, reason = Trapper:dismissableRunInSubprocess(function()
             return self:isOnline() and true or false
         end, _("Checking network connectivity…"))
-        if not completed then return end
+        if not completed then
+            if reason then
+                UIManager:show(InfoMessage:new{
+                    text = _("Network connectivity check failed. Please try again."),
+                })
+            end
+            return
+        end
         local co = coroutine.running()
         online_contexts[co] = online and true or nil
         local ok, err = pcall(callback, online)

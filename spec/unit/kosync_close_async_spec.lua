@@ -1,0 +1,119 @@
+require("commonrequire")
+local saved_path = package.path
+package.path = "plugins/kosync.koplugin/?.lua;" .. package.path
+local Queue = require("KOSyncQueue")
+local Client = require("KOSyncClient")
+local KOSync = dofile("plugins/kosync.koplugin/main.lua")
+package.path = saved_path
+local NetworkMgr = require("ui/network/manager")
+local UIManager = require("ui/uimanager")
+
+describe("KOSync asynchronous close", function()
+    local ticks, checks, sent, upload_ok
+    before_each(function()
+        Queue:clear()
+        ticks, checks, sent, upload_ok = {}, {}, {}, true
+        stub(UIManager, "nextTick", function(_, callback) ticks[#ticks + 1] = callback end)
+        stub(NetworkMgr, "checkOnline", function(_, callback) checks[#checks + 1] = callback end)
+        stub(NetworkMgr, "isOnline", function() error("closing must never resolve DNS synchronously") end)
+        stub(Client, "new", function()
+            return { update_progress = function(_, username, userkey, document, metadata,
+                    progress, percentage, device, device_id, callback)
+                sent[#sent + 1] = { username = username, userkey = userkey, document = document,
+                    metadata = metadata, progress = progress, percentage = percentage,
+                    device = device, device_id = device_id }
+                callback(upload_ok)
+            end }
+        end)
+    end)
+    after_each(function()
+        UIManager.nextTick:revert()
+        NetworkMgr.checkOnline:revert()
+        NetworkMgr.isOnline:revert()
+        Client.new:revert()
+        Queue:clear()
+    end)
+    local function sync(username)
+        return setmetatable({
+            path = "plugins/kosync.koplugin", device_id = "synthetic-device",
+            settings = { username = username or "first", userkey = "synthetic-key", kosync_hostname = "Synthetic" },
+            getDocumentDigest = function() return "synthetic-book" end,
+            getMetadata = function() return "Synthetic metadata" end,
+            getLastProgress = function() return "123" end,
+            getLastPercent = function() return 0.5 end,
+        }, { __index = KOSync })
+    end
+    it("persists a document snapshot before checking, without later reading the closed instance", function()
+        local plugin = sync()
+        plugin:_onCloseDocument()
+        assert.are.equal(1, Queue:count())
+        assert.are.equal("123", Queue:load()[1].progress)
+        assert.are.equal(0, #checks)
+        for key in pairs(plugin) do plugin[key] = nil end
+        setmetatable(plugin, { __index = function() error("closed plugin accessed") end })
+        ticks[1]()
+        checks[1](true)
+        assert.are.equal(1, #sent)
+        assert.are.equal("first", sent[1].username)
+        assert.are.equal("Synthetic metadata", sent[1].metadata)
+        assert.are.equal("123", sent[1].progress)
+        assert.are.equal(0, Queue:count())
+    end)
+    it("does not send a new account's queue when the old resolver finishes late", function()
+        local first = sync("first")
+        first:_onCloseDocument()
+        ticks[1]()
+        first:logout()
+        local second = sync("second")
+        second:_onCloseDocument()
+        ticks[2]()
+        checks[1](true)
+        assert.are.equal(0, #sent)
+        assert.are.equal(1, Queue:count())
+        checks[2](true)
+        assert.are.equal(1, #sent)
+        assert.are.equal("second", sent[1].username)
+        assert.are.equal(0, Queue:count())
+    end)
+    it("drops a scheduled check if the queue is cleared before it starts", function()
+        sync():_onCloseDocument()
+        Queue:clear()
+        ticks[1]()
+        assert.are.equal(0, #checks)
+        assert.are.equal(0, #sent)
+    end)
+    it("preserves a new queue when an already-running check is cleared", function()
+        sync():_onCloseDocument()
+        ticks[1]()
+        Queue:clear()
+        Queue:push{ document = "new-book", progress = "456" }
+        checks[1](true)
+        assert.are.equal(0, #sent)
+        assert.are.equal("new-book", Queue:load()[1].document)
+    end)
+    it("retains offline or failed updates and lets a later close retry", function()
+        sync():_onCloseDocument()
+        ticks[1]()
+        checks[1](false)
+        assert.are.equal(1, Queue:count())
+        upload_ok = false
+        sync():_onCloseDocument()
+        ticks[2]()
+        checks[2](true)
+        assert.are.equal(1, Queue:count())
+        upload_ok = true
+        sync():_onCloseDocument()
+        ticks[3]()
+        checks[3](true)
+        assert.are.equal(0, Queue:count())
+        assert.are.equal(2, #sent)
+    end)
+    it("does not create work for a logged-out account", function()
+        local plugin = sync()
+        plugin.settings.userkey = nil
+        plugin:_onCloseDocument()
+        assert.are.equal(0, Queue:count())
+        assert.are.equal(0, #ticks)
+        assert.are.equal(0, #checks)
+    end)
+end)

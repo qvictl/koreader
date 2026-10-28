@@ -945,24 +945,37 @@ function KOSync:_onCloseDocument()
     --       and we handle those system focus events via... Suspend & Resume events, so we need to neuter those handlers early.
     self.onResume = nil
     self.onSuspend = nil
-    -- If we're already online, push normally.
-    -- Otherwise, queue progress for later instead of blocking with goOnlineToRun.
-    if NetworkMgr:isOnline() then
-        self:updateProgress(false, false)
-    else
-        local doc_digest = self:getDocumentDigest()
-        if doc_digest then
-            local KOSyncQueue = require("KOSyncQueue")
-            KOSyncQueue:push({
-                document = doc_digest,
-                metadata = self:getMetadata(),
-                progress = self:getLastProgress(),
-                percentage = self:getLastPercent(),
-                device = self.settings.kosync_hostname or Device.model,
-                device_id = self.device_id,
-            })
-        end
-    end
+    if not self.settings.username or not self.settings.userkey then return end
+    local doc_digest = self:getDocumentDigest()
+    if not doc_digest then return end
+    local KOSyncQueue = require("KOSyncQueue")
+    -- Snapshot and persist everything while the document still exists.
+    KOSyncQueue:push({
+        document = doc_digest,
+        metadata = self:getMetadata(),
+        progress = self:getLastProgress(),
+        percentage = self:getLastPercent(),
+        device = self.settings.kosync_hostname or Device.model,
+        device_id = self.device_id,
+    })
+    local generation = KOSyncQueue._generation
+    local sender = {
+        path = self.path,
+        settings = {
+            username = self.settings.username,
+            userkey = self.settings.userkey,
+            custom_server = self.settings.custom_server,
+        },
+    }
+    -- Do not retain the reader/plugin instance in work that can outlive closing.
+    UIManager:nextTick(function()
+        if generation ~= KOSyncQueue._generation then return end
+        NetworkMgr:checkOnline(function(online)
+            if online and generation == KOSyncQueue._generation then
+                KOSync.drainQueue(sender)
+            end
+        end)
+    end)
 end
 
 function KOSync:schedulePeriodicPush()
@@ -1013,15 +1026,19 @@ function KOSync:_onNetworkConnected()
     logger.dbg("KOSync: onNetworkConnected")
     UIManager:scheduleIn(0.5, function()
         -- Drain any queued progress updates first
-        self:drainQueue()
-        -- Then pull as normal
-        self:getProgress(false, false)
+        self:drainQueue(function()
+            -- Pull only after queued uploads have completed.
+            self:getProgress(false, false)
+        end)
     end)
 end
 
-function KOSync:drainQueue()
+function KOSync:drainQueue(done_func)
     local KOSyncQueue = require("KOSyncQueue")
-    if KOSyncQueue:count() == 0 then return end
+    if KOSyncQueue:count() == 0 then
+        if done_func then done_func() end
+        return
+    end
 
     local KOSyncClient = require("KOSyncClient")
     local client = KOSyncClient:new{
@@ -1029,9 +1046,8 @@ function KOSync:drainQueue()
         service_spec = self.path .. "/api.json"
     }
 
-    KOSyncQueue:drain(function(item)
-        local ok = pcall(client.update_progress,
-            client,
+    KOSyncQueue:drain(function(item, callback)
+        client:update_progress(
             self.settings.username,
             self.settings.userkey,
             item.document,
@@ -1040,9 +1056,8 @@ function KOSync:drainQueue()
             item.percentage,
             item.device,
             item.device_id,
-            function() end)
-        return ok
-    end)
+            callback)
+    end, done_func)
 end
 
 function KOSync:_onNetworkDisconnecting()
