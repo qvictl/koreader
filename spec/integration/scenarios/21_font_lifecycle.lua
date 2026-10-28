@@ -57,6 +57,7 @@ return {
         snapshot("filemanager")
         local book = os.getenv("FONT_BENCH_BOOK") or T:fixture("books/zh.epub")
         local expected_pixels, expected_pages
+        local made_before = out and ffi.C.font_probe_made() or nil
         for cycle = 1, 3 do
             local ui, open_ms = T:openBook(book)
             T:run(function()
@@ -64,6 +65,10 @@ return {
             end)
             T:repaint()
             snapshot("open_" .. cycle, open_ms)
+            if cycle == 1 and made_before then
+                T:check(ffi.C.font_probe_made() > made_before and ffi.C.font_probe_live() > 0,
+                    "opening the book creates observable live native faces")
+            end
             local pages = ui.document:getPageCount()
             T:check(pages > 1, "the book contains multiple rendered pages")
             expected_pages = expected_pages or pages
