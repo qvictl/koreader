@@ -799,7 +799,7 @@ describe("Screensaver", function()
         it("asks the statistics plugin for the reading progress widget", function()
             G_reader_settings:saveSetting("screensaver_type", "readingprogress")
             G_reader_settings:makeFalse("screensaver_show_message")
-            local progress_widget = require("ui/widget/verticalspan"):new{ width = 10 }
+            local progress_widget = require("ui/widget/verticalspan"):new{ width = 10 } -- unscaled_size_check: ignore
             local asked_with
             readerui.statistics = {
                 onShowReaderProgress = function(_, return_widget)

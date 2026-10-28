@@ -59,7 +59,7 @@ describe("DictQuickLookup", function()
     end
 
     local function tapAt(x, y)
-        return { pos = Geom:new{ x = x, y = y, w = 0, h = 0 } }
+        return { pos = Geom:new({ x = x, y = y, w = 0, h = 0 }) }
     end
 
     local function center(dimen)
@@ -181,13 +181,13 @@ describe("DictQuickLookup", function()
 
             local x
             x, y = center(w.definition_widget.dimen)
-            assert.is_true(w:onSwipe(nil, { pos = Geom:new{ x = x, y = y, w = 0, h = 0 }, direction = "west" }))
+            assert.is_true(w:onSwipe(nil, { pos = Geom:new({ x = x, y = y, w = 0, h = 0 }), direction = "west" }))
             assert.are.equal(2, w.dict_index)
-            assert.is_true(w:onSwipe(nil, { pos = Geom:new{ x = x, y = y, w = 0, h = 0 }, direction = "east" }))
+            assert.is_true(w:onSwipe(nil, { pos = Geom:new({ x = x, y = y, w = 0, h = 0 }), direction = "east" }))
             assert.are.equal(1, w.dict_index)
             -- Other directions: refresh, and let it propagate
             local footer = spy.on(readerui, "handleEvent")
-            assert.is_false(w:onSwipe(nil, { pos = Geom:new{ x = x, y = y, w = 0, h = 0 }, direction = "north" }))
+            assert.is_false(w:onSwipe(nil, { pos = Geom:new({ x = x, y = y, w = 0, h = 0 }), direction = "north" }))
             assert.spy(footer).was_called_with(match.is_ref(readerui), match.is_table())
             readerui.handleEvent:revert()
             assert.are.equal(1, w.dict_index)
@@ -354,7 +354,7 @@ describe("DictQuickLookup", function()
             local w = newWindow({ result("Alpha", "harbor") }, {
                 highlight = highlight,
                 dict_close_callback = closed,
-                word_boxes = { Geom:new{ x = 10, y = 10, w = 50, h = 20 } },
+                word_boxes = { Geom:new({ x = 10, y = 10, w = 50, h = 20 }) },
             })
             local frame = w.dict_frame.dimen
             local y = frame.y > 5 and 1 or Screen:getHeight() - 1

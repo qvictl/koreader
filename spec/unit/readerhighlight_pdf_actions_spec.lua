@@ -52,7 +52,7 @@ describe("ReaderHighlight actions (PDF)", function()
     local NEXT0, NEXT1 = { x = 260, y = 150 }, { x = 430, y = 250 } -- some text on page 11
 
     local function at(pos)
-        return Geom:new{ x = pos.x, y = pos.y }
+        return Geom:new({ x = pos.x, y = pos.y })
     end
     local function hold(pos)
         return hl:onHold(nil, { pos = at(pos) })
@@ -264,7 +264,7 @@ describe("ReaderHighlight actions (PDF)", function()
             assert.is_false(notify.checked_func())
             notify.callback()
             assert.is_true(notify.checked_func())
-            -- warning with hash based metadata
+            -- (hash based metadata: a warning is logged)
             G_reader_settings:saveSetting("document_metadata_folder", "hash")
             local nb = #shown
             on.callback()
@@ -467,7 +467,7 @@ describe("ReaderHighlight actions (PDF)", function()
             assert.are.equal("Penn", hl.selected_text.text)
             hl:clear()
             -- a panel
-            panel = Geom:new{ x = 0, y = 0, w = 100, h = 100 }
+            panel = Geom:new({ x = 0, y = 0, w = 100, h = 100 })
             local bb = Blitbuffer.new(10, 10)
             finally(function() bb:free() end)
             override(readerui.document, "drawPagePart", function() return bb, false end)
@@ -479,7 +479,7 @@ describe("ReaderHighlight actions (PDF)", function()
             hl.panel_zoom_fallback_to_text_selection = false
             assert.is_false(hold(WORD))
             -- outside the page
-            assert.is_false(hl:onPanelZoom(nil, { pos = Geom:new{ x = 10, y = 100000 } }))
+            assert.is_false(hl:onPanelZoom(nil, { pos = Geom:new({ x = 10, y = 100000 }) }))
         end)
 
         it("should toggle panel zoom settings from the menu", function()

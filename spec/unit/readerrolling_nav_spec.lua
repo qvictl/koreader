@@ -488,6 +488,13 @@ describe("ReaderRolling navigation and rendering", function()
 
         it("should honour the scroll activation delay", function()
             rolling:onScrollSettingsUpdated(readerui.scrolling.SCROLL_METHOD_CLASSIC, false, 500)
+            -- No inertial scroll to cancel (that would skip the activation delay).
+            stub(readerui.scrolling, "cancelInertialScroll", function() return false end)
+            stub(readerui.scrolling, "cancelledByTouch", function() return false end)
+            finally(function()
+                readerui.scrolling.cancelInertialScroll:revert()
+                readerui.scrolling.cancelledByTouch:revert()
+            end)
             local pos = rolling.current_pos
             local t0 = time.s(6000)
             rolling:onPan(nil, { direction = "north", relative = { x = 0, y = -10 }, time = t0 })
@@ -971,7 +978,7 @@ describe("ReaderRolling navigation and rendering", function()
         end)
 
         it("should place the progress bar below the header once rendered", function()
-            rolling.current_header_height = 20
+            rolling.current_header_height = 20 -- unscaled_size_check: ignore
             rolling.engine_progress_update_not_before = 0
             rolling:showEngineProgress(0.3)
             assert.truthy(rolling.engine_progress_widget)

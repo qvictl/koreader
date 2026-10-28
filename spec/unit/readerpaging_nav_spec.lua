@@ -600,6 +600,13 @@ describe("ReaderPaging navigation", function()
 
         it("should honour the scroll activation delay and mouse wheel pans", function()
             paging:onScrollSettingsUpdated(readerui.scrolling.SCROLL_METHOD_CLASSIC, false, 500)
+            -- No inertial scroll to cancel (that would skip the activation delay).
+            stub(readerui.scrolling, "cancelInertialScroll", function() return false end)
+            stub(readerui.scrolling, "cancelledByTouch", function() return false end)
+            finally(function()
+                readerui.scrolling.cancelInertialScroll:revert()
+                readerui.scrolling.cancelledByTouch:revert()
+            end)
             local t0 = time.s(6000)
             paging:onPan(nil, { direction = "north", relative = { x = 0, y = -10 }, time = t0 })
             paging:onPan(nil, { direction = "north", relative = { x = 0, y = -110 }, time = t0 + time.ms(100) })

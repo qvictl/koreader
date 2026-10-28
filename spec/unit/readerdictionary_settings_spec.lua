@@ -663,7 +663,7 @@ describe("ReaderDictionary settings", function()
         it("should not refresh the 'Searching...' message when hidden by the dictionary window", function()
             local Geom = require("ui/geometry")
             local results = { { dict = "Alpha", word = "harbor", definition = "alpha harbor" } }
-            stub(DictQuickLookup, "getInitialVisibleArea", function() return Geom:new{ x = 0, y = 100, w = 600, h = 400 } end)
+            stub(DictQuickLookup, "getInitialVisibleArea", function() return Geom:new({ x = 0, y = 100, w = 600, h = 400 }) end)
             -- Still invisible (lookup quicker than its show_delay): nothing to care about
             rd:showLookupInfo("harbor", 10)
             local msg = rd.lookup_progress_msg
@@ -673,7 +673,7 @@ describe("ReaderDictionary settings", function()
             -- Shown, and hidden by the dictionary window
             rd:showLookupInfo("harbor", 0)
             msg = rd.lookup_progress_msg
-            stub(msg, "getVisibleArea", function() return Geom:new{ x = 100, y = 200, w = 300, h = 100 } end)
+            stub(msg, "getVisibleArea", function() return Geom:new({ x = 100, y = 200, w = 300, h = 100 }) end)
             rd:showDict("harbor", results)
             assert.is_true(msg.no_refresh_on_close)
             assert.is_nil(rd.lookup_progress_msg)
@@ -681,7 +681,7 @@ describe("ReaderDictionary settings", function()
             -- Shown, and not entirely hidden
             rd:showLookupInfo("harbor", 0)
             msg = rd.lookup_progress_msg
-            stub(msg, "getVisibleArea", function() return Geom:new{ x = 100, y = 50, w = 300, h = 100 } end)
+            stub(msg, "getVisibleArea", function() return Geom:new({ x = 100, y = 50, w = 300, h = 100 }) end)
             rd:showDict("harbor", results)
             assert.is_nil(msg.no_refresh_on_close)
             DictQuickLookup.getInitialVisibleArea:revert()

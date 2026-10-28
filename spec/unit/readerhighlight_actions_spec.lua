@@ -58,7 +58,7 @@ describe("ReaderHighlight actions (EPUB)", function()
 
     -- (fresh tables: ReaderHighlight keeps and may adjust the gesture positions)
     local function at(pos)
-        return Geom:new{ x = pos.x, y = pos.y }
+        return Geom:new({ x = pos.x, y = pos.y })
     end
     local function hold(pos)
         return hl:onHold(nil, { pos = at(pos) })
@@ -838,16 +838,16 @@ describe("ReaderHighlight actions (EPUB)", function()
             assert.is_nil(dialog.anchor())
             hl.selected_text = nil
             hl.view.highlight.visible_boxes = {
-                { index = index, rect = Geom:new{ x = 10, y = 300, w = 100, h = 20 } },
-                { index = index, rect = Geom:new{ x = 10, y = 100, w = 100, h = 20 } },
+                { index = index, rect = Geom:new({ x = 10, y = 300, w = 100, h = 20 }) },
+                { index = index, rect = Geom:new({ x = 10, y = 100, w = 100, h = 20 }) },
             }
             local anchor, pop_down = hl:_getDialogAnchor({ getContentSize = function() return { h = 200 } end }, index)
             assert.is_true(pop_down)
             assert.truthy(anchor.y > 320)
             -- no room below: above the highlight
             hl.view.highlight.visible_boxes = {
-                { index = index, rect = Geom:new{ x = 10, y = 650, w = 100, h = 20 } },
-                { index = index, rect = Geom:new{ x = 10, y = 700, w = 100, h = 20 } },
+                { index = index, rect = Geom:new({ x = 10, y = 650, w = 100, h = 20 }) },
+                { index = index, rect = Geom:new({ x = 10, y = 700, w = 100, h = 20 }) },
             }
             anchor, pop_down = hl:_getDialogAnchor({ getContentSize = function() return { h = 200 } end }, index)
             assert.is_nil(pop_down)
@@ -940,21 +940,21 @@ describe("ReaderHighlight actions (EPUB)", function()
         it("should react to taps on visible highlight boxes", function()
             local i1 = save_text(TEXT0, TEXT1)
             local i2 = save_text(LATER0, LATER1)
-            local full = Geom:new{ x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
+            local full = Geom:new({ x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() })
             hl.view.highlight.visible_boxes = {
                 { index = i1, rect = full }, { index = i1, rect = full }, { index = i2, rect = full },
             }
             finally(function() hl.view.highlight.visible_boxes = {} end)
-            assert.is_true(hl:onTap(nil, { pos = Geom:new{ x = 10, y = 10 } }))
+            assert.is_true(hl:onTap(nil, { pos = Geom:new({ x = 10, y = 10 }) }))
             assert.are.equal(3, #last_shown().buttons) -- 2 highlights + merge
             assert.are.same({ full }, { hl:getHighlightVisibleBoxes(i2)[1] })
             assert.is_nil(hl:getHighlightVisibleBoxes(99))
             -- outside any box
-            hl.view.highlight.visible_boxes = { { index = i1, rect = Geom:new{ x = 0, y = 0, w = 5, h = 5 } } }
-            assert.is_nil(hl:onTap(nil, { pos = Geom:new{ x = 100, y = 100 } }))
+            hl.view.highlight.visible_boxes = { { index = i1, rect = Geom:new({ x = 0, y = 0, w = 5, h = 5 }) } }
+            assert.is_nil(hl:onTap(nil, { pos = Geom:new({ x = 100, y = 100 }) }))
             -- tapping while holding ends the hold
             select_text(TEXT0, TEXT1)
-            assert.is_true(hl:onTap(nil, { pos = Geom:new{ x = 1, y = 1 } }))
+            assert.is_true(hl:onTap(nil, { pos = Geom:new({ x = 1, y = 1 }) }))
             assert.truthy(hl.highlight_dialog)
         end)
 
@@ -964,17 +964,17 @@ describe("ReaderHighlight actions (EPUB)", function()
             hl:onHoldRelease()
             assert.is_true(hl.select_mode)
             local idx = hl.highlight_idx
-            local full = Geom:new{ x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
+            local full = Geom:new({ x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() })
             hl.view.highlight.visible_boxes = { { index = 99, rect = full }, { index = idx, rect = full } }
             finally(function() hl.view.highlight.visible_boxes = {} end)
-            assert.is_true(hl:onTap(nil, { pos = Geom:new{ x = 10, y = 10 } }))
+            assert.is_true(hl:onTap(nil, { pos = Geom:new({ x = 10, y = 10 }) }))
             assert.is_false(hl.select_mode)
             assert.are.equal(0, #readerui.annotation.annotations)
             -- with an existing highlight being extended, it is kept
             local index = save_text(TEXT0, TEXT1)
             hl:startSelection(index)
             hl.view.highlight.visible_boxes = { { index = index, rect = full } }
-            hl:onTap(nil, { pos = Geom:new{ x = 10, y = 10 } })
+            hl:onTap(nil, { pos = Geom:new({ x = 10, y = 10 }) })
             assert.is_false(hl.select_mode)
             assert.are.equal(1, #readerui.annotation.annotations)
         end)
@@ -1081,21 +1081,21 @@ describe("ReaderHighlight actions (EPUB)", function()
             assert.is_true(hl.allow_hold_pan_corner_scroll)
             local xp = rolling.xpointer
             local w, h = Screen:getWidth(), Screen:getHeight()
-            local corner = Geom:new{ x = w - 5, y = h - 5 }
+            local corner = Geom:new({ x = w - 5, y = h - 5 })
             assert.is_true(hl:onHoldPan(nil, { pos = corner }))
             assert.are.equal("scroll", readerui.view.view_mode)
             assert.is_function(hl.restore_page_mode_func)
             assert.are.equal(readerui.document:getPosFromXPointer(xp) + math.floor(h / 3), rolling.current_pos)
             -- staying in the corner does nothing more
             local pos2 = rolling.current_pos
-            assert.is_true(hl:onHoldPan(nil, { pos = Geom:new{ x = w - 4, y = h - 4 } }))
+            assert.is_true(hl:onHoldPan(nil, { pos = Geom:new({ x = w - 4, y = h - 4 }) }))
             assert.are.equal(pos2, rolling.current_pos)
             -- leaving the corner selects again
-            hl:onHoldPan(nil, { pos = Geom:new{ x = 300, y = 400 } })
+            hl:onHoldPan(nil, { pos = Geom:new({ x = 300, y = 400 }) })
             assert.is_nil(hl.was_in_some_corner)
             assert.truthy(#hl.selected_text.text > 20)
             -- top left corner scrolls back
-            hl:onHoldPan(nil, { pos = Geom:new{ x = 2, y = 2 } })
+            hl:onHoldPan(nil, { pos = Geom:new({ x = 2, y = 2 }) })
             assert.are.equal(pos2 - math.floor(h / 3), rolling.current_pos)
             -- clearing restores page mode at the original page
             hl:clear()
@@ -1108,11 +1108,11 @@ describe("ReaderHighlight actions (EPUB)", function()
             local w, h = Screen:getWidth(), Screen:getHeight()
             hold(TEXT0)
             hl.allow_hold_pan_corner_scroll = false
-            hl:onHoldPan(nil, { pos = Geom:new{ x = w - 5, y = h - 5 } })
+            hl:onHoldPan(nil, { pos = Geom:new({ x = w - 5, y = h - 5 }) })
             assert.are.equal("page", readerui.view.view_mode)
             -- panning outside the page area is ignored
             local area = hl.view:getScreenPageArea(hl.hold_pos.page)
-            assert.is_true(hl:onHoldPan(nil, { pos = Geom:new{ x = area.x + area.w + 50, y = 10 } }))
+            assert.is_true(hl:onHoldPan(nil, { pos = Geom:new({ x = area.x + area.w + 50, y = 10 }) }))
         end)
 
         it("should update the corner scroll setting from the menu", function()
@@ -1390,7 +1390,7 @@ describe("ReaderHighlight actions (EPUB)", function()
             zones.readerhighlight_hold.handler({ pos = at(TEXT0) })
             zones.readerhighlight_hold_pan.handler({ pos = at(TEXT1) })
             assert.are.equal("Montagues.\nSAMPSON", hl.selected_text.text)
-            assert.is_true(zones.readerhighlight_tap.handler({ pos = Geom:new{ x = 1, y = 1 } }))
+            assert.is_true(zones.readerhighlight_tap.handler({ pos = Geom:new({ x = 1, y = 1 }) }))
             assert.is_nil(zones.readerhighlight_tap_select_mode.handler())
         end)
     end)
