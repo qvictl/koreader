@@ -40,13 +40,15 @@ describe("DocSettings sidecar locations", function()
         lfs = require("libs/libkoreader-lfs")
         util = require("util")
         root = DataStorage:getDataDir() .. "/docsettings_locations"
-        util.makePath(root)
         hash_dir = DataStorage:getDocSettingsHashDir()
         docsettings_dir = DataStorage:getDocSettingsDir()
         -- leftovers from an interrupted run would make the "new" books look already opened
-        if isDir(docsettings_dir .. root) then
-            ffiutil.purgeDir(docsettings_dir .. root)
+        for _, dir in ipairs({ root, hash_dir, docsettings_dir .. root }) do
+            if isDir(dir) then
+                ffiutil.purgeDir(dir)
+            end
         end
+        util.makePath(root)
     end)
 
     teardown(function()

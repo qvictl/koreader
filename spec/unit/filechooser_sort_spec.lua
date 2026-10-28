@@ -291,6 +291,22 @@ describe("FileChooser sorting and filtering", function()
             chooser:genItemTableFromPath(base)
             assert.are.equal(fake_ui, seen["adir/"])
             assert.are.equal(fake_ui, seen["a0.pdf"])
+
+            -- "type" has an item_func but cannot be mixed: only files go through it
+            assert.is_falsy(FileChooser.collates.type.can_collate_mixed)
+            local seen_type = {}
+            local orig_type = FileChooser.collates.type.item_func
+            defer(function() FileChooser.collates.type.item_func = orig_type end)
+            FileChooser.collates.type.item_func = function(item, ui)
+                seen_type[item.text] = ui
+                return orig_type(item)
+            end
+            G_reader_settings:saveSetting("collate", "type")
+            chooser:clearSortingCache()
+            chooser:genItemTableFromPath(base)
+            assert.are.equal(fake_ui, seen_type["a0.pdf"])
+            assert.is_nil(seen_type["adir/"])
+            assert.is_nil(seen_type["zdir/"])
         end)
 
         it("adds the go-up and current folder entries", function()
