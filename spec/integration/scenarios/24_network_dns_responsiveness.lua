@@ -309,7 +309,8 @@ return {
                 kosync_client.new = function()
                     return {
                         update_progress = function(_, _, _, document, _, progress, percentage, _, _, callback)
-                            ready_uploads[#ready_uploads + 1] = { document = document, done = function(ok)
+                            ready_uploads[#ready_uploads + 1] = { document = document, progress = progress,
+                                percentage = percentage, done = function(ok)
                                 if ok and document == current_digest then
                                     remote_progress, remote_percentage = progress, percentage
                                 end
@@ -350,6 +351,8 @@ return {
             T:eq(reopened:getCurrentPage(), 2, "failed upload does not overwrite the local position")
             T:run(function() reopened.kosync:_onNetworkConnected() end)
             T:waitUntil(function() return #ready_uploads == 2 end, 5, "a connectivity retry prioritizes current progress again")
+            T:eq(ready_uploads[2].progress, reopened.kosync:getLastProgress(), "the retry uploads the fresh page-2 progress")
+            T:eq(ready_uploads[2].percentage, reopened.kosync:getLastPercent(), "the retry uploads the fresh page-2 percentage")
             T:run(function() ready_uploads[2].done(true) end)
             T:waitUntil(function() return #ready_uploads == 3 end, 5, "other queued progress is attempted afterwards")
             T:run(function() ready_uploads[3].done(false) end)
@@ -359,8 +362,48 @@ return {
             T:run(function()
                 hold_pulls = true
                 reopened.kosync:getProgress(false, true)
-                reopened.kosync:logout()
+                reopened.kosync:updateProgress(false, false)
+            end)
+            T:waitUntil(function() return #ready_uploads == 4 end, 5, "an update runs while a pull response is delayed")
+            T:run(function()
+                ready_uploads[4].done(false)
                 pending_pulls[1](true, { progress = expected_progress, percentage = 0, timestamp = 0,
+                    device = "Synthetic remote", device_id = "synthetic-remote" })
+            end)
+            T:eq(reopened:getCurrentPage(), 2, "a late pull cannot overwrite a newly queued failed upload")
+            T:check(Queue:hasPending(current_digest), "the fresh progress remains queued after the late pull")
+            T:run(function() reopened.kosync:drainQueue(nil, current_digest) end)
+            T:waitUntil(function() return #ready_uploads == 5 end, 5, "fresh progress can be replayed again")
+            T:run(function() ready_uploads[5].done(true) end)
+            T:waitUntil(function() return #ready_uploads == 6 end, 5, "unrelated progress is attempted after the current book")
+            T:run(function()
+                ready_uploads[6].done(false)
+                reopened.kosync.settings.sync_backward = 1
+                reopened.kosync.pull_timestamp = 0
+                reopened.kosync:getProgress(false, false)
+                pending_pulls[2](true, { progress = expected_progress, percentage = 0, timestamp = 0,
+                    device = "Synthetic remote", device_id = "synthetic-remote" })
+            end)
+            T:repaint()
+            local sync_prompt = T:topWidget()
+            T:check(sync_prompt.ok_callback, "the old remote location offers a real sync confirmation")
+            T:run(function()
+                reopened.kosync.push_timestamp = 0
+                reopened.kosync:updateProgress(false, false)
+            end)
+            T:waitUntil(function() return #ready_uploads == 7 end, 5, "an update runs before the sync prompt is confirmed")
+            T:run(function() ready_uploads[7].done(false) end)
+            local confirm = T:findWidget(sync_prompt, function(widget)
+                return widget.text == sync_prompt.ok_text and widget.callback
+            end)
+            T:check(confirm and confirm.dimen, "the sync confirmation button is painted")
+            T:tapWidget(confirm, "confirm after a failed upload was queued")
+            T:eq(reopened:getCurrentPage(), 2, "confirmation rechecks pending uploads before changing local progress")
+            T:check(Queue:hasPending(current_digest), "confirmation preserves the unsent local progress")
+            T:run(function()
+                reopened.kosync:getProgress(false, true)
+                reopened.kosync:logout()
+                pending_pulls[3](true, { progress = expected_progress, percentage = 0, timestamp = 0,
                     device = "Synthetic old account", device_id = "synthetic-remote" })
             end)
             T:eq(reopened:getCurrentPage(), 2, "an old account pull cannot overwrite the current position after logout")
@@ -370,10 +413,10 @@ return {
                 reopened.kosync.settings.auto_sync = false
                 reopened.kosync:registerEvents()
             end)
-            T:eq(#pending_pulls, 2, "a pull response is held while the actual reader closes")
+            T:eq(#pending_pulls, 4, "a pull response is held while the actual reader closes")
             T:closeBook()
             T:run(function()
-                local handled = pcall(pending_pulls[2], true, { progress = expected_progress,
+                local handled = pcall(pending_pulls[4], true, { progress = expected_progress,
                     percentage = 0, timestamp = 0, device = "Synthetic remote", device_id = "synthetic-remote" })
                 T:check(handled, "a late pull does not access the closed native document")
             end)
