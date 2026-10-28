@@ -22,6 +22,9 @@ describe("Statistics plugin", function()
     local function removeDB()
         for suffix in ("|-wal|-shm|-journal|.sync"):gmatch("([^|]*)|?") do
             os.remove(db_path .. suffix)
+            -- cloud sync scratch DBs (remote copy and state of the previous sync)
+            os.remove(settings_dir .. "/income.sqlite3" .. suffix)
+            os.remove(settings_dir .. "/cached.sqlite3" .. suffix)
         end
         for f in lfs.dir(settings_dir) do
             if f:match("^statistics%.sqlite3%.bkp") then
@@ -225,6 +228,10 @@ describe("Statistics plugin", function()
         os.date = function(fmt, ts) -- luacheck: ignore
             return orig_os_date(fmt, ts or os.time())
         end
+    end)
+
+    teardown(function()
+        removeDB()
     end)
 
     after_each(function()
@@ -1404,7 +1411,6 @@ describe("Statistics plugin", function()
             -- syncing again is idempotent
             assert.is_true(ReaderStatistics.onSync(db_path, cached, income))
             assert.are.equal(4, dbNum("SELECT count(*) FROM page_stat_data;"))
-            os.remove(income)
         end)
 
         it("propagates deletions using the DB cached at the previous sync", function()
@@ -1435,8 +1441,6 @@ describe("Statistics plugin", function()
 
             assert.are.same({ { "Kept" } }, dbRows("SELECT title FROM book;"))
             assert.are.same({ { 1, 1 } }, dbRows("SELECT id_book, page FROM page_stat_data;"))
-            os.remove(income)
-            os.remove(cached)
         end)
 
         it("manages the sync server from the settings dialog", function()
@@ -1651,6 +1655,15 @@ describe("Statistics plugin", function()
             disable_plugins()
         end)
 
+        after_each(function()
+            if readerui then
+                readerui:onClose()
+                readerui = nil
+            end
+            DocSettings:open(sample_epub):purge()
+            os.remove(DocSettings:getHistoryPath(sample_epub))
+        end)
+
         it("tracks page turns of an opened EPUB and saves them on close", function()
             disable_plugins()
             load_plugin("statistics.koplugin")
@@ -1679,8 +1692,6 @@ describe("Statistics plugin", function()
             assert.are.same({ 5, 42 }, rows[#rows - 1])
             assert.are.same({ 6, 17 }, rows[#rows])
             assert.are.equal("Romeo and Juliet", dbText("SELECT title FROM book;"))
-            local DocSettings_ = DocSettings
-            os.remove(DocSettings_:getHistoryPath(sample_epub))
         end)
     end)
 end)

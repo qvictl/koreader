@@ -1160,10 +1160,10 @@ describe("ReaderFooter modes, menu and refresh scheduling", function()
             footer:onTimeFormatChanged()
             assert.spy(s).was.called_with(match.is_ref(footer), true, true)
             footer.refreshFooter:revert()
-            local old = Screen.getWidth
-            Screen.getWidth = function() return 900 end
+            local own_get_width = rawget(Screen, "getWidth")
+            override(Screen, "getWidth", function() return 900 end) -- also restored by after_each
             footer:onScreenResize()
-            Screen.getWidth = old
+            rawset(Screen, "getWidth", own_get_width)
             assert.is.same(900, footer.footer_container.dimen.w)
             footer:onSetDimensions()
             assert.is.same(Screen:getWidth(), footer.footer_container.dimen.w)

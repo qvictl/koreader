@@ -6,7 +6,12 @@ describe("FileManager operations", function()
     local base -- realpath of a per-test scratch folder
     local fm
     local shown -- widgets passed to UIManager:show
-    local saved_settings, saved_fc
+    local saved_settings, saved_fc, saved_device_home
+    -- cleanups registered by a test, run by after_each even when the test fails
+    local cleanups = {}
+    local function defer(fn)
+        table.insert(cleanups, fn)
+    end
 
     local settings_keys = {
         "home_dir", "lock_home_folder", "collate", "collate_mixed", "reverse_collate", "show_flat_view",
@@ -145,6 +150,7 @@ describe("FileManager operations", function()
         FileChooser.show_hidden = false
         FileChooser.show_unsupported = false
         FileChooser.show_filter = {}
+        saved_device_home = rawget(Device, "home_dir")
         G_reader_settings:saveSetting("collate", "strcoll")
         G_reader_settings:delSetting("collate_mixed")
         G_reader_settings:delSetting("reverse_collate")
@@ -174,6 +180,11 @@ describe("FileManager operations", function()
     end)
 
     after_each(function()
+        for i = #cleanups, 1, -1 do
+            cleanups[i]()
+        end
+        cleanups = {}
+        rawset(Device, "home_dir", saved_device_home)
         if FileManager.instance then
             FileManager.instance:onClose()
         end
@@ -190,6 +201,11 @@ describe("FileManager operations", function()
         end
         chmodTree(base, "u+rwx")
         ffiUtil.purgeDir(base)
+        -- sidecars of the scratch books in the default "dir" location
+        local sidecars = DataStorage:getDocSettingsDir() .. base
+        if mode(sidecars) then
+            ffiUtil.purgeDir(sidecars)
+        end
         for _, key in ipairs(settings_keys) do
             G_reader_settings:saveSetting(key, saved_settings[key])
         end
@@ -345,7 +361,10 @@ describe("FileManager operations", function()
         it("reports a failure when the destination is read-only", function()
             util.makePath(base .. "/ro")
             chmodTree(base .. "/ro", "0555")
-            if not readOnlyDirIsEnforced(base .. "/ro") then return end -- running as root
+            if not readOnlyDirIsEnforced(base .. "/ro") then
+                -- running as root: permissions are not enforced, inject the failure instead
+                stub(fm, "copyRecursive", function() return false end)
+            end
             fm:copyFile(base .. "/a.pdf")
             fm:pasteFileFromClipboard(base .. "/ro")
             local msg = lastShown(InfoMessage)
@@ -404,9 +423,9 @@ describe("FileManager operations", function()
             doc_settings:flush()
             BookList.resetBookInfoCache(base .. "/a.pdf")
             spy.on(FileManager, "addMetadataArcCheckButton")
+            defer(function() FileManager.addMetadataArcCheckButton:revert() end)
             fm:showDeleteFileDialog(base .. "/a.pdf")
             assert.spy(FileManager.addMetadataArcCheckButton).was.called(1)
-            FileManager.addMetadataArcCheckButton:revert()
             lastShown(ConfirmBox).ok_callback()
             assert.is_nil(mode(base .. "/a.pdf"))
             assert.is_false(DocSettings:hasSidecarFile(base .. "/a.pdf"))
@@ -533,7 +552,10 @@ describe("FileManager operations", function()
             util.makePath(base .. "/ro")
             writeFile(base .. "/ro/f.pdf", "f")
             chmodTree(base .. "/ro", "0555")
-            if not readOnlyDirIsEnforced(base .. "/ro") then return end -- running as root
+            if not readOnlyDirIsEnforced(base .. "/ro") then
+                -- running as root: permissions are not enforced, inject the failure instead
+                stub(fm, "moveFile", function() return false end)
+            end
             fm:renameFile(base .. "/ro/f.pdf", "g.pdf", true)
             assert.is_truthy(lastShown(InfoMessage).text:find("Failed to rename:", 1, true))
             assert.are.equal("f", readFile(base .. "/ro/f.pdf"))
@@ -592,8 +614,8 @@ describe("FileManager operations", function()
                 table.insert(check_buttons, w)
                 return w
             end)
+            defer(function() CheckButton.new:revert() end)
             local dialog = newFolderDialog("entered")
-            CheckButton.new:revert()
             assert.are.equal(1, #check_buttons)
             check_buttons[1].checked = true
             findButton(dialog.buttons, "Create").callback()
@@ -603,9 +625,14 @@ describe("FileManager operations", function()
         it("reports a failure in a read-only folder", function()
             util.makePath(base .. "/ro")
             chmodTree(base .. "/ro", "0555")
-            if not readOnlyDirIsEnforced(base .. "/ro") then return end -- running as root
+            local enforced = readOnlyDirIsEnforced(base .. "/ro")
             fm.file_chooser:changeToPath(base .. "/ro")
             local dialog = newFolderDialog("nope")
+            if not enforced then
+                -- running as root: permissions are not enforced, inject the failure instead
+                stub(util, "makePath", function() return false end)
+                defer(function() util.makePath:revert() end)
+            end
             findButton(dialog.buttons, "Create").callback()
             assert.is_truthy(lastShown(InfoMessage).text:find("Failed to create folder:", 1, true))
             assert.is_nil(mode(base .. "/ro/nope"))
@@ -831,14 +858,14 @@ describe("FileManager operations", function()
             assert.are.equal(2, countShown(MultiConfirmBox))
             local ReaderUI = require("apps/reader/readerui")
             stub(ReaderUI, "showReader")
+            defer(function() ReaderUI.showReader:revert() end)
             box.choice1_callback()
             assert.stub(ReaderUI.showReader).was.called(1)
-            ReaderUI.showReader:revert()
 
             -- only unopened: all files opened -> nothing found
             stub(BookList, "hasBookBeenOpened", function() return true end)
+            defer(function() BookList.hasBookBeenOpened:revert() end)
             random.hold_callback()
-            BookList.hasBookBeenOpened:revert()
             assert.are.equal("File not found", lastShown(InfoMessage).text)
         end)
 
@@ -847,6 +874,13 @@ describe("FileManager operations", function()
             stub(Device, "canImportFiles", function() return true end)
             local valid = true
             stub(Device, "isValidPath", function() return valid end)
+            stub(Device, "importFile")
+            defer(function()
+                Device.importFile:revert()
+                Device.hasExternalSD:revert()
+                Device.canImportFiles:revert()
+                Device.isValidPath:revert()
+            end)
             local _, buttons = fm:getPlusDialogButtons()
             local import = findButton(buttons, "Import files here")
             assert.is_true(import.enabled)
@@ -855,19 +889,12 @@ describe("FileManager operations", function()
             switch.callback()
             assert.are.equal(base .. "/sub", fm.file_chooser.path)
             valid = false
-            local old_home = rawget(Device, "home_dir")
-            Device.home_dir = base
+            Device.home_dir = base -- restored by after_each
             switch.callback()
             assert.are.equal(base, fm.file_chooser.path)
             assert.are.equal("Switch to internal storage", switch.text_func())
-            Device.home_dir = old_home
-            stub(Device, "importFile")
             import.callback()
             assert.stub(Device.importFile).was.called_with(base)
-            Device.importFile:revert()
-            Device.hasExternalSD:revert()
-            Device.canImportFiles:revert()
-            Device.isValidPath:revert()
         end)
 
         it("integrates cover browser buttons", function()
@@ -1001,10 +1028,13 @@ describe("FileManager operations", function()
             end
             assert.are.equal(DocumentRegistry:getProvider(base .. "/a.pdf").provider, checked.provider)
 
-            local orig_open = FileManager.openFile
             local opened = {}
-            FileManager.openFile = function(_, file, provider) table.insert(opened, { file, provider }) end
+            stub(FileManager, "openFile", function(_, file, provider) table.insert(opened, { file, provider }) end)
             stub(DocumentRegistry, "setProvider")
+            defer(function()
+                DocumentRegistry.setProvider:revert()
+                FileManager.openFile:revert()
+            end)
             findButton(dialog.buttons, "Open").callback()
             assert.are.same({ { base .. "/a.pdf", checked } }, opened)
             assert.stub(DocumentRegistry.setProvider).was_not.called()
@@ -1026,8 +1056,6 @@ describe("FileManager operations", function()
             assert.stub(DocumentRegistry.setProvider).was.called_with(DocumentRegistry, base .. "/a.pdf", checked, true)
             assert.are.equal(3, #opened)
             findButton(dialog.buttons, "Cancel").callback()
-            DocumentRegistry.setProvider:revert()
-            FileManager.openFile = orig_open
         end)
 
         it("offers reset buttons when a provider is associated", function()
@@ -1037,6 +1065,10 @@ describe("FileManager operations", function()
                 return provider.provider
             end)
             stub(DocumentRegistry, "setProvider")
+            defer(function()
+                DocumentRegistry.getAssociatedProviderKey:revert()
+                DocumentRegistry.setProvider:revert()
+            end)
             fm:showOpenWithDialog(base .. "/a.pdf")
             local OpenWithDialog = require("ui/widget/openwithdialog")
             local dialog = lastShown(OpenWithDialog)
@@ -1046,8 +1078,6 @@ describe("FileManager operations", function()
             assert.stub(DocumentRegistry.setProvider).was.called_with(DocumentRegistry, base .. "/a.pdf", nil, true)
             findButton(dialog.buttons, "View defaults for file types").callback()
             assert.are.equal("pdf: " .. provider.provider_name, lastShown(InfoMessage).text)
-            DocumentRegistry.getAssociatedProviderKey:revert()
-            DocumentRegistry.setProvider:revert()
         end)
 
         it("lists unsupported providers for unknown files", function()
@@ -1088,10 +1118,8 @@ describe("FileManager operations", function()
 
         it("asks to set home when no home folder is available", function()
             G_reader_settings:delSetting("home_dir")
-            local old_home = rawget(Device, "home_dir")
-            Device.home_dir = false
+            Device.home_dir = false -- restored by after_each
             fm:onHome()
-            Device.home_dir = old_home
             local box = lastShown(ConfirmBox)
             assert.is_truthy(box.text:find(base, 1, true))
             box.ok_callback()
@@ -1101,13 +1129,13 @@ describe("FileManager operations", function()
         it("refreshes the listing after setting a locked home folder (shortcut markers hidden)", function()
             local shortcut_settings = fm.folder_shortcuts.settings
             local old_show_marker = shortcut_settings.show_marker
+            defer(function() shortcut_settings.show_marker = old_show_marker end)
             shortcut_settings.show_marker = false -- shortcuts do not refresh the list by themselves
             G_reader_settings:makeTrue("lock_home_folder")
             fm.file_chooser:changeToPath(base .. "/sub")
             assert.is_true(fm.file_chooser.item_table[1].is_go_up)
             fm:setHome()
             lastShown(ConfirmBox).ok_callback()
-            shortcut_settings.show_marker = old_show_marker
             assert.are.equal(base .. "/sub", G_reader_settings:readSetting("home_dir"))
             -- the folder is now the locked home: no go-up entry anymore
             assert.is_nil(fm.file_chooser.item_table[1].is_go_up)
@@ -1176,11 +1204,11 @@ describe("FileManager operations", function()
             local box = lastShown(ConfirmBox)
             assert.are.equal("Exit KOReader?", box.text)
             stub(chooser, "onClose", function() return "closed" end)
+            defer(function() chooser.onClose:revert() end)
             box.ok_callback()
             assert.stub(chooser.onClose).was.called(1)
             G_reader_settings:saveSetting("back_to_exit", "always")
             assert.are.equal("closed", chooser:onBack())
-            chooser.onClose:revert()
 
             chooser:changeToPath(base .. "/sub")
             G_reader_settings:saveSetting("back_in_filemanager", "parent_folder")
@@ -1213,6 +1241,11 @@ describe("FileManager operations", function()
             stub(Screen, "getRotationMode", function() return 0 end)
             stub(Screen, "setRotationMode")
             stub(fm, "rotate")
+            defer(function()
+                Screen.getRotationMode:revert()
+                Screen.setRotationMode:revert()
+                fm.rotate:revert()
+            end)
             G_reader_settings:makeTrue("lock_rotation")
             fm:setRotationMode()
             assert.stub(Screen.setRotationMode).was_not.called()
@@ -1223,9 +1256,6 @@ describe("FileManager operations", function()
             assert.stub(fm.rotate).was.called(1)
             fm:onSetRotationMode(0) -- same mode: no-op
             assert.stub(Screen.setRotationMode).was.called(1)
-            Screen.getRotationMode:revert()
-            Screen.setRotationMode:revert()
-            fm.rotate:revert()
         end)
     end)
 
@@ -1254,9 +1284,9 @@ describe("FileManager operations", function()
 
         it("flushes settings", function()
             spy.on(G_reader_settings, "flush")
+            defer(function() G_reader_settings.flush:revert() end)
             fm:onFlushSettings()
             assert.spy(G_reader_settings.flush).was.called()
-            G_reader_settings.flush:revert()
         end)
 
         it("lists display modes and sort actions", function()
@@ -1377,12 +1407,12 @@ describe("FileManager operations", function()
             doc_settings:flush()
             BookList.resetBookInfoCache(base .. "/b.pdf")
             assert.is_nil(fm.file_chooser:getNextOrPreviousFileInFolder(base .. "/a.pdf"))
-            DocSettings.updateLocation(base .. "/b.pdf")
         end)
 
         it("opens documents and auxiliary providers", function()
             local ReaderUI = require("apps/reader/readerui")
             stub(ReaderUI, "showReader")
+            defer(function() ReaderUI.showReader:revert() end)
             local doc_cb = spy.new(function() end)
             fm:openFile(base .. "/a.pdf", nil, doc_cb)
             assert.spy(doc_cb).was.called(1)
@@ -1390,7 +1420,6 @@ describe("FileManager operations", function()
             local forced = DocumentRegistry:getProvider(base .. "/a.pdf")
             fm:openFile(base .. "/a.pdf", forced)
             assert.stub(ReaderUI.showReader).was.called_with(ReaderUI, base .. "/a.pdf", forced, nil, true, nil)
-            ReaderUI.showReader:revert()
 
             local aux_cb = spy.new(function() end)
             local module_cb = spy.new(function() end)
@@ -1405,11 +1434,10 @@ describe("FileManager operations", function()
 
         it("opens a tapped file when not selecting", function()
             local filemanagerutil = require("apps/filemanager/filemanagerutil")
-            local orig_open = filemanagerutil.openFile
             local ui, opened
-            filemanagerutil.openFile = function(caller, file) ui, opened = caller, file end
+            stub(filemanagerutil, "openFile", function(caller, file) ui, opened = caller, file end)
+            defer(function() filemanagerutil.openFile:revert() end)
             assert.is_true(fm.file_chooser:onFileSelect(findItem(base .. "/a.pdf")))
-            filemanagerutil.openFile = orig_open
             assert.are.equal(fm, ui)
             assert.are.equal(base .. "/a.pdf", opened)
         end)

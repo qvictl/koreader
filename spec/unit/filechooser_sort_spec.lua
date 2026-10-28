@@ -4,7 +4,12 @@ describe("FileChooser sorting and filtering", function()
 
     local base
     local starred_folder
-    local saved_settings, saved_fc
+    local saved_settings, saved_fc, saved_device_home
+    -- cleanups registered by a test, run by after_each even when the test fails
+    local cleanups = {}
+    local function defer(fn)
+        table.insert(cleanups, fn)
+    end
     local settings_keys = {
         "collate", "collate_mixed", "reverse_collate", "lock_home_folder", "home_dir", "show_parent_folder",
         "show_file_in_bold", "show_hidden", "show_unsupported", "show_flat_view", "collection_show_mark",
@@ -106,6 +111,7 @@ describe("FileChooser sorting and filtering", function()
         FileChooser.show_hidden = false
         FileChooser.show_unsupported = false
         FileChooser.show_filter = {}
+        saved_device_home = rawget(Device, "home_dir")
         G_reader_settings:delSetting("lock_home_folder")
         G_reader_settings:delSetting("show_file_in_bold")
 
@@ -129,7 +135,12 @@ describe("FileChooser sorting and filtering", function()
     end)
 
     after_each(function()
-        for _, file in ipairs({ "a0.pdf", "a10.epub", "a2.txt" }) do
+        for i = #cleanups, 1, -1 do
+            cleanups[i]()
+        end
+        cleanups = {}
+        rawset(Device, "home_dir", saved_device_home)
+        for _, file in ipairs({ "a0.pdf", "a10.epub", "a2.txt", "b.pdf" }) do
             DocSettings.updateLocation(base .. "/" .. file) -- drop sidecars
         end
         for _, coll in pairs(ReadCollection.coll) do
@@ -215,13 +226,12 @@ describe("FileChooser sorting and filtering", function()
             assert.are.equal("–", findItem(items, "a10.epub").mandatory)
         end)
 
-        it("sorts by percent with finished books last and on hold below unopened", function()
+        it("sorts by percent with finished books last and on hold above unopened", function()
             setOpened(base .. "/a0.pdf", 0.5, "complete")
             setOpened(base .. "/a2.txt", 0.3, "abandoned")
             writeFile(base .. "/b.pdf")
             setOpened(base .. "/b.pdf", 0.9, "reading")
             assert.are.same({ "adir/", "zdir/", "b.pdf", "a2.txt", "a10.epub", "a0.pdf" }, listWith("percent_natural"))
-            DocSettings.updateLocation(base .. "/b.pdf")
         end)
 
         it("falls back to name sorting for an unknown collate", function()
@@ -271,6 +281,7 @@ describe("FileChooser sorting and filtering", function()
         it("calls item_func for folders only with mixable collates", function()
             local seen = {}
             local orig = FileChooser.collates.strcoll.item_func
+            defer(function() FileChooser.collates.strcoll.item_func = orig end)
             FileChooser.collates.strcoll.item_func = function(item, ui)
                 seen[item.text] = ui
                 return orig(item)
@@ -278,7 +289,6 @@ describe("FileChooser sorting and filtering", function()
             G_reader_settings:saveSetting("collate", "strcoll")
             local chooser = newChooser()
             chooser:genItemTableFromPath(base)
-            FileChooser.collates.strcoll.item_func = orig
             assert.are.equal(fake_ui, seen["adir/"])
             assert.are.equal(fake_ui, seen["a0.pdf"])
         end)
@@ -408,12 +418,14 @@ describe("FileChooser sorting and filtering", function()
             util.makePath(base .. "/locked")
             writeFile(base .. "/locked/known.pdf")
             os.execute(string.format("chmod 0 '%s'", base .. "/locked"))
-            if pcall(lfs.dir, base .. "/locked") then return end -- running as root
+            if pcall(lfs.dir, base .. "/locked") then
+                pending("running as root: directory permissions are not enforced")
+            end
             local messages = {}
             stub(UIManager, "show", function(_, w) table.insert(messages, w) end)
+            defer(function() UIManager.show:revert() end)
             local chooser = newChooser()
             chooser:changeToPath(base .. "/locked", base .. "/locked/known.pdf")
-            UIManager.show:revert()
             local items = chooser.item_table
             assert.are.equal(2, #items)
             assert.is_true(items[1].is_go_up)
@@ -425,7 +437,9 @@ describe("FileChooser sorting and filtering", function()
         it("returns no list for an unreadable folder in flat view", function()
             util.makePath(base .. "/locked")
             os.execute(string.format("chmod 0 '%s'", base .. "/locked"))
-            if pcall(lfs.dir, base .. "/locked") then return end -- running as root
+            if pcall(lfs.dir, base .. "/locked") then
+                pending("running as root: directory permissions are not enforced")
+            end
             FileChooser.show_flat_view = true
             local chooser = newChooser()
             chooser.is_fm = true
@@ -446,9 +460,9 @@ describe("FileChooser sorting and filtering", function()
             assert.are.equal(base .. "/zdir", chooser.item_table[chooser.prev_itemnumber].path)
 
             stub(UIManager, "close")
+            defer(function() UIManager.close:revert() end)
             assert.is_true(chooser:onMenuSelect(findItem(chooser.item_table, "a0.pdf")))
             assert.stub(UIManager.close).was.called(1)
-            UIManager.close:revert()
             assert.is_true(chooser:onMenuHold(findItem(chooser.item_table, "a0.pdf")))
         end)
 
@@ -462,13 +476,12 @@ describe("FileChooser sorting and filtering", function()
             assert.is_not_nil(findItem(chooser.item_table, "late.pdf"))
             -- invalid home: device default, or nothing
             G_reader_settings:saveSetting("home_dir", base .. "/gone")
-            local old_home = rawget(Device, "home_dir")
+            -- Device.home_dir is restored by after_each
             Device.home_dir = base .. "/adir"
             assert.is_true(chooser:goHome())
             assert.are.equal(base .. "/adir", chooser.path)
             Device.home_dir = false
             assert.is_nil(chooser:goHome())
-            Device.home_dir = old_home
         end)
 
         it("closes itself and sends Home when there is no file manager", function()
@@ -482,15 +495,17 @@ describe("FileChooser sorting and filtering", function()
             stub(UIManager, "nextTick", function(_, task) table.insert(tasks, task) end)
             local sent
             stub(UIManager, "sendEvent", function(_, event) sent = event end)
+            defer(function()
+                UIManager.setSuspendRepaints:revert()
+                UIManager.nextTick:revert()
+                UIManager.sendEvent:revert()
+            end)
             assert.is_true(chooser:onHome())
             assert.is_true(closed)
             assert.are.equal(1, #tasks)
             assert.is_nil(sent)
             tasks[1]()
             assert.are.equal("onHome", sent.handler)
-            UIManager.setSuspendRepaints:revert()
-            UIManager.nextTick:revert()
-            UIManager.sendEvent:revert()
         end)
 
         it("finds next and previous readable files, skipping finished and unsupported ones", function()

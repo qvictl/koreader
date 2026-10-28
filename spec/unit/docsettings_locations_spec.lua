@@ -43,11 +43,19 @@ describe("DocSettings sidecar locations", function()
         util.makePath(root)
         hash_dir = DataStorage:getDocSettingsHashDir()
         docsettings_dir = DataStorage:getDocSettingsDir()
+        -- leftovers from an interrupted run would make the "new" books look already opened
+        if isDir(docsettings_dir .. root) then
+            ffiutil.purgeDir(docsettings_dir .. root)
+        end
     end)
 
     teardown(function()
         ffiutil.purgeDir(root)
         ffiutil.purgeDir(hash_dir)
+        -- "dir" location sidecars live under docsettings/<root>/booksN/
+        if isDir(docsettings_dir .. root) then
+            ffiutil.purgeDir(docsettings_dir .. root)
+        end
         G_reader_settings:saveSetting("document_metadata_folder", "dir")
         DocSettings.setIsHashLocationEnabled(nil)
     end)
@@ -75,11 +83,11 @@ describe("DocSettings sidecar locations", function()
             local book = newBook()
             local hsh = util.partialMD5(book)
             spy.on(util, "partialMD5")
+            finally(function() util.partialMD5:revert() end)
             local expected = hash_dir .. "/" .. hsh:sub(1, 2) .. "/" .. hsh .. ".sdr"
             assert.are.equal(expected, DocSettings:getSidecarDir(book, "hash"))
             assert.are.equal(expected, DocSettings:getSidecarDir(book, "hash"))
             assert.spy(util.partialMD5).was.called(1)
-            util.partialMD5:revert()
         end)
 
         it("falls back to the book folder when the book cannot be hashed", function()
@@ -177,6 +185,7 @@ describe("DocSettings sidecar locations", function()
             local book = newBook()
             local hist = DocSettings:getHistoryPath(book)
             writeFile(hist, "return { legacy = true }")
+            finally(function() os.remove(hist) end)
             local file, location = DocSettings:findSidecarFile(book)
             assert.are.equal(hist, file)
             assert.are.equal("hist", location)
@@ -253,27 +262,27 @@ describe("DocSettings sidecar locations", function()
             local book, book_dir = newBook()
             local image = root .. "/image2.jpg"
             writeFile(image, "jpg")
-            os.execute("chmod 0555 '" .. book_dir .. "'")
-            if lfs.mkdir(book_dir .. "/probe") then -- running as root: permissions are not enforced
-                lfs.rmdir(book_dir .. "/probe")
-                os.execute("chmod 0755 '" .. book_dir .. "'")
-                return
-            end
-            local ok = pcall(function()
-                assert.is_true(DocSettings:flushCustomCover(book, image))
-                local custom = DocSettings.openSettingsFile()
-                custom:saveSetting("custom_props", { authors = "A" })
-                assert.is_true(custom:flushCustomMetadata(book))
-            end)
-            os.execute("chmod 0755 '" .. book_dir .. "'")
-            assert.is_true(ok)
             local dir_sdr = DocSettings:getSidecarDir(book, "dir")
+            os.execute("chmod 0555 '" .. book_dir .. "'")
+            finally(function()
+                os.execute("chmod 0755 '" .. book_dir .. "'")
+                if isDir(dir_sdr) then
+                    ffiutil.purgeDir(dir_sdr)
+                end
+            end)
+            if lfs.mkdir(book_dir .. "/probe") then
+                lfs.rmdir(book_dir .. "/probe")
+                pending("running as root: directory permissions are not enforced")
+            end
+            assert.is_true(DocSettings:flushCustomCover(book, image))
+            local custom = DocSettings.openSettingsFile()
+            custom:saveSetting("custom_props", { authors = "A" })
+            assert.is_true(custom:flushCustomMetadata(book))
             assert.is_false(isDir(DocSettings:getSidecarDir(book, "doc")))
             assert.are.equal(dir_sdr .. "/cover.jpg", DocSettings:findCustomCoverFile(book))
             assert.are.equal(dir_sdr .. "/custom_metadata.lua", DocSettings:findCustomMetadataFile(book))
             assert.are.same({ authors = "A" },
                 DocSettings.openSettingsFile(dir_sdr .. "/custom_metadata.lua"):readSetting("custom_props"))
-            ffiutil.purgeDir(dir_sdr)
         end)
 
         it("uses the existing sidecar dir of an opened book, or the preferred location of a new one", function()
