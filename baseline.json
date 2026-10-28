@@ -1,19 +1,25 @@
 {
   "date": "2026-10-28",
   "overall": {
-    "covered": 35514,
-    "total": 94022,
-    "percent": 37.772,
+    "covered": 36153,
+    "total": 94143,
+    "percent": 38.402,
     "files": 491
   },
+  "overall_unit": {
+    "covered": 30029,
+    "total": 93317,
+    "percent": 32.180,
+    "min": null
+  },
   "diff_unit": {
-    "covered": 15,
-    "total": 15,
+    "covered": 0,
+    "total": 0,
     "percent": 100.000
   },
   "diff_combined": {
-    "covered": 15,
-    "total": 15,
+    "covered": 0,
+    "total": 0,
     "percent": 100.000
   },
   "owned": {
@@ -139,10 +145,16 @@
       "name": "Fork-owned modules",
       "ok": true,
       "enforced": false
+    },
+    {
+      "id": "unit",
+      "name": "Overall coverage, unit tests",
+      "ok": true,
+      "enforced": false
     }
   ],
   "ok": true,
-  "commit": "d462cd255fbac601e266ec8c54b7d65e9f586e19",
+  "commit": "d074adcd88c51372a1bf0b4183502df7122182f5",
   "event": "push",
-  "updated": "2026-10-28T03:12:38Z"
+  "updated": "2026-10-28T03:46:16Z"
 }
