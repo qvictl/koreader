@@ -2160,12 +2160,14 @@ function ReaderFooter:insertDynamicFillers(info, filler1_idx, filler2_idx)
 
     if text_width > max_width - 2 * self.filler_space_width then
          -- long footer text, replace internal fillers with separators
+        -- (filler2_idx is the index once filler 1 has been inserted)
         local separator = BD.wrap(self:genSeparator())
-        local info_nb = #info + 1
-        if filler1_idx ~= 1 and filler1_idx ~= info_nb then
+        if filler1_idx ~= 1 and filler1_idx ~= #info + 1 then
             table.insert(info, filler1_idx, separator)
+        elseif filler2_idx then
+            filler2_idx = filler2_idx - 1
         end
-        if filler2_idx and filler2_idx ~= info_nb then
+        if filler2_idx and filler2_idx ~= #info + 1 then
             table.insert(info, filler2_idx, separator)
         end
         return
@@ -2187,7 +2189,7 @@ function ReaderFooter:insertDynamicFillers(info, filler1_idx, filler2_idx)
             table.insert(info, filler2_idx, filler_space:rep(filler_nb))
         elseif right_text_width > half_max_width - self.filler_space_width then
             -- right text doesn't fit, replace the 2nd filler with separator
-            if filler2_idx ~= #info + 1 then
+            if filler2_idx - 1 ~= #info + 1 then -- not at the end
                 local separator = BD.wrap(self:genSeparator())
                 table.insert(info, filler2_idx - 1, separator)
                 text_width = text_width + self:getTextWidth(separator)
