@@ -1429,7 +1429,7 @@ end
 -- so we don't add much latency to quick lookups, and less and less often as
 -- time passes, so we don't wake up for nothing too often during long ones.
 local function getSdcvPollInterval(start_time)
-    return math.min(math.max(time.to_s(time.since(start_time)) / 8, 0.01), 0.25)
+    return math.min(math.max(time.to_s(time.since(start_time)) / 8, 0.002), 0.25)
 end
 
 --- Waits for sdcv to be done, and returns its output.
