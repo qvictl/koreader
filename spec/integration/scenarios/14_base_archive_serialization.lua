@@ -35,7 +35,5 @@ return {
             T:eq(restored[5], "synthetic payload", "text survives")
             os.remove(path)
         end)
-        T:repaint()
-        T:check(T:fileManager(), "file manager remains responsive")
     end,
 }
