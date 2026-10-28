@@ -834,10 +834,9 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
     end
     local function queue_if_current()
         if not data_current() then return end
-        local today = math.floor(os.time() / 86400)
         for _, entry in ipairs(Queue:load()) do
-            if entry.document == doc_digest and math.floor((entry.queued_at or 0) / 86400) == today
-                    and not util.tableEquals(entry, queued_before[today]) then
+            local day = math.floor((entry.queued_at or 0) / 86400)
+            if entry.document == doc_digest and not util.tableEquals(entry, queued_before[day]) then
                 return -- A later snapshot already owns this document's pending update.
             end
         end
