@@ -13,6 +13,7 @@ return {
             return result
         end)
         T:eq(type(interfaces), "table", "native interface discovery succeeds")
+        T:check(#interfaces > 0, "the test host provides an active non-loopback interface")
 
         T:run(function()
             -- Exercise real interface discovery and the event/dialog path while
