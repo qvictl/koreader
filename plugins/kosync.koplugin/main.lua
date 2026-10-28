@@ -1028,12 +1028,18 @@ function KOSync:_onCloseDocument()
         },
     }
     -- Do not retain the reader/plugin instance in work that can outlive closing.
+    local function drain_when_idle()
+        if generation ~= KOSyncQueue._generation then return end
+        if KOSyncQueue._draining then
+            UIManager:scheduleIn(0.25, drain_when_idle)
+            return
+        end
+        KOSync.drainQueue(sender)
+    end
     UIManager:nextTick(function()
         if generation ~= KOSyncQueue._generation then return end
         NetworkMgr:checkOnline(function(online)
-            if online and generation == KOSyncQueue._generation then
-                KOSync.drainQueue(sender)
-            end
+            if online then drain_when_idle() end
         end)
     end)
 end
