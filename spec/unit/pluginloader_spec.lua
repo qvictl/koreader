@@ -181,4 +181,25 @@ describe("PluginLoader module", function()
 
         PluginLoader.getPluginInstance:revert()
     end)
+    it("preserves callback failure details through the event sandbox", function()
+        stub(_G, "dofile", function(path)
+            if path == "plugins/test.koplugin/main.lua" then
+                return { onSync = function() return false, "Synthetic identity conflict" end }
+            end
+            return {}
+        end)
+        PluginLoader:_load({ {
+            main = "plugins/test.koplugin/main.lua", meta = "plugins/test.koplugin/_meta.lua",
+            path = "plugins/test.koplugin", disabled = false, name = "test",
+        } })
+        local handler = PluginLoader.enabled_plugins[1].onSync
+        for _, traceback in ipairs{ false, true } do
+            handler.log_stacktrace = traceback
+            local ok, detail = handler()
+            assert.is_false(ok)
+            assert.are.equal("Synthetic identity conflict", detail)
+        end
+        _G.dofile:revert()
+    end)
+
 end)
