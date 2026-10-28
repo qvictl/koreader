@@ -132,22 +132,22 @@ function HandlerSandbox:call(module, ...)
     -- NOTE the signature is (self, module, ...)
     -- self refers to the HandlerSandbox instance but module refers to the
     -- self parameter of the handlers
-    local ok, re
+    local ok, re, detail
     if self.log_stacktrace then
         local traceback = function(err)
              -- do not print 2 topmost entries in traceback. The first is this local function
              -- and the second is the `call` method of HandlerSandbox.
              logger.err("An error occurred while executing a handler:\n"..err.."\n"..debug.traceback(self.context.name..":"..self.fname, 2))
         end
-        ok, re = xpcall(self.f, traceback, module, ...)
+        ok, re, detail = xpcall(self.f, traceback, module, ...)
     else
-        ok, re = pcall(self.f, module, ...)
+        ok, re, detail = pcall(self.f, module, ...)
         if not ok then logger.err("An error occurred while executing handler "..self.context.name..":"..self.fname..":\n", re) end
     end
     -- NOTE backward compatibility with previous implementation
     -- of handler wrapping that returned false on error
     if ok then
-        return re
+        return re, detail
     else
         return false
     end
