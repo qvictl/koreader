@@ -842,6 +842,11 @@ function KOSync:getProgress(ensure_networking, interactive)
         return
     end
 
+    local ui = self.ui
+    local document = ui.document
+    if not document then return end
+    local KOSyncQueue = require("KOSyncQueue")
+    local generation = KOSyncQueue._generation
     local now = UIManager:getElapsedTimeSinceBoot()
     if not interactive and now - self.pull_timestamp <= API_CALL_DEBOUNCE_DELAY then
         logger.dbg("KOSync: We've already pulled progress less than 25s ago!")
@@ -864,6 +869,7 @@ function KOSync:getProgress(ensure_networking, interactive)
         self.settings.userkey,
         doc_digest,
         function(ok, body)
+            if ui.document ~= document or generation ~= KOSyncQueue._generation then return end
             logger.dbg("KOSync: [Pull] progress for", self.view.document.file)
             logger.dbg("KOSync: ok:", ok, "body:", body)
             if not ok or not body then

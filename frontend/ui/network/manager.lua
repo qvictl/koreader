@@ -662,8 +662,8 @@ function NetworkMgr:checkOnline(callback)
         local completed, online, reason = Trapper:dismissableRunInSubprocess(function()
             return self:isOnline() and true or false
         end, _("Checking network connectivity…"))
-        if not completed then
-            if reason then
+        if not completed or type(online) ~= "boolean" then
+            if completed or reason then
                 UIManager:show(InfoMessage:new{
                     text = _("Network connectivity check failed. Please try again."),
                 })
