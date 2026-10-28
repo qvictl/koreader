@@ -544,10 +544,24 @@ describe("Trapper module", function()
         it("reports read errors without returning a partial result or leaking its pipe", function()
             local await_release = ipcGate()
             local original_read = ffiutil.readAvailableFromFD
-            ffiutil.readAvailableFromFD = function() return nil, false, false, "read failed" end
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "partial", false)
+                    await_release()
+                end, with_pipe)
+            end
+            local received
+            ffiutil.readAvailableFromFD = function(fd)
+                if received then return nil, false, false, "read failed" end
+                local data, eof, drained, err = original_read(fd)
+                if data and #data > 0 then received = data end
+                return data, eof, drained, err
+            end
             local ok, err = xpcall(function()
-                local res = runSub(function() await_release(); return "result" end, "Working", true)
+                local res = runSub(function() end, "Working", true)
                 assert.is_true(runUntil(done(res)))
+                assert.are.equal("partial", received)
                 assert.are.same({ false, nil, "read_failed", n = 3 }, res.values)
                 assert.are.equal(-1, C.fcntl(child_fds[1], C.F_GETFL))
                 assert.is_true(runUntil(function() return #tasks == 0 end))
