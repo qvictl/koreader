@@ -863,9 +863,21 @@ function KOSync:getProgress(ensure_networking, interactive)
         service_spec = self.path .. "/api.json"
     }
     local doc_digest = self:getDocumentDigest()
+    local function can_apply_progress()
+        if ui.document ~= document or generation ~= KOSyncQueue._generation then return false end
+        if KOSyncQueue:hasPending(doc_digest) then
+            if interactive then
+                UIManager:show(InfoMessage:new{
+                    text = _("Local progress is waiting to be uploaded. Remote progress was not applied."),
+                    timeout = 3,
+                })
+            end
+            return false
+        end
+        return true
+    end
     local function apply_progress(progress, notify)
-        if ui.document ~= document or generation ~= KOSyncQueue._generation
-                or KOSyncQueue:hasPending(doc_digest) then return end
+        if not can_apply_progress() then return end
         self:syncToProgress(progress)
         if notify then showSyncedMessage() end
     end
@@ -875,8 +887,7 @@ function KOSync:getProgress(ensure_networking, interactive)
         self.settings.userkey,
         doc_digest,
         function(ok, body)
-            if ui.document ~= document or generation ~= KOSyncQueue._generation
-                    or KOSyncQueue:hasPending(doc_digest) then return end
+            if not can_apply_progress() then return end
             logger.dbg("KOSync: [Pull] progress for", self.view.document.file)
             logger.dbg("KOSync: ok:", ok, "body:", body)
             if not ok or not body then
