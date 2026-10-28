@@ -521,8 +521,8 @@ Notes and limitations:
 @return ... return values of task
 ]]
 function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_returns_simple_string)
-    local _coroutine = coroutine.running()
-    if not _coroutine then
+    local _coroutine, is_main = coroutine.running()
+    if not _coroutine or is_main then
         logger.warn("unwrapped dismissableRunInSubprocess(), falling back to blocking in-process run")
         return true, task()
     end
@@ -574,6 +574,7 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
 
     local completed = false
     local ret_values
+    local output_chunks = {}
 
     local pid, parent_read_fd = ffiutil.runInSubProcess(function(pid, child_write_fd)
         local output_str = ""
@@ -626,22 +627,12 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
                 -- We kill and forget the sub-process here, but something has
                 -- to collect it so it does not become a zombie
                 ffiutil.terminateSubProcess(pid)
+                C.close(parent_read_fd)
                 local collect_and_clean
                 collect_and_clean = function()
                     if ffiutil.isSubProcessDone(pid) then
-                        if parent_read_fd then
-                            ffiutil.readAllFromFD(parent_read_fd) -- close it
-                        end
                         logger.dbg("collected previously dismissed subprocess")
                     else
-                        if parent_read_fd and ffiutil.getNonBlockingReadSize(parent_read_fd) ~= 0 then
-                            -- If subprocess started outputting to fd, read from it,
-                            -- so its write() stops blocking and subprocess can exit
-                            ffiutil.readAllFromFD(parent_read_fd)
-                            -- We closed our fd, don't try again to read or close it
-                            parent_read_fd = nil
-                        end
-                        -- reschedule to collect it
                         UIManager:scheduleIn(collect_interval_sec, collect_and_clean)
                         logger.dbg("previously dismissed subprocess not yet collectable")
                     end
@@ -649,52 +640,49 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
                 UIManager:scheduleIn(collect_interval_sec, collect_and_clean)
                 break
             end
-            -- The go_on_func resumed us: we have not been dismissed.
-            -- Check if sub process has ended
-            -- Depending on the size of what the child has to write,
-            -- it may has ended (if data fits in the kernel pipe buffer) or
-            -- it may still be alive blocking on write() (if data exceeds
-            -- the kernel pipe buffer)
+            -- Drain only bytes currently available. A child may still be writing,
+            -- or a descendant may hold the pipe open after the child exits.
             local subprocess_done = ffiutil.isSubProcessDone(pid)
-            local stuff_to_read = parent_read_fd and ffiutil.getNonBlockingReadSize(parent_read_fd) ~= 0
-            logger.dbg("subprocess_done:", subprocess_done, " stuff_to_read:", stuff_to_read)
-            if subprocess_done or stuff_to_read then
-                -- Subprocess is gone or nearly gone
-                completed = true
-                if stuff_to_read then
-                    local ret_str = ffiutil.readAllFromFD(parent_read_fd)
-                    if task_returns_simple_string then
-                        ret_values = ret_str
-                    else
-                        local ok, t = pcall(buffer.decode, ret_str)
-                        if ok and t then
-                            ret_values = t
+            local chunk, eof, drained, read_error = ffiutil.readAvailableFromFD(parent_read_fd)
+            if chunk and #chunk > 0 then
+                output_chunks[#output_chunks + 1] = chunk
+            end
+            if not chunk or eof or (subprocess_done and drained) then
+                completed = chunk ~= nil
+                C.close(parent_read_fd)
+                if not chunk then
+                    logger.warn("cannot read subprocess result:", read_error)
+                    ffiutil.terminateSubProcess(pid)
+                else
+                    local ret_str = table.concat(output_chunks)
+                    if #ret_str > 0 then
+                        if task_returns_simple_string then
+                            ret_values = ret_str
                         else
-                            logger.warn("malformed serialized data:", t)
-                        end
-                    end
-                    if not subprocess_done then
-                        -- We read the output while process was still alive.
-                        -- It may be dead now, or it may exit soon, and we
-                        -- need to collect it.
-                        -- Schedule that in 1 second (it should be dead), so
-                        -- we can return our result now.
-                        local collect_and_clean
-                        collect_and_clean = function()
-                            if ffiutil.isSubProcessDone(pid) then
-                                logger.dbg("collected subprocess")
-                            else -- reschedule
-                                UIManager:scheduleIn(1, collect_and_clean)
-                                logger.dbg("subprocess not yet collectable")
+                            local ok, t = pcall(buffer.decode, ret_str)
+                            if ok and t then
+                                ret_values = t
+                            else
+                                logger.warn("malformed serialized data:", t)
                             end
                         end
-                        UIManager:scheduleIn(1, collect_and_clean)
                     end
-                else -- subprocess_done: process exited with no output
-                    ffiutil.readAllFromFD(parent_read_fd) -- close our fd
-                    -- no ret_values
+                end
+                if not subprocess_done then
+                    local collect_and_clean
+                    collect_and_clean = function()
+                        if ffiutil.isSubProcessDone(pid) then
+                            logger.dbg("collected subprocess")
+                        else
+                            UIManager:scheduleIn(1, collect_and_clean)
+                        end
+                    end
+                    UIManager:scheduleIn(1, collect_and_clean)
                 end
                 break
+            end
+            if #chunk > 0 or not drained then
+                check_interval_sec = 0.1
             end
             logger.dbg("process not yet done, will check again soon")
         end

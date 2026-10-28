@@ -434,12 +434,96 @@ describe("Trapper module", function()
             assert.is_true(res.values[1])
             assert.are.equal(size, #res.values[2])
             assert.are.equal(string.rep("x", size), res.values[2])
-            -- The child was still alive (blocked in write()) when its output was
-            -- read: a collector is scheduled to reap it.
-            assert.are.equal(1, #tasks)
-            assert.are.equal(1, tasks[1].delay)
+            -- The child may already have been reaped while draining its output.
+            if #tasks > 0 then
+                assert.are.equal(1, #tasks)
+                assert.are.equal(1, tasks[1].delay)
+            end
             assert.is_true(runUntil(function() return #tasks == 0 end, 500))
             assert.is_true(runUntil(function() return isReaped(child_pids[1]) end, 500))
+        end)
+
+        it("keeps polling after partial output and remains cancellable", function()
+            local gate, ready = tmpPath(), tmpPath()
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "prefix:", false)
+                    touch(ready)
+                    for _ = 1, 300 do
+                        if lfs.attributes(gate) then
+                            ffiutil.writeToFD(writer, "complete", true)
+                            return
+                        end
+                        ffiutil.usleep(2000)
+                    end
+                    ffiutil.writeToFD(writer, "timedout", true)
+                end, with_pipe)
+            end
+            local res = runSub(function() end, "Working", true)
+            assert.is_true(runUntil(function() return lfs.attributes(ready) ~= nil end))
+            runNextTask()
+            assert.is_false(res.done)
+            touch(gate)
+            assert.is_true(runUntil(done(res)))
+            assert.are.same({ true, "prefix:complete", n = 2 }, res.values)
+        end)
+
+        it("does not wait for EOF held open by a worker descendant", function()
+            local gate, timedout = tmpPath(), tmpPath()
+            local res = runSub(function()
+                local pid = C.fork()
+                if pid == 0 then
+                    for _ = 1, 300 do
+                        if lfs.attributes(gate) then C._exit(0) end
+                        ffiutil.usleep(2000)
+                    end
+                    touch(timedout)
+                    C._exit(0)
+                end
+                assert(pid > 0)
+                return "complete"
+            end, "Working", true)
+            assert.is_true(runUntil(done(res)))
+            assert.are.same({ true, "complete", n = 2 }, res.values)
+            assert.is_nil(lfs.attributes(timedout))
+            touch(gate)
+        end)
+
+        it("discards partial results and closes the pipe immediately on cancellation", function()
+            local ready = tmpPath()
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "partial", false)
+                    touch(ready)
+                    ffiutil.usleep(2000000)
+                end, with_pipe)
+            end
+            local res = runSub(function() end, "Working", true)
+            assert.is_true(runUntil(function() return lfs.attributes(ready) ~= nil end))
+            runNextTask()
+            assert.is_false(res.done)
+            shown[#shown].dismiss_callback()
+            assert.are.same({ false, n = 1 }, res.values)
+            assert.are.equal(-1, C.fcntl(child_fds[1], C.F_GETFL))
+            assert.is_true(runUntil(function() return #tasks == 0 end))
+            assert.is_true(isReaped(child_pids[1]))
+        end)
+
+        it("reports read errors without returning a partial result or leaking its pipe", function()
+            local original_read = ffiutil.readAvailableFromFD
+            ffiutil.readAvailableFromFD = function() return nil, false, false, "read failed" end
+            local ok, err = xpcall(function()
+                local res = runSub(function() ffiutil.usleep(500000); return "result" end, "Working", true)
+                assert.is_true(runUntil(done(res)))
+                assert.are.same({ false, n = 1 }, res.values)
+                assert.are.equal(-1, C.fcntl(child_fds[1], C.F_GETFL))
+                assert.is_true(runUntil(function() return #tasks == 0 end))
+                assert.is_true(isReaped(child_pids[1]))
+            end, debug.traceback)
+            ffiutil.readAvailableFromFD = original_read
+            if not ok then error(err, 0) end
         end)
 
         it("does not hang when the child crashes, and reaps it", function()
