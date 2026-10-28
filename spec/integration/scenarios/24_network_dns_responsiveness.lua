@@ -13,8 +13,11 @@ return {
         local base = os.getenv("KO_HOME") .. "/synthetic-dns"
         require("util").makePath(base)
         local saved_toggle, saved_toip = Device.hasWifiToggle, socket.dns.toip
+        local saved_before_wifi = NetworkMgr.beforeWifiAction
+        local reconnect_calls = 0
         local jobs, heartbeat_count = {}, 0
         local kosync_client, saved_client_new
+        local settings_owner, saved_sync_settings, saved_wifi_action
         local heartbeat
         heartbeat = function()
             heartbeat_count = heartbeat_count + 1
@@ -70,6 +73,7 @@ return {
             local first
             T:run(function()
                 Device.hasWifiToggle = function() return true end
+                NetworkMgr.beforeWifiAction = function() reconnect_calls = reconnect_calls + 1 end
                 UIManager:scheduleIn(0, heartbeat)
                 first = start("success", guardedAction)
             end)
@@ -94,6 +98,7 @@ return {
             end)
             T:waitUntil(function() return ffiUtil.isSubProcessDone(pidOf(cancelled)) end, 5, "cancelled resolver exits")
             T:eq(cancelled_calls, 0, "cancellation does not run the online action")
+            T:eq(reconnect_calls, 0, "cancellation does not reconnect Wi-Fi")
             T:eq(lfs.attributes(cancelled.returned), nil, "cancelled resolver cannot publish a late success")
 
             local next_calls, next_job = 0
@@ -137,20 +142,23 @@ return {
             T:check(T:topWidget().dimen, "the Wallabag result is painted")
             T:tapWidget(T:topWidget(), "dismiss Wallabag result")
 
+
+
             local Queue = require("KOSyncQueue")
             local sent = {}
             T:run(function()
                 Queue:clear()
                 kosync_client = require("KOSyncClient")
                 saved_client_new = kosync_client.new
-                kosync_client.new = function()
+                kosync_client.new = function(_, config)
                     return { update_progress = function(_, username, _, document, _, progress, _, _, _, callback)
-                        sent[#sent + 1] = { username = username, document = document, progress = progress }
+                        sent[#sent + 1] = { username = username, document = document, progress = progress,
+                            server = config.custom_url }
                         callback(true)
                     end }
                 end
             end)
-            local function closeWithDNS(tag, username)
+            local function closeWithDNS(tag, username, server)
                 local reader = T:openBook(T:fixture("books/en.epub"))
                 local plugin, job, expected_progress
                 T:run(function()
@@ -159,6 +167,7 @@ return {
                     plugin.settings = require("util").tableDeepCopy(plugin.settings)
                     plugin.settings.username, plugin.settings.userkey = username, "synthetic-key"
                     plugin.settings.auto_sync = true
+                    if server then plugin:setCustomServer(server) end
                     plugin.onCloseDocument = plugin._onCloseDocument
                     expected_progress = plugin:getLastProgress()
                     job = start(tag, function() end, true, true)
@@ -203,9 +212,100 @@ return {
             T:waitUntil(function() return #sent == 3 and Queue:count() == 0 end, 5, "new account retries its queued progress")
             T:check(sent[2].username == "second" and sent[3].username == "second",
                 "the later close drains with only the new account's credentials")
+
+            local old_server, config_plugin = closeWithDNS("old-server", "second")
+            local new_server = "https://new-sync.example.invalid"
+            T:run(function()
+                config_plugin:setCustomServer(new_server)
+                Queue:push{ document = "new-server-book", progress = "789" }
+                release(old_server)
+            end)
+            T:waitUntil(function() return not UIManager:isWidgetShown(old_server.widget) end,
+                5, "old server's DNS check finishes")
+            T:eq(#sent, 3, "an old server's resolver cannot drain newly queued progress")
+            T:eq(Queue:count(), 2, "server changes retain all unsent progress")
+            local server_retry = closeWithDNS("new-server", "second", new_server)
+            T:run(function() release(server_retry) end)
+            T:waitUntil(function() return #sent == 5 and Queue:count() == 0 end, 5, "new server retries retained progress")
+            T:check(sent[4].server == new_server and sent[5].server == new_server,
+                "the retry uses only the new server")
+
+            local ready_job, ready_uploads, pull_requests = nil, {}, 0
+            local current_digest = sent[1].document
+            local remote_progress, remote_percentage = expected_progress, 0
+            T:run(function()
+                Queue:clear()
+                Queue:push{ document = "unrelated-ready-book", progress = "unrelated" }
+                Queue:push{ document = current_digest, progress = expected_progress }
+                for _, module in ipairs(require("pluginloader").enabled_plugins) do
+                    if module.name == "kosync" then
+                        settings_owner = module.settings_obj
+                        saved_sync_settings = settings_owner:readSetting("settings")
+                        local settings = require("util").tableDeepCopy(module.default_settings)
+                        settings.auto_sync, settings.username, settings.userkey = true, "second", "synthetic-key"
+                        settings.sync_backward, settings.sync_forward = 2, 2
+                        settings_owner:saveSetting("settings", settings)
+                        break
+                    end
+                end
+                T:check(settings_owner, "KOSync is configured before real ReaderReady")
+                saved_wifi_action = G_reader_settings:readSetting("wifi_enable_action")
+                G_reader_settings:saveSetting("wifi_enable_action", "turn_on")
+                kosync_client.new = function()
+                    return {
+                        update_progress = function(_, _, _, document, _, progress, percentage, _, _, callback)
+                            ready_uploads[#ready_uploads + 1] = { document = document, done = function(ok)
+                                if ok and document == current_digest then
+                                    remote_progress, remote_percentage = progress, percentage
+                                end
+                                callback(ok)
+                            end }
+                        end,
+                        get_progress = function(_, _, _, _, callback)
+                            pull_requests = pull_requests + 1
+                            callback(true, { progress = remote_progress, percentage = remote_percentage,
+                                timestamp = 0, device = "Synthetic remote", device_id = "synthetic-remote" })
+                        end,
+                    }
+                end
+                ready_job = start("reader-ready", function() end, true, true)
+            end)
+            local reopened = T:openBook(T:fixture("books/en.epub"))
+            T:waitUntil(function() return pidOf(ready_job) end, 5, "ReaderReady checks DNS before queued progress")
+            T:run(function()
+                C.close(ready_job.read_fd)
+                ready_job.read_fd = nil
+                socket.dns.toip = saved_toip
+                ready_job.widget = T:topWidget()
+                reopened:handleEvent(require("ui/event"):new("GotoPage", 2))
+                Queue:push{ document = current_digest, progress = reopened.kosync:getLastProgress(),
+                    percentage = reopened.kosync:getLastPercent() }
+                release(ready_job)
+            end)
+            T:waitUntil(function() return #ready_uploads == 1 end, 5, "ReaderReady starts the current book upload first")
+            T:eq(ready_uploads[1].document, current_digest, "current book takes priority over unrelated queued failures")
+            T:eq(pull_requests, 0, "unfinished upload prevents pulling old remote progress")
+            T:eq(reopened:getCurrentPage(), 2, "unfinished upload preserves the visible local position")
+            T:run(function() ready_uploads[1].done(false) end)
+            T:eq(pull_requests, 0, "failed current-book upload still prevents an old remote pull")
+            T:eq(reopened:getCurrentPage(), 2, "failed upload does not overwrite the local position")
+            T:run(function() reopened.kosync:_onNetworkConnected() end)
+            T:waitUntil(function() return #ready_uploads == 2 end, 5, "a connectivity retry prioritizes current progress again")
+            T:run(function() ready_uploads[2].done(true) end)
+            T:waitUntil(function() return #ready_uploads == 3 end, 5, "other queued progress is attempted afterwards")
+            T:run(function() ready_uploads[3].done(false) end)
+            T:waitUntil(function() return pull_requests == 1 end, 5, "other-book failure does not block the current book pull")
+            T:eq(reopened:getCurrentPage(), 2, "successful replay and pull retain the fresh local progress")
+            T:eq(Queue:load()[1].document, "unrelated-ready-book", "only the unrelated failed record remains queued")
+            T:run(function()
+                reopened.kosync.settings.auto_sync = false
+                reopened.kosync:registerEvents()
+            end)
+            T:closeBook()
         end)
         T:run(function()
             socket.dns.toip, Device.hasWifiToggle = saved_toip, saved_toggle
+            NetworkMgr.beforeWifiAction = saved_before_wifi
             UIManager:unschedule(heartbeat)
             if saved_client_new then kosync_client.new = saved_client_new end
             for _, job in ipairs(jobs) do
@@ -214,6 +314,16 @@ return {
                 if pid then ffiUtil.terminateSubProcess(pid) end
                 if job.write_fd then C.close(job.write_fd) end
                 if job.read_fd then C.close(job.read_fd) end
+            end
+            local reader = require("apps/reader/readerui").instance
+            if reader then
+                reader.kosync.settings.auto_sync = false
+                reader.kosync:registerEvents()
+                reader:onHome()
+            end
+            if settings_owner then
+                settings_owner:saveSetting("settings", saved_sync_settings)
+                G_reader_settings:saveSetting("wifi_enable_action", saved_wifi_action)
             end
             ffiUtil.purgeDir(base)
         end)

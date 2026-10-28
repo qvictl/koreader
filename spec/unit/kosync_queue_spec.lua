@@ -348,7 +348,8 @@ describe("KOSyncQueue module", function()
         local pulls = 0
         local sync = setmetatable({
             settings = { username = "user", userkey = "key" },
-            path = "plugins/kosync.koplugin",
+            path = "plugins/kosync.koplugin", ui = { document = {} },
+            getDocumentDigest = function() return "a" end,
             getProgress = function() pulls = pulls + 1 end,
         }, { __index = KOSync })
         KOSyncQueue:push({ document = "a", progress = "1" })
