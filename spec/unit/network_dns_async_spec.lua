@@ -5,9 +5,10 @@ local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 
 describe("Asynchronous online checks", function()
-    local workers
+    local workers, shown
     before_each(function()
-        workers = {}
+        workers, shown = {}, {}
+        stub(UIManager, "show", function(_, widget) shown[#shown + 1] = widget.text end)
         stub(Device, "hasWifiToggle", function() return true end)
         stub(Trapper, "dismissableRunInSubprocess", function(_, task)
             workers[#workers + 1] = { task = task, co = coroutine.running() }
@@ -24,14 +25,15 @@ describe("Asynchronous online checks", function()
                 coroutine.resume(worker.co, false)
             end
         end
+        UIManager.show:revert()
         Device.hasWifiToggle:revert()
         Trapper.dismissableRunInSubprocess:revert()
         NetworkMgr.isOnline:revert()
         NetworkMgr.beforeWifiAction:revert()
         NetworkMgr.isConnected:revert()
     end)
-    local function complete(index, online, completed)
-        assert.is_true(coroutine.resume(workers[index].co, completed ~= false, online))
+    local function complete(index, online, completed, reason)
+        assert.is_true(coroutine.resume(workers[index].co, completed ~= false, online, reason))
     end
 
     it("defers an online action until its independent check completes", function()
@@ -74,15 +76,23 @@ describe("Asynchronous online checks", function()
         complete(2, true)
         assert.are.equal(1, calls)
     end)
-    it("does not invoke actions or reconnect after cancellation, even with a late result", function()
+    it("does not invoke actions or reconnect after cancellation", function()
         local callback = spy.new(function() end)
         NetworkMgr:runWhenOnline(callback)
         complete(1, true, false)
         assert.spy(callback).was_not_called()
         assert.stub(NetworkMgr.beforeWifiAction).was_not_called()
-        assert.is_false(coroutine.resume(workers[1].co, true, true))
-        assert.spy(callback).was_not_called()
     end)
+    for _, reason in ipairs{ "start_failed", "read_failed" } do
+        it("reports " .. reason .. " without treating it as offline or cancelled", function()
+            local callback = spy.new(function() end)
+            NetworkMgr:runWhenOnline(callback)
+            complete(1, nil, false, reason)
+            assert.spy(callback).was_not_called()
+            assert.stub(NetworkMgr.beforeWifiAction).was_not_called()
+            assert.same({ "Network connectivity check failed. Please try again." }, shown)
+        end)
+    end
     it("retains the reconnect callback when disconnected", function()
         local callback = function() end
         NetworkMgr:runWhenOnline(callback)
@@ -111,7 +121,6 @@ describe("Asynchronous online checks", function()
             addToOfflineQueue = function(_, url) queued = url end,
             addArticle = function(_, url) added = url; return true end,
         }, { __index = Wallabag })
-        stub(UIManager, "show")
         plugin:onAddWallabagArticle(article)
         assert.is_nil(queued)
         assert.is_nil(added)
@@ -120,6 +129,5 @@ describe("Asynchronous online checks", function()
         plugin:onAddWallabagArticle(article)
         complete(2, true)
         assert.are.equal(article, added)
-        UIManager.show:revert()
     end)
 end)
