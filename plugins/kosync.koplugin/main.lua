@@ -750,6 +750,8 @@ function KOSync:syncToProgress(progress)
     end
 end
 
+local pending_pushes = setmetatable({}, { __mode = "v" })
+
 function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
     if not self.settings.username or not self.settings.userkey then
         if interactive then
@@ -774,18 +776,23 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
     local filename = document.file
     local Queue = require("KOSyncQueue")
     local generation = Queue._generation
+    local doc_digest = self:getDocumentDigest()
     local request = {}
-    self._push_request = request
-    local function current()
-        return self.ui == ui and ui.document == document and generation == Queue._generation
-            and self._push_request == request
+    pending_pushes[doc_digest] = request
+    local function data_current()
+        return generation == Queue._generation and pending_pushes[doc_digest] == request
+    end
+    local function view_current()
+        return self.ui == ui and ui.document == document
+    end
+    local function finish_request()
+        if pending_pushes[doc_digest] == request then pending_pushes[doc_digest] = nil end
     end
     local KOSyncClient = require("KOSyncClient")
     local client = KOSyncClient:new{
         custom_url = self.settings.custom_server,
         service_spec = self.path .. "/api.json"
     }
-    local doc_digest = self:getDocumentDigest()
     local metadata = self:getMetadata()
     local progress = self:getLastProgress()
     local percentage = self:getLastPercent()
@@ -803,7 +810,7 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         if entry.document == doc_digest then queued_before[math.floor((entry.queued_at or 0) / 86400)] = entry end
     end
     local function queue_if_current()
-        if not current() then return end
+        if not data_current() then return end
         local today = math.floor(os.time() / 86400)
         for _, entry in ipairs(Queue:load()) do
             if entry.document == doc_digest and math.floor((entry.queued_at or 0) / 86400) == today
@@ -824,30 +831,28 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         chosen_device_name,
         self.device_id,
         function(ok, status, body)
-            if not current() then return end
+            if not data_current() then return end
+            if not ok and status ~= 401 then queue_if_current() end
+            finish_request()
             logger.dbg("KOSync: [Push] progress to", percentage * 100, "% =>", progress, "for", filename)
             logger.dbg("KOSync: ok:", ok, "body:", body)
-            if ok then
-                if interactive then
+            if interactive and view_current() then
+                if ok then
                     UIManager:show(InfoMessage:new{
                         text = _("Progress has been pushed."),
                         timeout = 3,
                     })
+                else
+                    showSyncError()
                 end
-            else
-                -- Queue for retry unless it's an auth failure
-                if status ~= 401 then
-                    queue_if_current()
-                end
-                if interactive then showSyncError() end
             end
         end)
     if not ok then
-        if not current() then return end
-        if interactive then showSyncError() end
-        if err then logger.dbg("err:", err) end
-        -- Network unreachable: queue for retry
+        if not data_current() then return end
         queue_if_current()
+        finish_request()
+        if interactive and view_current() then showSyncError() end
+        if err then logger.dbg("err:", err) end
     else
         -- This is solely for onSuspend's sake, to clear the ghosting left by the "Connected" InfoMessage
         if on_suspend then
