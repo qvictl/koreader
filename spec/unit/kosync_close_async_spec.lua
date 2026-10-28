@@ -9,10 +9,10 @@ local NetworkMgr = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
 
 describe("KOSync asynchronous close", function()
-    local ticks, checks, sent, upload_ok
+    local ticks, checks, sent, upload_ok, held_uploads
     before_each(function()
         Queue:clear()
-        ticks, checks, sent, upload_ok = {}, {}, {}, true
+        ticks, checks, sent, upload_ok, held_uploads = {}, {}, {}, true, nil
         stub(UIManager, "nextTick", function(_, callback) ticks[#ticks + 1] = callback end)
         stub(NetworkMgr, "checkOnline", function(_, callback) checks[#checks + 1] = callback end)
         stub(NetworkMgr, "isOnline", function() error("closing must never resolve DNS synchronously") end)
@@ -23,11 +23,12 @@ describe("KOSync asynchronous close", function()
                     server = config.custom_url,
                     metadata = metadata, progress = progress, percentage = percentage,
                     device = device, device_id = device_id }
-                callback(upload_ok)
+                if held_uploads then held_uploads[#held_uploads + 1] = callback else callback(upload_ok) end
             end }
         end)
     end)
     after_each(function()
+        for _, callback in ipairs(held_uploads or {}) do callback(false) end
         UIManager.nextTick:revert()
         NetworkMgr.checkOnline:revert()
         NetworkMgr.isOnline:revert()
@@ -75,6 +76,24 @@ describe("KOSync asynchronous close", function()
         assert.are.equal(1, #sent)
         assert.are.equal("second", sent[1].username)
         assert.are.equal(0, Queue:count())
+    end)
+    it("starts a new account's close upload before the old account responds", function()
+        held_uploads = {}
+        local first = sync("first")
+        first:_onCloseDocument()
+        ticks[1]()
+        checks[1](true)
+        first:logout()
+        sync("second"):_onCloseDocument()
+        ticks[2]()
+        checks[2](true)
+        local started_before_old = #sent == 2 and sent[2].username == "second"
+        held_uploads[1](true)
+        assert.is_true(started_before_old)
+        assert.is_true(Queue._draining)
+        held_uploads[2](true)
+        assert.are.equal(0, Queue:count())
+        assert.is_nil(Queue._draining)
     end)
     it("drops a scheduled check if the queue is cleared before it starts", function()
         sync():_onCloseDocument()
