@@ -1,35 +1,35 @@
 {
   "date": "2026-10-28",
   "overall": {
-    "covered": 52021,
+    "covered": 52058,
     "total": 98986,
-    "percent": 52.554,
+    "percent": 52.591,
     "files": 491
   },
   "overall_unit": {
-    "covered": 47104,
+    "covered": 47106,
     "total": 98308,
-    "percent": 47.915,
+    "percent": 47.917,
     "min": null
   },
   "diff_unit": {
-    "covered": 0,
-    "total": 0,
+    "covered": 5,
+    "total": 5,
     "percent": 100.000
   },
   "diff_combined": {
-    "covered": 0,
-    "total": 0,
+    "covered": 5,
+    "total": 5,
     "percent": 100.000
   },
   "ratchet": {
-    "baseline": 52.533,
-    "label": "main@ad630d1f (this change's base)"
+    "baseline": 52.554,
+    "label": "main@93716623 (this change's base)"
   },
   "owned": {
-    "covered": 630,
-    "total": 641,
-    "percent": 98.284,
+    "covered": 631,
+    "total": 642,
+    "percent": 98.287,
     "min": 80,
     "ok": true,
     "modules": {
@@ -77,8 +77,8 @@
       },
       "frontend/document/credocument.lua": {
         "scope": "fork",
-        "covered": 1,
-        "total": 1,
+        "covered": 2,
+        "total": 2,
         "percent": 100.000
       },
       "frontend/document/doccache.lua": {
@@ -158,7 +158,7 @@
     }
   ],
   "ok": true,
-  "commit": "93716623ae524d30cdfb8480461ab27a0383bccb",
+  "commit": "6f2b7e0d313275a9f8a1b5d9cb56f664c3846a16",
   "event": "push",
-  "updated": "2026-10-28T19:46:53Z"
+  "updated": "2026-10-28T20:11:00Z"
 }
