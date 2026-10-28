@@ -1584,6 +1584,11 @@ function Input:waitEvent(now, deadline)
                                 Event:new("Gesture", self.gesture_detector:adjustGesCoordinate(touch_ges))
                             }
                         end -- if touch_ges
+                    else
+                        -- We timed out on the UI deadline, before the timer's: hand control back to UIManager
+                        -- (so it can run its tasks) instead of spinning with a zero timeout until the timer expires.
+                        -- The timer is still queued, and will be honored on the next call.
+                        break
                     end -- if poll_deadline reached
                 else
                     -- Something went wrong, jump to error handling *now*
