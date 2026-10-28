@@ -4,7 +4,7 @@
 -- the long-press raised a Lua error instead of showing the confirmation.
 describe("Statistics period book list long-press", function()
     local ReaderStatistics, SQ3, UIManager, DataStorage
-    local db_path, shown, orig_show
+    local db_path, shown, orig_show, orig_settings
 
     local function exec(sql)
         local conn = SQ3.open(db_path)
@@ -28,6 +28,7 @@ describe("Statistics period book list long-press", function()
         DataStorage = require("datastorage")
         db_path = DataStorage:getSettingsDir() .. "/statistics.sqlite3"
         os.remove(db_path)
+        orig_settings = G_reader_settings:readSetting("statistics")
         G_reader_settings:saveSetting("statistics", { min_sec = 5, max_sec = 120, is_enabled = true })
         orig_show = UIManager.show
         UIManager.show = function(_, w) table.insert(shown, w) end
@@ -35,7 +36,7 @@ describe("Statistics period book list long-press", function()
 
     teardown(function()
         UIManager.show = orig_show
-        G_reader_settings:delSetting("statistics")
+        G_reader_settings:saveSetting("statistics", orig_settings)
         os.remove(db_path)
     end)
 
