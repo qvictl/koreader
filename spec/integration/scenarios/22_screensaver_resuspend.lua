@@ -26,8 +26,13 @@ return {
                 UIManager:broadcastEvent(Event:new("Resume"))
                 T:check(Device.screen_saver_lock, "delayed resume keeps the screensaver locked")
                 UIManager:broadcastEvent(Event:new("Suspend"))
+                local pending_close = false
+                for _, task in ipairs(UIManager._task_queue) do
+                    if task.action == Screensaver.close_widget then pending_close = true end
+                end
+                T:check(not pending_close, "second suspend cancels the pending resume-close task")
             end)
-            T:wait(0.3)
+            T:repaint()
             T:check(UIManager:isWidgetShown(widget), "old resume timer cannot close the screen after a second suspend")
             T:check(Device.screen_saver_mode and not Device.screen_saver_lock,
                 "second suspend preserves the sleeping screensaver state")
