@@ -1463,7 +1463,7 @@ function ReaderHighlight:showHighlightDialog(index)
                 end,
                 hold_key_bindings = can_have_bindings and { modifier, "LPgFwd" } or nil,
                 hold_callback = function()
-                    move_by_char = not move_by_char
+                    move_by_char = not self.ui.paging and not move_by_char
                     self:updateHighlight(index, 0, -1, true)
                 end,
             },
@@ -1476,7 +1476,7 @@ function ReaderHighlight:showHighlightDialog(index)
                 end,
                 hold_key_bindings = can_have_bindings and { modifier, "LPgBack" } or nil,
                 hold_callback = function()
-                    move_by_char = not move_by_char
+                    move_by_char = not self.ui.paging and not move_by_char
                     self:updateHighlight(index, 0, 1, true)
                 end,
             },
@@ -1489,7 +1489,7 @@ function ReaderHighlight:showHighlightDialog(index)
                 end,
                 hold_key_bindings = can_have_bindings and { modifier, "RPgBack" } or nil,
                 hold_callback = function()
-                    move_by_char = not move_by_char
+                    move_by_char = not self.ui.paging and not move_by_char
                     self:updateHighlight(index, 1, -1, true)
                 end,
             },
@@ -1502,7 +1502,7 @@ function ReaderHighlight:showHighlightDialog(index)
                 end,
                 hold_key_bindings = can_have_bindings and { modifier, "RPgFwd" } or nil,
                 hold_callback = function()
-                    move_by_char = not move_by_char
+                    move_by_char = not self.ui.paging and not move_by_char
                     self:updateHighlight(index, 1, 1, true)
                 end,
             },

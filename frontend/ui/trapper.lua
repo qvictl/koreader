@@ -509,6 +509,9 @@ Notes and limitations:
    an invisible TrapWidget will be used instead (if nil or true, the event will be
    resent; if false, the event will not be resent).
 
+A failure to start or read the worker returns `false, nil, "start_failed"` or
+`false, nil, "read_failed"`. A user dismissal returns only `false`.
+
 @param task lua function to execute and get return values from
 @param trap_widget_or_string already shown widget, string, or nil, true or false
 @boolean task_returns_simple_string[opt=false] true if task returns a single string
@@ -569,6 +572,7 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
 
     local completed = false
     local ret_values
+    local failure_reason
     local output_chunks = {}
 
     local pid, parent_read_fd = ffiutil.runInSubProcess(function(pid, child_write_fd)
@@ -600,6 +604,7 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
     if not pid then
         -- On failure, the 2nd return value is the error message (e.g., fork failed under memory pressure)
         logger.warn("dismissableRunInSubprocess: could not start subprocess:", parent_read_fd)
+        failure_reason = "start_failed"
     end
     if pid then
         -- We check regularly if subprocess is done, and we give control
@@ -647,6 +652,7 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
                 C.close(parent_read_fd)
                 if not chunk then
                     logger.warn("cannot read subprocess result:", read_error)
+                    failure_reason = "read_failed"
                     ffiutil.terminateSubProcess(pid)
                 else
                     local ret_str = table.concat(output_chunks)
@@ -677,7 +683,9 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
                 break
             end
             if #chunk > 0 or not drained then
-                check_interval_sec = 0.1
+                -- Continue active transfers promptly, allowing input between reads.
+                check_interval_sec = 0.01
+                check_num = 0
             end
             logger.dbg("process not yet done, will check again soon")
         end
@@ -691,6 +699,8 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
     else
         trap_widget.dismiss_callback = orig_dismiss_callback
     end
+    -- Failure reasons distinguish operational errors from a user dismissal.
+    if failure_reason then return false, nil, failure_reason end
     -- return what we got or not to our caller
     if ret_values then
         if task_returns_simple_string then

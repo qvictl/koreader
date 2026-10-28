@@ -130,6 +130,20 @@ describe("ReaderHighlight actions (PDF)", function()
     end)
 
     describe("boundaries", function()
+        it("keeps every PDF boundary arrow working after its long-press", function()
+            for arrow = 1, 4 do
+                local index = save_text(TEXT0, TEXT1)
+                local item = annotations()[index]
+                local previous = item.text
+                hl:showHighlightDialog(index)
+                local button = last_shown().buttons[2][arrow]
+                button.hold_callback()
+                assert.are.equal(previous, item.text)
+                button.callback()
+                assert.are_not.equal(previous, item.text)
+            end
+        end)
+
         it("should move the start and end of a highlight word by word", function()
             local index = save_text(TEXT0, TEXT1)
             local item = annotations()[index]
