@@ -561,13 +561,13 @@ describe("NetworkMgr flows", function()
             udp:revert()
         end)
 
-        it("runWhenOnline: runs now when online; when connected but offline, reconnects without queueing the callback", function()
+        it("runWhenOnline: checks online asynchronously; when connected but offline, reconnects without queueing the callback", function()
             local cb = spy.new(function() end)
-            local online = stub(NetworkMgr, "isOnline")
-            online.returns(true)
+            local online_result = true
+            local online = stub(NetworkMgr, "checkOnline", function(_, callback) callback(online_result) end)
             NetworkMgr:runWhenOnline(cb)
             assert.spy(cb).was.called(1)
-            online.returns(false)
+            online_result = false
             local before = stub(NetworkMgr, "beforeWifiAction")
             backend.connected = false
             NetworkMgr:runWhenOnline(cb)
@@ -581,8 +581,8 @@ describe("NetworkMgr flows", function()
             assert.is_true(NetworkMgr:willRerunWhenOnline(cb))
             backend.connected = false
             assert.is_true(NetworkMgr:willRerunWhenOnline(cb))
-            online.returns(true)
-            assert.is_false(NetworkMgr:willRerunWhenOnline(cb))
+            online_result = true
+            assert.is_true(NetworkMgr:willRerunWhenOnline(cb))
             assert.stub(before).was.called(4)
             online:revert()
             before:revert()
@@ -1066,15 +1066,15 @@ describe("NetworkMgr flows", function()
             NetworkListener:onInfoWifiOff()
             assert.are.equal(2, backend.turn_off_calls)
 
-            local online = stub(NetworkMgr, "isOnline")
-            online.returns(true)
+            local online_result = true
+            local online = stub(NetworkMgr, "checkOnline", function(_, callback) callback(online_result) end)
             backend.current_network = { ssid = "Home" }
             NetworkListener:onInfoWifiOn()
             assert.is_truthy(lastShownText():find("Already connected to network"))
             backend.current_network = nil
             NetworkListener:onInfoWifiOn()
             assert.are.equal("Already connected.", lastShownText())
-            online.returns(false)
+            online_result = false
             NetworkListener:onInfoWifiOn()
             assert.are.equal(2, backend.turn_on_calls)
             online:revert()
