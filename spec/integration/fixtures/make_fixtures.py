@@ -23,6 +23,7 @@ import os
 import struct
 import sys
 import zipfile
+import zlib
 
 # Books. {{{
 
@@ -219,6 +220,45 @@ def make_dicts(out):
     }
 
 # }}}
+
+
+def write_scan_pdf(path, pages=12):
+    """Synthetic scans with distinct, highly compressible 4.5 MiB RGB images."""
+    objects = [b"", b""]
+    page_ids = []
+    width, height = 1024, 1536
+
+    def add(data):
+        objects.append(data)
+        return len(objects)
+
+    for index in range(pages):
+        raw = bytes((i + index * 17) % 256 for i in range(256)) * (width * height * 3 // 256)
+        image = zlib.compress(raw)
+        image_id = add((f"<< /Type /XObject /Subtype /Image /Width {width} /Height {height} "
+                        f"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode "
+                        f"/Length {len(image)} >>\nstream\n").encode() + image + b"\nendstream")
+        content = f"q {width} 0 0 {height} 0 0 cm /Im Do Q".encode()
+        content_id = add(f"<< /Length {len(content)} >>\nstream\n".encode() + content + b"\nendstream")
+        page_ids.append(add((f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] "
+                             f"/Resources << /XObject << /Im {image_id} 0 R >> >> "
+                             f"/Contents {content_id} 0 R >>").encode()))
+    objects[0] = b"<< /Type /Catalog /Pages 2 0 R >>"
+    objects[1] = (f"<< /Type /Pages /Count {pages} /Kids [".encode()
+                  + b" ".join(f"{p} 0 R".encode() for p in page_ids) + b"] >>")
+    data = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for index, obj in enumerate(objects, 1):
+        offsets.append(len(data))
+        data.extend(f"{index} 0 obj\n".encode() + obj + b"\nendobj\n")
+    xref = len(data)
+    data.extend(f"xref\n0 {len(offsets)}\n0000000000 65535 f \n".encode())
+    for offset in offsets[1:]:
+        data.extend(f"{offset:010d} 00000 n \n".encode())
+    data.extend((f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\n"
+                 f"startxref\n{xref}\n%%EOF\n").encode())
+    with open(path, "wb") as file:
+        file.write(data)
 
 
 def main():
