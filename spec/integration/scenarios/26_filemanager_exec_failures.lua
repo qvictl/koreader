@@ -38,19 +38,25 @@ return {
             T:check(not lfs.attributes(copied), "failed exec creates no destination")
             fm.cp_bin = cp
 
+            local failed_fork_waits = 0
             T:run(function()
-                fault({ fork = function() return -1 end, waitpid = function() return -1 end }, function()
+                fault({ fork = function() return -1 end, waitpid = function()
+                    failed_fork_waits = failed_fork_waits + 1
+                    return -1
+                end }, function()
                     T:check(not fm:copyFileFromTo(source, copied), "fork failure does not report copy success")
                     T:check(not fm:moveFile(source, moved), "fork failure does not report move success")
                     T:check(not fm:copyRecursive(source, copied), "fork failure does not report recursive copy success")
                 end)
             end)
+            T:eq(failed_fork_waits, 0, "fork failure never waits for an unrelated child")
             T:check(lfs.attributes(source) and not lfs.attributes(moved), "failed move preserves source")
             local waits = 0
             T:run(function()
                 fault({
                     fork = function() return 123 end,
-                    waitpid = function(_, status)
+                    waitpid = function(pid, status)
+                        T:eq(pid, 123, "wait retries the original child")
                         waits = waits + 1
                         if waits == 1 then ffi.errno(C.EINTR); return -1 end
                         status[0] = 3 * 256
@@ -61,6 +67,15 @@ return {
                 end)
             end)
             T:eq(waits, 2, "interrupted wait retries the same child")
+            T:run(function()
+                fault({ fork = function() return 123 end, waitpid = function()
+                    ffi.errno(C.EINVAL)
+                    return -1
+                end }, function()
+                    T:check(not fm:copyFileFromTo(source, copied), "uncollected child status is not success")
+                end)
+            end)
+            T:check(not lfs.attributes(copied), "failed wait creates no destination")
             T:check(T:run(function() return fm:copyFileFromTo(source, copied) end), "normal copy succeeds")
             T:eq(read(copied), "fixture content", "normal copy preserves content")
             T:check(T:run(function() return fm:moveFile(copied, moved) end), "normal move succeeds")
