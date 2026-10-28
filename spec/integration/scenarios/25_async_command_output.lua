@@ -110,7 +110,10 @@ return {
         UIManager:unschedule(beat)
         util.openCommandPipe = original_start
         if not ok then
-            for _, pid in ipairs(command_pids) do C.kill(-pid, 9) end
+            for _, pid in ipairs(command_pids) do
+                -- An unreaped live leader pins its pid/pgid against reuse.
+                if not util.isSubProcessDone(pid) then C.kill(-pid, 9) end
+            end
             for _, pid in ipairs(command_pids) do util.isSubProcessDone(pid, true) end
         end
         if descendant then C.kill(descendant, 9); C.waitpid(descendant, nil, 0) end
