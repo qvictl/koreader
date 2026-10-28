@@ -5,26 +5,26 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 kodir='' output='' book='' font='Noto Sans CJK SC'
 while (($#)); do
     case "$1" in
-    --kodir)
-        kodir=$2
-        shift 2
-        ;;
-    --output)
-        output=$2
-        shift 2
-        ;;
-    --book)
-        book=$2
-        shift 2
-        ;;
-    --font)
-        font=$2
-        shift 2
-        ;;
-    *)
-        echo "Usage: $0 --kodir DIR --output DIR --book FILE [--font NAME]" >&2
-        exit 2
-        ;;
+        --kodir)
+            kodir=$2
+            shift 2
+            ;;
+        --output)
+            output=$2
+            shift 2
+            ;;
+        --book)
+            book=$2
+            shift 2
+            ;;
+        --font)
+            font=$2
+            shift 2
+            ;;
+        *)
+            echo "Usage: $0 --kodir DIR --output DIR --book FILE [--font NAME]" >&2
+            exit 2
+            ;;
     esac
 done
 [[ $(uname -s) == Linux && -n "${kodir}" && -n "${output}" && -f "${book}" ]] || {
