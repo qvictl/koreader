@@ -656,6 +656,8 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
                     ffiutil.terminateSubProcess(pid)
                 else
                     local ret_str = table.concat(output_chunks)
+                    -- Let GC reclaim transport chunks before decoding large results.
+                    output_chunks = nil -- luacheck: ignore 311
                     if #ret_str > 0 then
                         if task_returns_simple_string then
                             ret_values = ret_str
