@@ -312,6 +312,9 @@ Do you want to create an empty database?
                     end
                 end,
             })
+            -- The DB is empty: there is nothing to migrate (and no page_stat table to migrate from).
+            conn:close()
+            return
         end
 
         -- Check if we need to migrate to a newer schema
@@ -2132,7 +2135,7 @@ function ReaderStatistics:getBooksFromPeriod(period_begin, period_end, callback_
                 UIManager:show(self.kv)
             end,
             hold_callback = function(kv_page, kv_item)
-                self:resetStatsForBookForPeriod(result_book[4][i], period_begin, period_end, false, function()
+                self:resetStatsForBookForPeriod(tonumber(result_book[4][i]), period_begin, period_end, false, function()
                     kv_page:removeKeyValueItem(kv_item) -- Reset, refresh what's displayed
                 end)
             end,

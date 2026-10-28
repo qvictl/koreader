@@ -166,11 +166,13 @@ local function addOverlayMessage(widget, widget_height, text)
     }
     widget = OverlapGroup:new{
         dimen = {
-            h = screen_w,
-            w = screen_h,
+            w = screen_w,
+            h = screen_h,
         },
-        widget,
-        textw,
+        -- There may be no main widget (e.g., "disable" type without message):
+        -- don't leave a nil hole in the array part, the overlay wouldn't be painted.
+        widget or textw,
+        widget and textw or nil,
     }
     return widget
 end

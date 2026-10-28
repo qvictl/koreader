@@ -2055,6 +2055,10 @@ function ReaderDictionary:stardictLookup(word, dict_names, fuzzy_search, boxes, 
         results = self:startSdcv(word, dict_names, fuzzy_search)
     end
     local function lookupCancelled()
+        -- Close the "Searching..." message: a tap may have dismissed it already, but sdcv
+        -- may also just have failed to start, in which case it would be left up for good
+        -- (it shows after a delay) with nothing else on screen.
+        self:dismissLookupInfo()
         if self.highlight then
             self.highlight:clear()
         end

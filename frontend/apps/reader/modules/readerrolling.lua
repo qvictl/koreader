@@ -216,16 +216,19 @@ function ReaderRolling:onReadSettings(config)
     elseif last_per then
         self.setupXpointer = function()
             self:_gotoPercent(last_per * 100)
-            -- _gotoPercent calls _gotoPos, which only updates self.current_pos
-            -- and self.view.
-            -- we need to do a real pos change in self.ui.document._document
-            -- to update status information in CREngine.
-            self.ui.document:gotoPos(self.current_pos)
-            -- _gotoPercent already calls gotoPos, so no need to emit
-            -- PosUpdate event in scroll mode
             if self.view.view_mode == "page" then
+                -- _gotoPercent went through _gotoPage, which already did the real page change
+                -- in CREngine (and emitted PageUpdate). self.current_pos isn't maintained in page
+                -- mode: gotoPos(self.current_pos) here used to jump back to the top of the book.
                 self.ui:handleEvent(
                     Event:new("PageUpdate", self.ui.document:getCurrentPage()))
+            else
+                -- _gotoPercent calls _gotoPos, which only updates self.current_pos
+                -- and self.view.
+                -- we need to do a real pos change in self.ui.document._document
+                -- to update status information in CREngine.
+                -- (_gotoPos already emitted PosUpdate.)
+                self.ui.document:gotoPos(self.current_pos)
             end
             self.xpointer = self.ui.document:getXPointer()
         end
