@@ -875,10 +875,11 @@ function FileManager:setHome(path)
         text = T(_("Set '%1' as HOME folder?"), BD.dirpath(path)),
         ok_text = _("Set as HOME"),
         ok_callback = function()
-            local path_refreshed = self.folder_shortcuts:updateShortcut("home_dir", path)
+            self.folder_shortcuts:updateShortcut("home_dir", path)
             G_reader_settings:saveSetting("home_dir", path)
             self:updateTitleBarPath()
-            if not path_refreshed and G_reader_settings:isTrue("lock_home_folder") then
+            if G_reader_settings:isTrue("lock_home_folder") then
+                -- refresh again (now that the new home is saved) to hide "../"
                 self.file_chooser:refreshPath()
             end
         end,
