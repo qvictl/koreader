@@ -1,25 +1,25 @@
 {
-  "date": "2026-10-27",
+  "date": "2026-10-28",
   "overall": {
-    "covered": 35436,
-    "total": 93993,
-    "percent": 37.701,
+    "covered": 35514,
+    "total": 94022,
+    "percent": 37.772,
     "files": 491
   },
   "diff_unit": {
-    "covered": 0,
-    "total": 0,
+    "covered": 15,
+    "total": 15,
     "percent": 100.000
   },
   "diff_combined": {
-    "covered": 0,
-    "total": 0,
+    "covered": 15,
+    "total": 15,
     "percent": 100.000
   },
   "owned": {
-    "covered": 547,
-    "total": 618,
-    "percent": 88.511,
+    "covered": 555,
+    "total": 619,
+    "percent": 89.661,
     "min": 80,
     "ok": true,
     "modules": {
@@ -31,15 +31,15 @@
       },
       "frontend/apps/reader/modules/readerdictionary.lua": {
         "scope": "fork",
-        "covered": 319,
+        "covered": 324,
         "total": 375,
-        "percent": 85.067
+        "percent": 86.400
       },
       "frontend/ui/widget/dictquicklookup.lua": {
         "scope": "fork",
-        "covered": 37,
+        "covered": 38,
         "total": 42,
-        "percent": 88.095
+        "percent": 90.476
       },
       "frontend/ui/trapper.lua": {
         "scope": "fork",
@@ -79,8 +79,8 @@
       },
       "frontend/apps/reader/readerui.lua": {
         "scope": "fork",
-        "covered": 3,
-        "total": 3,
+        "covered": 4,
+        "total": 4,
         "percent": 100.000
       },
       "frontend/device/generic/device.lua": {
@@ -109,9 +109,9 @@
       },
       "base/ffi/util.lua": {
         "scope": "func:util.runInSubProcess,util.isSubProcessDone,util.terminateSubProcess,util.readAllFromFD",
-        "covered": 78,
+        "covered": 79,
         "total": 88,
-        "percent": 88.636
+        "percent": 89.773
       }
     }
   },
@@ -142,7 +142,7 @@
     }
   ],
   "ok": true,
-  "commit": "76b8c107f918d14c2f7de67081603b187540465b",
+  "commit": "d462cd255fbac601e266ec8c54b7d65e9f586e19",
   "event": "push",
-  "updated": "2026-10-27T16:26:25Z"
+  "updated": "2026-10-28T03:12:38Z"
 }
