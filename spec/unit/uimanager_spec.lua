@@ -474,4 +474,72 @@ describe("UIManager spec", function()
         assert.is.same(1, #UIManager._window_stack)
         assert.is.same(widget_3, UIManager._window_stack[1].widget)
     end)
+
+    describe("closeWidgetsAbove", function()
+        local closed
+        local function widget(t)
+            t.handleEvent = function(self, ev)
+                if ev.handler == "onCloseWidget" then
+                    table.insert(closed, self.name)
+                end
+            end
+            return t
+        end
+        before_each(function()
+            UIManager:quit()
+            closed = {}
+        end)
+
+        it("should close the non-modal widgets above a widget, but keep modals and toasts", function()
+            local below = widget{ name = "below" }
+            local base = widget{ name = "base", covers_fullscreen = true }
+            local dialog = widget{ name = "dialog" }
+            local dialog2 = widget{ name = "dialog2" }
+            local modal = widget{ name = "modal", modal = true }
+            local toast = widget{ name = "toast", toast = true }
+            for _, w in ipairs{ below, base, dialog, dialog2, modal, toast } do
+                UIManager:show(w)
+            end
+            -- The covered dialogs are flagged dirty, but won't be painted (see _repaint).
+            UIManager:setDirty("all")
+            assert.are.same(2, UIManager:closeWidgetsAbove(base))
+            -- Closed top-down, like a user dismissing them.
+            assert.are.same({ "dialog2", "dialog" }, closed)
+            assert.are.same(4, #UIManager._window_stack)
+            assert.are.same(below, UIManager._window_stack[1].widget)
+            assert.are.same(base, UIManager._window_stack[2].widget)
+            assert.is_true(UIManager:isWidgetShown(modal))
+            assert.is_true(UIManager:isWidgetShown(toast))
+            assert.is_nil(UIManager._dirty[dialog])
+            assert.is_nil(UIManager._dirty[dialog2])
+        end)
+
+        it("should handle widgets closed by another widget's close handler", function()
+            local base = widget{ name = "base" }
+            local dialog = widget{ name = "dialog" }
+            local dialog2 = widget{ name = "dialog2" }
+            dialog2.handleEvent = function(self, ev)
+                if ev.handler == "onCloseWidget" then
+                    table.insert(closed, self.name)
+                    UIManager:close(dialog)
+                end
+            end
+            for _, w in ipairs{ base, dialog, dialog2 } do
+                UIManager:show(w)
+            end
+            -- dialog2 closed dialog itself: it is not closed (notified) twice.
+            assert.are.same(1, UIManager:closeWidgetsAbove(base))
+            assert.are.same({ "dialog2", "dialog" }, closed)
+            assert.are.same(1, #UIManager._window_stack)
+        end)
+
+        it("should do nothing for a widget that is not shown", function()
+            local dialog = widget{ name = "dialog" }
+            UIManager:show(dialog)
+            assert.are.same(0, UIManager:closeWidgetsAbove(widget{ name = "gone" }))
+            assert.are.same(0, UIManager:closeWidgetsAbove(dialog))
+            assert.are.same({}, closed)
+            assert.is_true(UIManager:isWidgetShown(dialog))
+        end)
+    end)
 end)
