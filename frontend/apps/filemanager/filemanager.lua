@@ -818,6 +818,7 @@ FileManager.onPhysicalKeyboardDisconnected = FileManager.reinit
 
 function FileManager:onClose()
     logger.dbg("close filemanager")
+    UIManager:closeWidgetsAbove(self, true)
     PluginLoader:finalize()
     self:handleEvent(Event:new("SaveSettings"))
     G_reader_settings:flush()

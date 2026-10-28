@@ -11,6 +11,7 @@ local UIManager
 local framebuffer = require("ffi/framebuffer")
 local logger = require("logger")
 local time = require("ui/time")
+local util = require("util")
 local _ = require("gettext")
 
 -- We're going to need a few <linux/input.h> constants...
@@ -254,6 +255,10 @@ function Input:init()
     self.timer_callbacks = {}
     self.MTSlots = {}
     self.active_slots = {}
+    self.fake_event_args = util.tableDeepCopy(Input.fake_event_args)
+    self.rotation_ignored_fds = {}
+    self.modifiers = util.tableDeepCopy(Input.modifiers)
+    self.group = util.tableDeepCopy(Input.group)
 
     -- Handle default finger slot
     self.cur_slot = self.main_finger_slot
