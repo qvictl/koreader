@@ -33,16 +33,16 @@ return {
         end
         local original_start = util.openCommandPipe
         local original_read, original_done = util.readAvailableFromFD, util.isSubProcessDone
-        local observed_output, observed_eof, observed_done
+        local observed_output, observed_eof, observed_done, current_command_pid
         util.readAvailableFromFD = function(...)
             local chunk, eof, drained, read_error = original_read(...)
             if chunk and #chunk > 0 then observed_output = true end
             observed_eof = observed_eof or eof
             return chunk, eof, drained, read_error
         end
-        util.isSubProcessDone = function(...)
-            local done = original_done(...)
-            observed_done = observed_done or done
+        util.isSubProcessDone = function(pid, ...)
+            local done = original_done(pid, ...)
+            if done and pid == current_command_pid then observed_done = pid end
             return done
         end
         local release = prefix .. ".release"
@@ -54,14 +54,17 @@ return {
         local command_pids = {}
         util.openCommandPipe = function(...)
             local pid, fd = original_start(...)
-            if pid then command_pids[#command_pids + 1] = pid end
+            if pid then
+                command_pids[#command_pids + 1] = pid
+                current_command_pid = pid
+            end
             return pid, fd
         end
         local before = pipes()
         local active, completed, output
         local function start(command, text)
             active, completed, output = true, nil, nil
-            observed_output, observed_eof, observed_done = false, false, false
+            observed_output, observed_eof, observed_done, current_command_pid = false, false, false, nil
             os.remove(release)
             T:run(function()
                 Trapper:wrap(function()
@@ -125,7 +128,8 @@ return {
             T:budget("streaming_command_cancel_ms", T:now() - started, 800, "ms")
             T:waitUntil(function() return lfs.attributes(finished) end, 20, "cancelled command finishes normally")
             T:check(lfs.attributes(finished), "cancellation did not kill the command")
-            T:waitUntil(function() return #T:children() == 0 and pipes() == before end,
+            T:waitUntil(function() return current_command_pid and observed_done == current_command_pid
+                    and #T:children() == 0 and pipes() == before end,
                 20, "background output drain and shell reap")
             responsive("cancelled_collector_heartbeat_ms")
             T:eq(pipes(), before, "all command pipe readers are closed")
