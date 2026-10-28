@@ -247,12 +247,12 @@ describe("ReaderFooter modes, menu and refresh scheduling", function()
             readerui.view.flipping_visible = true
             -- not yet painted: no dimen, nothing to jump to but tap is still consumed
             footer.progress_bar.dimen = nil
-            assert.is_true(footer:TapFooter({ pos = Geom:new{ x = 50, y = 790 } }))
+            assert.is_true(footer:TapFooter({ pos = Geom:new({ x = 50, y = 790 }) }))
             assert.is_nil(hasEvent(events, "onGotoPercentage"))
 
-            footer.progress_bar.dimen = Geom:new{ x = 10, y = 780, w = 200, h = 10 }
+            footer.progress_bar.dimen = Geom:new({ x = 10, y = 780, w = 200, h = 10 })
             local mode = footer.mode
-            assert.is_true(footer:TapFooter({ pos = Geom:new{ x = 60, y = 785 } }))
+            assert.is_true(footer:TapFooter({ pos = Geom:new({ x = 60, y = 785 }) }))
             local ev = hasEvent(events, "onGotoPercentage")
             assert.truthy(ev)
             assert.is.same(0.25, ev.args[1])
@@ -302,14 +302,14 @@ describe("ReaderFooter modes, menu and refresh scheduling", function()
         it("should only open skim dialog on hold inside a visible footer", function()
             local footer = openReader(sample_pdf)
             local events = recordEvents({ onShowSkimtoDialog = true })
-            local ges = { pos = Geom:new{ x = 100, y = 790, w = 0, h = 0 } }
+            local ges = { pos = Geom:new({ x = 100, y = 790, w = 0, h = 0 }) }
             assert.is_nil(footer:onHoldFooter(ges))
             footer.settings.skim_widget_on_hold = true
-            footer.footer_content.dimen = Geom:new{ x = 0, y = 780, w = 600, h = 20 }
+            footer.footer_content.dimen = Geom:new({ x = 0, y = 780, w = 600, h = 20 })
             assert.is_true(footer:onHoldFooter(ges))
             assert.truthy(hasEvent(events, "onShowSkimtoDialog"))
             -- outside
-            assert.is_nil(footer:onHoldFooter({ pos = Geom:new{ x = 100, y = 100, w = 0, h = 0 } }))
+            assert.is_nil(footer:onHoldFooter({ pos = Geom:new({ x = 100, y = 100, w = 0, h = 0 }) }))
             -- footer hidden
             readerui.view.footer_visible = false
             assert.is_nil(footer:onHoldFooter(ges))
@@ -943,7 +943,7 @@ describe("ReaderFooter modes, menu and refresh scheduling", function()
             assert.is.same("letters", preset.footer.item_prefix)
 
             -- loading a preset keeping the same font only resets the filler cache
-            footer.filler_space_width = 42
+            footer.filler_space_width = 42 -- unscaled_size_check: ignore
             footer:loadPreset(footer:buildPreset())
             assert.is_nil(footer.filler_space_width)
         end)

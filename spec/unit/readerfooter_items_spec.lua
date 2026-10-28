@@ -528,13 +528,13 @@ describe("ReaderFooter items text generation", function()
 
     describe("layout", function()
         it("should follow book margins for the progress bar at startup", function()
-            openReader(sample_epub, { progress_margin = true, progress_margin_width = 1 })
+            openReader(sample_epub, { progress_margin = true, progress_margin_width = 1 }) -- unscaled_size_check: ignore
             local h = readerui.document.configurable.h_page_margins
             assert.is.same(math.floor((h[1] + h[2]) / 2), footer.settings.progress_margin_width)
         end)
 
         it("should use default margins for paged documents", function()
-            openReader(sample_pdf, { progress_margin = true, progress_margin_width = 1 })
+            openReader(sample_pdf, { progress_margin = true, progress_margin_width = 1 }) -- unscaled_size_check: ignore
             assert.is.same(ReaderFooter.default_settings.progress_margin_width, footer.settings.progress_margin_width)
         end)
 
