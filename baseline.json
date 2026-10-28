@@ -1,15 +1,15 @@
 {
   "date": "2026-10-28",
   "overall": {
-    "covered": 38582,
-    "total": 94543,
-    "percent": 40.809,
+    "covered": 46494,
+    "total": 97586,
+    "percent": 47.644,
     "files": 491
   },
   "overall_unit": {
-    "covered": 32628,
-    "total": 93738,
-    "percent": 34.808,
+    "covered": 41333,
+    "total": 96915,
+    "percent": 42.649,
     "min": null
   },
   "diff_unit": {
@@ -23,9 +23,9 @@
     "percent": 100.000
   },
   "owned": {
-    "covered": 560,
-    "total": 620,
-    "percent": 90.323,
+    "covered": 614,
+    "total": 625,
+    "percent": 98.240,
     "min": 80,
     "ok": true,
     "modules": {
@@ -37,15 +37,15 @@
       },
       "frontend/apps/reader/modules/readerdictionary.lua": {
         "scope": "fork",
-        "covered": 324,
-        "total": 375,
-        "percent": 86.400
+        "covered": 374,
+        "total": 380,
+        "percent": 98.421
       },
       "frontend/ui/widget/dictquicklookup.lua": {
         "scope": "fork",
-        "covered": 38,
+        "covered": 42,
         "total": 42,
-        "percent": 90.476
+        "percent": 100.000
       },
       "frontend/ui/trapper.lua": {
         "scope": "fork",
@@ -154,7 +154,7 @@
     }
   ],
   "ok": true,
-  "commit": "eecef20093e11c71644a8eb6e5e5bb67e9ae9c2d",
+  "commit": "1dd69b7b6003fbd14809efad74bc162c3d379a40",
   "event": "push",
-  "updated": "2026-10-28T12:55:37Z"
+  "updated": "2026-10-28T15:44:16Z"
 }
