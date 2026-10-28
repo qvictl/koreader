@@ -21,6 +21,15 @@ return {
             { from = "2026-11-24", delta_pp = 5 },
             { from = "2026-12-22", delta_pp = 10 },
         },
+        -- The same paths, covered by the unit tests alone (spec/unit). Unlike the targets
+        -- above, these are blocking (the "unit" gate) from their date. Plan: doc/coverage-plan.md.
+        unit = {
+            baseline = { date = "2026-10-27", percent = 31.47 }, -- main @ 76b8c107f (unit stats only)
+            targets = {
+                { from = "2026-11-24", delta_pp = 5 },  -- ≥ 36.47%
+                { from = "2026-12-22", delta_pp = 10 }, -- ≥ 41.47%
+            },
+        },
     },
     owned = {
         list = ".ci/owned-modules.txt",
