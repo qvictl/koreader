@@ -56,6 +56,9 @@ describe("Screensaver overlay message", function()
         local overlay = Screensaver.screensaver_widget.widget
         assert.is_truthy(overlay[1])
         assert.is_true(overlay:getSize().h > 0)
+        -- Screen sized (not with width and height swapped: the message is right-aligned to it)
+        assert.are.same({ w = Device.screen:getWidth(), h = Device.screen:getHeight() },
+                        { w = overlay:getSize().w, h = overlay:getSize().h })
         assert.is_true(countDarkPixels(overlay) > 0)
     end)
 end)
