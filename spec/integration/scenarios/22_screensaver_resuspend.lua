@@ -1,3 +1,4 @@
+-- luacheck: ignore 122 143
 return {
     name = "A delayed screensaver survives a second suspend",
     timeout = 30,
