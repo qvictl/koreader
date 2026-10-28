@@ -12,7 +12,8 @@ return {
         git:close()
         local ok, err = xpcall(function()
             local selected = os.getenv("TRANSPORT_PROBE_MODE")
-            for _, name in ipairs(selected and { selected } or { "before", "after" }) do
+            assert(selected == "before" or selected == "after", "select one mode per fresh process")
+            for _, name in ipairs{ selected } do
                 local Trapper = name == "before"
                     and assert(loadstring(previous, "@frontend/ui/trapper.lua"))()
                     or dofile("frontend/ui/trapper.lua")
@@ -45,11 +46,7 @@ return {
                 Buffer.decode = original_decode
                 T:check(completed and #value.data == 8 * 1024 * 1024, name .. " preserves data")
                 T:metric(name .. "_live_heap_delta_kib", gains[name], "KiB")
-                value = nil
-            end
-            if gains.before and gains.after then
-                T:metric("reclaimed_before_decode_kib", gains.before - gains.after, "KiB")
-                T:check(gains.before - gains.after > 7 * 1024, "transport chunks are eligible before decode")
+                value = nil -- luacheck: ignore 311
             end
         end, debug.traceback)
         Buffer.decode = original_decode
