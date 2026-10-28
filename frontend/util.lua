@@ -783,6 +783,7 @@ end
 --- Recursively scan directory for files inside
 -- @string path
 -- @func callback(fullpath, name, attr)
+-- The callback may return false to exclude a file from the max_files count.
 -- @bool recursive
 -- @int max_files (maximum number of files to find)
 function util.findFiles(dir, cb, recursive, max_files)
@@ -801,8 +802,9 @@ function util.findFiles(dir, cb, recursive, max_files)
                     scan(path)
                 end
             elseif attr.mode == "file" or attr.mode == "link" then
-                cb(path, f, attr)
-                count = count + 1
+                if cb(path, f, attr) ~= false then
+                    count = count + 1
+                end
             end
         end
     end

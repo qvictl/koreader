@@ -98,7 +98,9 @@ local function _getRandomImage(dir)
         util.findFiles(dir, function(file)
             if match_func(file) then
                 table.insert(files, file)
+                return true
             end
+            return false
         end, false, max_files)
         if #files == 0 then return end
         -- we have files, sort them in natural order, i.e z2 < z11 < z20

@@ -62,7 +62,9 @@ function filemanagerutil.getRandomFile(dir, match_func, max_files)
     util.findFiles(dir, function(file)
         if match_func(file) then
             table.insert(files, file)
+            return true
         end
+        return false
     end, false, max_files)
     if #files > 0 then
         math.randomseed(os.time())
