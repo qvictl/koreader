@@ -73,12 +73,19 @@ describe("Trapper:dismissablePopen and commands without output", function()
     it("collects a dismissed command once it exits silently, and stops polling", function()
         local flag = os.tmpname()
         os.remove(flag)
-        finally(function() os.remove(flag) end)
+        finally(function()
+            -- (On failure too: let the command exit and its collector close the pipe, then clean up.)
+            local fh = io.open(flag, "w")
+            if fh then fh:close() end
+            runTasks(1000)
+            os.remove(flag)
+        end)
         local widget = { dismiss_callback = nil }
         local res = {}
         Trapper:wrap(function()
+            -- (bounded: the shell exits by itself after ~30 s whatever happens)
             res.completed, res.output = Trapper:dismissablePopen(
-                "while [ ! -e '" .. flag .. "' ]; do sleep 0.01; done", widget)
+                "i=0; while [ ! -e '" .. flag .. "' ] && [ $i -lt 3000 ]; do sleep 0.01; i=$((i+1)); done", widget)
             res.done = true
         end)
         runTasks(2) -- still running
