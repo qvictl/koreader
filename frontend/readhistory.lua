@@ -17,6 +17,14 @@ local ReadHistory = {
     last_read_time = 0,
 }
 
+-- Returns true if path is folder itself or is inside it.
+local function isInFolder(path, folder)
+    if folder:sub(-1) ~= "/" then
+        folder = folder .. "/"
+    end
+    return util.stringStartsWith(path .. "/", folder)
+end
+
 local function getMandatory(date_time)
     return G_reader_settings:isTrue("history_datetime_short")
         and os.date(C_("Date string", "%y-%m-%d"), date_time) or datetime.secondsToDateTime(date_time)
@@ -200,7 +208,7 @@ function ReadHistory:updateItemsByPath(old_path, new_path)
     local len = #old_path
     local history_updated
     for i, v in ipairs(self.hist) do
-        if v.file:sub(1, len) == old_path then
+        if isInFolder(v.file, old_path) then
             self.hist[i].file = new_path .. v.file:sub(len + 1)
             history_updated = true
         end
@@ -237,7 +245,7 @@ function ReadHistory:folderDeleted(path)
     local history_updated
     for i = #self.hist, 1, -1 do
         local file = self.hist[i].file
-        if util.stringStartsWith(file, path) then
+        if isInFolder(file, path) then
             self:fileDeleted(i)
             history_updated = true
             DocSettings.updateLocation(file) -- remove sdr if not in book location
