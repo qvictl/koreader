@@ -83,9 +83,9 @@ describe("Trapper:dismissablePopen and commands without output", function()
         local widget = { dismiss_callback = nil }
         local res = {}
         Trapper:wrap(function()
-            -- (bounded: the shell exits by itself after ~30 s whatever happens)
+            -- (released by the flag file, which the finally above creates even on failure)
             res.completed, res.output = Trapper:dismissablePopen(
-                "i=0; while [ ! -e '" .. flag .. "' ] && [ $i -lt 3000 ]; do sleep 0.01; i=$((i+1)); done", widget)
+                "while [ ! -e '" .. flag .. "' ]; do sleep 0.01; done", widget)
             res.done = true
         end)
         runTasks(2) -- still running
