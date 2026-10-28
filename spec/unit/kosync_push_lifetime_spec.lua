@@ -187,4 +187,17 @@ describe("KOSync push response lifetime", function()
             assert.are.equal(0, #shown)
         end)
     end
+    it("preserves a later close snapshot when a failed request crosses midnight", function()
+        local clock = 2 * 86400 - 2
+        local wall_time = stub(os, "time", function() return clock end)
+        finally(function() wall_time:revert() end)
+        plugin():updateProgress(false, false)
+        clock = clock + 1
+        Queue:push{ document = "current-book", progress = "later-before-midnight" }
+        clock = clock + 2
+        reply(1, false, 503)
+        assert.are.equal(1, Queue:count())
+        assert.are.equal("later-before-midnight", Queue:load()[1].progress)
+    end)
+
 end)
