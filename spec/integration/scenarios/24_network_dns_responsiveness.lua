@@ -273,7 +273,7 @@ return {
             T:run(function() release(old_http) end)
             T:waitUntil(function() return #held_uploads == 1 end, 5, "old account upload stays in flight")
             T:run(function() old_http_plugin:logout() end)
-            local new_http = closeWithDNS("http-new-account", "third", new_server)
+            local new_http, active_plugin = closeWithDNS("http-new-account", "third", new_server)
             T:run(function() release(new_http) end)
             T:waitUntil(function() return #held_uploads == 2 end, 5,
                 "new account starts uploading before the old response arrives")
@@ -285,6 +285,27 @@ return {
             T:waitUntil(function() return Queue:count() == 0 and not Queue._draining end,
                 5, "the new account finishes its independent upload")
             T:eq(sent[#sent].username, "third", "the new upload uses only the new account")
+            held_uploads = {}
+            T:run(function()
+                Queue:push{ document = "active-before-close", progress = "older" }
+                active_plugin.settings.custom_server = nil
+                active_plugin:drainQueue()
+            end)
+            T:eq(#held_uploads, 1, "a drain is active before the next real book closes")
+            local overlap, overlap_plugin, overlap_progress = closeWithDNS("close-while-draining", "third")
+            T:run(function() release(overlap) end)
+            T:waitUntil(function() return not UIManager:isWidgetShown(overlap.widget) end,
+                5, "the closing resolver completes while the older drain is still active")
+            T:eq(#held_uploads, 1, "the closing snapshot waits for the occupied drain")
+            T:run(function()
+                overlap_plugin.settings, overlap_plugin.ui = nil, nil
+                held_uploads[1](true)
+            end)
+            T:waitUntil(function() return #held_uploads == 2 end,
+                5, "the closed book uploads after the older drain without another network event")
+            T:eq(sent[#sent].progress, overlap_progress, "the idle retry retains the document-close snapshot")
+            T:run(function() held_uploads[2](true) end)
+            T:eq(Queue:count(), 0, "both active and closing updates finish")
             held_uploads = nil
 
             local ready_job, ready_uploads, pull_requests = nil, {}, 0
