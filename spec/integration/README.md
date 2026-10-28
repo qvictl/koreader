@@ -94,10 +94,14 @@ tools/benchmark_font_memory.sh --kodir /path/to/native/runtime \
 
 Run the baseline and candidate in separate processes with the same frontend,
 book, fonts, screen settings and native dependency builds. Each run performs
-three open/turn/close cycles and writes `memory.jsonl`, `faces.tsv`, screenshots
+three open/turn/close cycles on an isolated book copy and writes `memory.jsonl`, `faces.tsv`, screenshots
 and the integration report. `faces_explicit` counts actual finalizations outside
 library teardown; `faces_library_cleanup` identifies releases during
 `FT_Done_FreeType`. Set `FONT_BENCH_EXPECT_ZERO=1` for the fixed runtime to also
 assert that closed books retain zero native faces. The observer is never loaded
-in normal CI or product runs. These are host measurements; device savings must
+in normal CI or product runs. The script compares FreeType library paths with
+and without the observer and verifies each intercepted symbol is bound to that
+runtime library. Immediate `closed_` and 0.5-second `settled_` samples are separate;
+normal integration tests add no fixed wait after closing. Output paths cannot
+contain whitespace or colons because of LD_PRELOAD parsing. These are host measurements; device savings must
 be measured separately. Use a fresh output directory for each run.

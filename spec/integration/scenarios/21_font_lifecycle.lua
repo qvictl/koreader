@@ -69,7 +69,7 @@ return {
             expected_pages = expected_pages or pages
             T:eq(pages, expected_pages, "page count survives collection and reopening")
             local t0 = T:now()
-            for page = 2, math.min(21, pages - 1) do
+            for page = 2, math.min(21, math.max(2, pages - 1)) do
                 T:run(function() ui.rolling:onGotoPage(page) end)
                 T:repaint()
             end
@@ -82,8 +82,11 @@ return {
             T:check(pixels == expected_pixels, "rendered pixels survive collection and reopening")
             t0 = T:now()
             T:closeBook()
-            T:wait(0.5)
             snapshot("closed_" .. cycle, T:now() - t0)
+            if out then
+                T:wait(0.5)
+                snapshot("settled_" .. cycle)
+            end
             T:check(T:reader() == nil, "the reader is released after closing")
             T:check(T:topWidget() == T:fileManager(), "closing returns to the browser")
         end

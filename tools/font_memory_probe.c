@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 struct entry { FT_Face face; char *path; FT_Long index; };
 static struct entry entries[4096];
@@ -23,6 +24,7 @@ static void finalized(void *object) {
             return;
         }
     }
+    fprintf(stderr, "font_memory_probe: untracked finalizer object %p\n", object);
     abort();
 }
 
@@ -30,19 +32,48 @@ static void record_face(FT_Face face, const char *path, FT_Long index) {
     for (int i = 0; i < 4096; ++i) {
         if (!entries[i].face) {
             entries[i] = (struct entry){face, strdup(path), index};
-            if (face->generic.finalizer) abort();
+            if (face->generic.finalizer) {
+                fprintf(stderr, "font_memory_probe: face %p already has a finalizer\n", (void *)face);
+                abort();
+            }
             face->generic.finalizer = finalized;
             ++made;
             if (++live > peak) peak = live;
             return;
         }
     }
+    fprintf(stderr, "font_memory_probe: entries full (made=%d live=%d peak=%d)\n", made, live, peak);
     abort();
+}
+
+static void *resolve_next(const char *name) {
+    void *symbol = dlsym(RTLD_NEXT, name);
+    if (!symbol) {
+        fprintf(stderr, "font_memory_probe: cannot resolve %s: %s\n", name, dlerror());
+        abort();
+    }
+    const char *expected = getenv("FONT_PROBE_FREETYPE");
+    Dl_info info;
+    char actual_path[PATH_MAX], expected_path[PATH_MAX];
+    if (!expected || !dladdr(symbol, &info) || !realpath(info.dli_fname, actual_path)
+            || !realpath(expected, expected_path) || strcmp(actual_path, expected_path)) {
+        fprintf(stderr, "font_memory_probe: %s is not bound to the expected runtime FreeType %s\n",
+                name, expected ? expected : "(unset)");
+        abort();
+    }
+    const char *log = getenv("FONT_PROBE_LOG");
+    if (log) {
+        FILE *file = fopen(log, "a");
+        if (!file) { perror("font_memory_probe: library log"); abort(); }
+        fprintf(file, "library\t%s\t%s\n", name, actual_path);
+        fclose(file);
+    }
+    return symbol;
 }
 
 FT_Error FT_New_Face(FT_Library library, const char *path, FT_Long index, FT_Face *face) {
     static FT_Error (*original)(FT_Library, const char *, FT_Long, FT_Face *);
-    if (!original) original = dlsym(RTLD_NEXT, "FT_New_Face");
+    if (!original) original = resolve_next("FT_New_Face");
     FT_Error result = original(library, path, index, face);
     if (!result) record_face(*face, path, index);
     return result;
@@ -51,7 +82,7 @@ FT_Error FT_New_Face(FT_Library library, const char *path, FT_Long index, FT_Fac
 FT_Error FT_New_Memory_Face(FT_Library library, const FT_Byte *data, FT_Long length,
                           FT_Long index, FT_Face *face) {
     static FT_Error (*original)(FT_Library, const FT_Byte *, FT_Long, FT_Long, FT_Face *);
-    if (!original) original = dlsym(RTLD_NEXT, "FT_New_Memory_Face");
+    if (!original) original = resolve_next("FT_New_Memory_Face");
     FT_Error result = original(library, data, length, index, face);
     if (!result) record_face(*face, "embedded", index);
     return result;
@@ -59,7 +90,7 @@ FT_Error FT_New_Memory_Face(FT_Library library, const FT_Byte *data, FT_Long len
 
 FT_Error FT_Done_FreeType(FT_Library library) {
     static FT_Error (*original)(FT_Library);
-    if (!original) original = dlsym(RTLD_NEXT, "FT_Done_FreeType");
+    if (!original) original = resolve_next("FT_Done_FreeType");
     ++library_cleanup;
     FT_Error result = original(library);
     --library_cleanup;
