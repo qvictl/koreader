@@ -83,6 +83,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `14_base_archive_serialization` | archive error recovery and packaging/reloading radix-safe serializer output, including infinities and NaN |
 | `15_network_info` | native interface discovery, the network information event/dialog, displayed interface names and MAC addresses, and dismissal without external network requests |
 | `21_font_lifecycle` | native collection preserves page counts and pixels over three real ReaderUI open/turn/close/reopen cycles; optional Linux RSS/PSS and FreeType-finalizer benchmark |
+| `25_async_command_output` | multi-megabyte streaming command output, stdout EOF before shell exit, late descendant writers, cancellation after a prefix without killing the command, bounded background collection, UI heartbeats and pipe/pid cleanup |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
