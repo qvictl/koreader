@@ -78,8 +78,26 @@ describe("KOSync pull response lifetime", function()
             reply(mode == "forward")
             assert.is_nil(applied)
             assert.are.equal(1, Queue:count())
+            if mode == "interactive" then
+                assert.are.equal(1, #shown)
+                assert.is_truthy(shown[1].text:find("Local progress is waiting to be uploaded", 1, true))
+            else
+                assert.are.equal(0, #shown)
+            end
         end)
     end
+    it("reports a pending upload added between an interactive response and its apply", function()
+        local sync = plugin()
+        sync.getLastProgress = function()
+            Queue:push{ document = "current-book", progress = "fresh-local" }
+            return "fresh-local"
+        end
+        sync:getProgress(false, true)
+        reply()
+        assert.is_nil(applied)
+        assert.are.equal(1, #shown)
+        assert.is_truthy(shown[1].text:find("Local progress is waiting to be uploaded", 1, true))
+    end)
     for _, direction in ipairs{ "backward", "forward" } do
         it("rechecks pending uploads before confirming a " .. direction .. " sync", function()
             local sync = plugin()

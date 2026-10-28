@@ -92,11 +92,14 @@ return {
                 5, "the second resolver waits without freezing the UI")
             T:repaint()
             T:tapWidget(cancelled.widget, "cancel the blocked DNS check")
+            -- Keep the gate open: EOF must not let an uncancelled child exit.
+            T:waitUntil(function() return ffiUtil.isSubProcessDone(pidOf(cancelled)) end,
+                5, "cancel terminates the blocked resolver")
+            T:check(not UIManager:isWidgetShown(cancelled.widget), "cancel dismisses the network check")
             T:run(function()
                 C.close(cancelled.write_fd)
                 cancelled.write_fd = nil
             end)
-            T:waitUntil(function() return ffiUtil.isSubProcessDone(pidOf(cancelled)) end, 5, "cancelled resolver exits")
             T:eq(cancelled_calls, 0, "cancellation does not run the online action")
             T:eq(reconnect_calls, 0, "cancellation does not reconnect Wi-Fi")
             T:eq(lfs.attributes(cancelled.returned), nil, "cancelled resolver cannot publish a late success")
@@ -372,6 +375,12 @@ return {
             end)
             T:eq(reopened:getCurrentPage(), 2, "a late pull cannot overwrite a newly queued failed upload")
             T:check(Queue:hasPending(current_digest), "the fresh progress remains queued after the late pull")
+            T:repaint()
+            local blocked_notice = T:topWidget()
+            T:eq(blocked_notice.text,
+                "Local progress is waiting to be uploaded. Remote progress was not applied.",
+                "interactive pull explains why pending local progress was preserved")
+            T:run(function() UIManager:close(blocked_notice) end)
             T:run(function() reopened.kosync:drainQueue(nil, current_digest) end)
             T:waitUntil(function() return #ready_uploads == 5 end, 5, "fresh progress can be replayed again")
             T:run(function() ready_uploads[5].done(true) end)
@@ -422,6 +431,7 @@ return {
             end)
             T:check(T:topWidget() == T:fileManager(), "a late pull does not show obsolete reader UI")
         end)
+        local cleanup_err
         T:run(function()
             socket.dns.toip, Device.hasWifiToggle = saved_toip, saved_toggle
             NetworkMgr.beforeWifiAction = saved_before_wifi
@@ -436,9 +446,12 @@ return {
             end
             local reader = require("apps/reader/readerui").instance
             if reader then
-                reader.kosync.settings.auto_sync = false
-                reader.kosync:registerEvents()
-                reader:onHome()
+                local home_ok, home_err = pcall(function()
+                    reader.kosync.settings.auto_sync = false
+                    reader.kosync:registerEvents()
+                    reader:onHome()
+                end)
+                if not home_ok then cleanup_err = home_err end
             end
             if settings_owner then
                 settings_owner:saveSetting("settings", saved_sync_settings)
@@ -447,5 +460,6 @@ return {
             ffiUtil.purgeDir(base)
         end)
         if not ok then error(err, 0) end
+        if cleanup_err then error(cleanup_err, 0) end
     end,
 }
