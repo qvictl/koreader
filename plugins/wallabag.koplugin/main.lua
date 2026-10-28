@@ -1745,25 +1745,27 @@ end
 -- Uploads a new article to Wallabag directly if there is a network connection, or add it to the
 -- local upload queue.
 function Wallabag:onAddWallabagArticle(article_url)
-    if not NetworkMgr:isOnline() then
-        self:addToOfflineQueue(article_url)
-        UIManager:show(InfoMessage:new{
-            text = T(_("Article will be added to Wallabag in the next sync:\n%1"), BD.url(article_url)),
-            timeout = 1,
-        })
-        return
-    end
+    NetworkMgr:checkOnline(function(online)
+        if not online then
+            self:addToOfflineQueue(article_url)
+            UIManager:show(InfoMessage:new{
+                text = T(_("Article will be added to Wallabag in the next sync:\n%1"), BD.url(article_url)),
+                timeout = 1,
+            })
+            return
+        end
 
-    if self:addArticle(article_url) then
-        UIManager:show(InfoMessage:new{
-            text = T(_("Article added to Wallabag:\n%1"), BD.url(article_url)),
-            timeout = 1,
-        })
-    else
-        UIManager:show(InfoMessage:new{
-            text = T(_("Error adding link to Wallabag:\n%1"), BD.url(article_url)),
-        })
-    end
+        if self:addArticle(article_url) then
+            UIManager:show(InfoMessage:new{
+                text = T(_("Article added to Wallabag:\n%1"), BD.url(article_url)),
+                timeout = 1,
+            })
+        else
+            UIManager:show(InfoMessage:new{
+                text = T(_("Error adding link to Wallabag:\n%1"), BD.url(article_url)),
+            })
+        end
+    end)
     return true
 end
 

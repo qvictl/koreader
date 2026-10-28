@@ -189,8 +189,29 @@ end
 
 function KOSync:onReaderReady()
     if self.settings.auto_sync then
+        local ui = self.ui
         UIManager:nextTick(function()
-            self:getProgress(true, false)
+            if not ui.document then return end
+            local KOSyncQueue = require("KOSyncQueue")
+            if KOSyncQueue:count() == 0 then
+                self:getProgress(true, false)
+                return
+            end
+            local document = self:getDocumentDigest()
+            local upload_pending
+            upload_pending = function()
+                if not ui.document then return end
+                -- An existing drain may be waiting on another book. Once it settles,
+                -- give this document its own prioritized attempt before deciding to pull.
+                if KOSyncQueue._draining then
+                    UIManager:scheduleIn(0.25, upload_pending)
+                    return
+                end
+                self:drainQueue(function()
+                    self:_pullIfNoPendingProgress(document)
+                end, document)
+            end
+            NetworkMgr:runWhenOnline(upload_pending)
         end)
     end
     -- NOTE: Keep in mind that, on Android, turning on WiFi requires a focus switch, which will trip a Suspend/Resume pair.
@@ -462,7 +483,11 @@ end
 
 function KOSync:setCustomServer(server)
     logger.dbg("KOSync: Setting custom server to:", server)
-    self.settings.custom_server = server ~= "" and server or nil
+    server = server ~= "" and server or nil
+    if self.settings.custom_server ~= server then
+        require("KOSyncQueue"):invalidatePending()
+        self.settings.custom_server = server
+    end
 end
 
 function KOSync:setSyncForward(strategy)
@@ -817,6 +842,11 @@ function KOSync:getProgress(ensure_networking, interactive)
         return
     end
 
+    local ui = self.ui
+    local document = ui.document
+    if not document then return end
+    local KOSyncQueue = require("KOSyncQueue")
+    local generation = KOSyncQueue._generation
     local now = UIManager:getElapsedTimeSinceBoot()
     if not interactive and now - self.pull_timestamp <= API_CALL_DEBOUNCE_DELAY then
         logger.dbg("KOSync: We've already pulled progress less than 25s ago!")
@@ -833,12 +863,31 @@ function KOSync:getProgress(ensure_networking, interactive)
         service_spec = self.path .. "/api.json"
     }
     local doc_digest = self:getDocumentDigest()
+    local function can_apply_progress()
+        if ui.document ~= document or generation ~= KOSyncQueue._generation then return false end
+        if KOSyncQueue:hasPending(doc_digest) then
+            if interactive then
+                UIManager:show(InfoMessage:new{
+                    text = _("Local progress is waiting to be uploaded. Remote progress was not applied."),
+                    timeout = 3,
+                })
+            end
+            return false
+        end
+        return true
+    end
+    local function apply_progress(progress, notify)
+        if not can_apply_progress() then return end
+        self:syncToProgress(progress)
+        if notify then showSyncedMessage() end
+    end
     local ok, err = pcall(client.get_progress,
         client,
         self.settings.username,
         self.settings.userkey,
         doc_digest,
         function(ok, body)
+            if not can_apply_progress() then return end
             logger.dbg("KOSync: [Pull] progress for", self.view.document.file)
             logger.dbg("KOSync: ok:", ok, "body:", body)
             if not ok or not body then
@@ -889,8 +938,7 @@ function KOSync:getProgress(ensure_networking, interactive)
             if interactive then
                 -- If user actively pulls progress from other devices,
                 -- we always update the progress without further confirmation.
-                self:syncToProgress(body.progress)
-                showSyncedMessage()
+                apply_progress(body.progress, true)
                 return
             end
 
@@ -903,29 +951,27 @@ function KOSync:getProgress(ensure_networking, interactive)
             end
             if self_older then
                 if self.settings.sync_forward == SYNC_STRATEGY.SILENT then
-                    self:syncToProgress(body.progress)
-                    showSyncedMessage()
+                    apply_progress(body.progress, true)
                 elseif self.settings.sync_forward == SYNC_STRATEGY.PROMPT then
                     UIManager:show(ConfirmBox:new{
                         text = T(_("Sync to latest location %1% from device '%2'?"),
                                  Math.round(body.percentage * 100),
                                  body.device),
                         ok_callback = function()
-                            self:syncToProgress(body.progress)
+                            apply_progress(body.progress)
                         end,
                     })
                 end
             else -- if not self_older then
                 if self.settings.sync_backward == SYNC_STRATEGY.SILENT then
-                    self:syncToProgress(body.progress)
-                    showSyncedMessage()
+                    apply_progress(body.progress, true)
                 elseif self.settings.sync_backward == SYNC_STRATEGY.PROMPT then
                     UIManager:show(ConfirmBox:new{
                         text = T(_("Sync to previous location %1% from device '%2'?"),
                                  Math.round(body.percentage * 100),
                                  body.device),
                         ok_callback = function()
-                            self:syncToProgress(body.progress)
+                            apply_progress(body.progress)
                         end,
                     })
                 end
@@ -945,24 +991,37 @@ function KOSync:_onCloseDocument()
     --       and we handle those system focus events via... Suspend & Resume events, so we need to neuter those handlers early.
     self.onResume = nil
     self.onSuspend = nil
-    -- If we're already online, push normally.
-    -- Otherwise, queue progress for later instead of blocking with goOnlineToRun.
-    if NetworkMgr:isOnline() then
-        self:updateProgress(false, false)
-    else
-        local doc_digest = self:getDocumentDigest()
-        if doc_digest then
-            local KOSyncQueue = require("KOSyncQueue")
-            KOSyncQueue:push({
-                document = doc_digest,
-                metadata = self:getMetadata(),
-                progress = self:getLastProgress(),
-                percentage = self:getLastPercent(),
-                device = self.settings.kosync_hostname or Device.model,
-                device_id = self.device_id,
-            })
-        end
-    end
+    if not self.settings.username or not self.settings.userkey then return end
+    local doc_digest = self:getDocumentDigest()
+    if not doc_digest then return end
+    local KOSyncQueue = require("KOSyncQueue")
+    -- Snapshot and persist everything while the document still exists.
+    KOSyncQueue:push({
+        document = doc_digest,
+        metadata = self:getMetadata(),
+        progress = self:getLastProgress(),
+        percentage = self:getLastPercent(),
+        device = self.settings.kosync_hostname or Device.model,
+        device_id = self.device_id,
+    })
+    local generation = KOSyncQueue._generation
+    local sender = {
+        path = self.path,
+        settings = {
+            username = self.settings.username,
+            userkey = self.settings.userkey,
+            custom_server = self.settings.custom_server,
+        },
+    }
+    -- Do not retain the reader/plugin instance in work that can outlive closing.
+    UIManager:nextTick(function()
+        if generation ~= KOSyncQueue._generation then return end
+        NetworkMgr:checkOnline(function(online)
+            if online and generation == KOSyncQueue._generation then
+                KOSync.drainQueue(sender)
+            end
+        end)
+    end)
 end
 
 function KOSync:schedulePeriodicPush()
@@ -1009,18 +1068,25 @@ function KOSync:_onSuspend()
     self:updateProgress(true, false, true)
 end
 
+function KOSync:_pullIfNoPendingProgress(document)
+    if not self.ui.document then return end
+    if require("KOSyncQueue"):hasPending(document) then return end
+    self:getProgress(false, false)
+end
+
 function KOSync:_onNetworkConnected()
     logger.dbg("KOSync: onNetworkConnected")
     UIManager:scheduleIn(0.5, function()
-        -- Drain any queued progress updates first
+        if not self.ui.document then return end
+        local document = self:getDocumentDigest()
+        -- Failed or unfinished updates for this book must not be overwritten by a pull.
         self:drainQueue(function()
-            -- Pull only after queued uploads have completed.
-            self:getProgress(false, false)
-        end)
+            self:_pullIfNoPendingProgress(document)
+        end, document)
     end)
 end
 
-function KOSync:drainQueue(done_func)
+function KOSync:drainQueue(done_func, priority_document)
     local KOSyncQueue = require("KOSyncQueue")
     if KOSyncQueue:count() == 0 then
         if done_func then done_func() end
@@ -1044,7 +1110,7 @@ function KOSync:drainQueue(done_func)
             item.device,
             item.device_id,
             callback)
-    end, done_func)
+    end, done_func, priority_document)
 end
 
 function KOSync:_onNetworkDisconnecting()

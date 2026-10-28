@@ -9,6 +9,7 @@ local MAX_ENTRIES = 200 -- paranoia cap
 
 local KOSyncQueue = {
     _draining = nil,
+    _generation = 0,
 }
 
 function KOSyncQueue:_storage()
@@ -70,7 +71,8 @@ end
 --- Attempt to send all queued items in order, stopping on the first failure.
 -- @param send_func function(item, callback): reports success through callback(bool)
 -- @param done_func optional function(sent): called when the drain finishes
-function KOSyncQueue:drain(send_func, done_func)
+-- @param priority_document optional document digest to attempt first
+function KOSyncQueue:drain(send_func, done_func, priority_document)
     -- Network events may arrive while an asynchronous request is still in flight.
     if self._draining then return end
     local queue = self:load()
@@ -78,7 +80,18 @@ function KOSyncQueue:drain(send_func, done_func)
         if done_func then done_func(0) end
         return
     end
+    if priority_document then
+        local ordered = {}
+        for _, item in ipairs(queue) do
+            if item.document == priority_document then ordered[#ordered + 1] = item end
+        end
+        for _, item in ipairs(queue) do
+            if item.document ~= priority_document then ordered[#ordered + 1] = item end
+        end
+        queue = ordered
+    end
     self._draining = true
+    local generation = self._generation
 
     logger.info("KOSyncQueue: draining", #queue, "queued items")
     local sent = 0
@@ -88,7 +101,7 @@ function KOSyncQueue:drain(send_func, done_func)
     local function settle()
         if settled then return end
         settled = true
-        self._draining = nil
+        if generation == self._generation then self._draining = nil end
         local ok, remaining = pcall(self.count, self)
         logger.info("KOSyncQueue: sent", sent, ", remaining", ok and remaining or "unknown")
         if done_func then done_func(sent) end
@@ -111,6 +124,7 @@ function KOSyncQueue:drain(send_func, done_func)
 
     local function sendNext(i)
         if settled then return end
+        if generation ~= self._generation then settle(); return end
         local item = queue[i]
         if not item then
             settle()
@@ -131,6 +145,7 @@ function KOSyncQueue:drain(send_func, done_func)
         local function callback(ok)
             if settled or completed then return end
             completed = true
+            if generation ~= self._generation then settle(); return end
             if not ok then
                 fail()
                 return
@@ -161,11 +176,24 @@ function KOSyncQueue:drain(send_func, done_func)
     sendNext(1)
 end
 
+function KOSyncQueue:hasPending(document)
+    for _, item in ipairs(self:load()) do
+        if item.document == document then return true end
+    end
+    return false
+end
+
 function KOSyncQueue:count()
     return #self:load()
 end
 
+function KOSyncQueue:invalidatePending()
+    self._generation = self._generation + 1
+    self._draining = nil
+end
+
 function KOSyncQueue:clear()
+    self:invalidatePending()
     self:save({})
 end
 

@@ -638,6 +638,7 @@ function NetworkMgr:afterWifiAction(callback)
     end
 end
 
+-- Synchronous low-level probe. UI actions should use checkOnline or the online helpers.
 function NetworkMgr:isOnline()
     -- For the same reasons as isWifiOn and isConnected above, bypass this on !hasWifiToggle platforms.
     if not Device:hasWifiToggle() then
@@ -645,6 +646,36 @@ function NetworkMgr:isOnline()
     end
 
     return self:canResolveHostnames()
+end
+
+-- Only the coroutine executing a successful check's callback may reuse its result.
+-- Keeping this scoped avoids stale global connectivity caches and recursive checks.
+local online_contexts = setmetatable({}, { __mode = "k" })
+
+function NetworkMgr:checkOnline(callback)
+    if not Device:hasWifiToggle() or online_contexts[coroutine.running()] then
+        callback(true)
+        return
+    end
+    local Trapper = require("ui/trapper")
+    Trapper:wrap(function()
+        local completed, online, reason = Trapper:dismissableRunInSubprocess(function()
+            return self:isOnline() and true or false
+        end, _("Checking network connectivity…"))
+        if not completed or type(online) ~= "boolean" then
+            if completed or reason then
+                UIManager:show(InfoMessage:new{
+                    text = _("Network connectivity check failed. Please try again."),
+                })
+            end
+            return
+        end
+        local co = coroutine.running()
+        online_contexts[co] = online and true or nil
+        local ok, err = pcall(callback, online)
+        online_contexts[co] = nil
+        if not ok then error(err, 0) end
+    end)
 end
 
 -- Update our cached network status
@@ -690,22 +721,22 @@ end
 
 -- Helper functions to hide the quirks of using beforeWifiAction properly ;).
 
--- Run callback *now* if you're currently online (ie., isOnline),
+-- Check online status without blocking the UI, then run callback if online,
 -- or attempt to go online and run it *ASAP* without any more user interaction.
 -- NOTE: If you're currently connected but without Internet access (i.e., isConnected and not isOnline),
 --       it will just attempt to re-connect, *without* running the callback.
 -- c.f., ReaderWikipedia:onShowWikipediaLookup @ frontend/apps/reader/modules/readerwikipedia.lua
 function NetworkMgr:runWhenOnline(callback)
-    if self:isOnline() then
-        callback()
-    else
-        --- @note: Avoid infinite recursion, beforeWifiAction only guarantees isConnected, not isOnline.
-        if not self:isConnected() then
+    self:checkOnline(function(online)
+        if online then
+            callback()
+        elseif not self:isConnected() then
             self:beforeWifiAction(callback)
         else
+            -- A connection alone does not establish online status; avoid a retry loop.
             self:beforeWifiAction()
         end
-    end
+    end)
 end
 
 -- This one is for callbacks that only require isConnected, and since that's guaranteed by beforeWifiAction,
@@ -719,23 +750,17 @@ function NetworkMgr:runWhenConnected(callback)
 end
 
 -- Mild variants that are used for recursive calls at the beginning of a complex function call.
--- Returns true when not yet online, in which case you should *abort* (i.e., return) the initial call,
+-- Returns true while online status must be checked, so *abort* (i.e., return) the initial call,
 -- and otherwise, go-on as planned.
 -- NOTE: If you're currently connected but without Internet access (i.e., isConnected and not isOnline),
 --       it will just attempt to re-connect, *without* running the callback.
 -- c.f., ReaderWikipedia:lookupWikipedia @ frontend/apps/reader/modules/readerwikipedia.lua
 function NetworkMgr:willRerunWhenOnline(callback)
-    if not self:isOnline() then
-        --- @note: Avoid infinite recursion, beforeWifiAction only guarantees isConnected, not isOnline.
-        if not self:isConnected() then
-            self:beforeWifiAction(callback)
-        else
-            self:beforeWifiAction()
-        end
-        return true
+    if not Device:hasWifiToggle() or online_contexts[coroutine.running()] then
+        return false
     end
-
-    return false
+    self:runWhenOnline(callback)
+    return true
 end
 
 -- This one is for callbacks that only require isConnected, and since that's guaranteed by beforeWifiAction,
