@@ -584,37 +584,29 @@ function ReaderStatistics:addBookStatToDB(book_stats, conn)
     if book_stats.total_time_in_sec and book_stats.total_time_in_sec > 0
         and util.tableSize(book_stats.performance_in_pages) > 0 then
         local read_pages = util.tableSize(book_stats.performance_in_pages)
+        local partial_md5 = util.partialMD5(book_stats.file)
         logger.dbg("Insert to database: " .. book_stats.title)
         sql_stmt = [[
-            SELECT count(id)
+            SELECT id
             FROM   book
             WHERE  title = ?
-              AND  authors = ?
-              AND  md5 = ?;
+              AND  authors IS ?
+              AND  md5 IS ?;
         ]]
         local stmt = conn:prepare(sql_stmt)
-        local result = stmt:reset():bind(self.data.title, self.data.authors, self.doc_md5):step()
-        local nr_id = tonumber(result[1])
-        if nr_id == 0 then
-            local partial_md5 = util.partialMD5(book_stats.file)
+        local result = stmt:reset():bind(book_stats.title, book_stats.authors, partial_md5):step()
+        stmt:close()
+        if not result then
             stmt = conn:prepare("INSERT INTO book VALUES(NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);")
             stmt:reset():bind(book_stats.title, book_stats.authors, book_stats.notes,
                 last_open_book, book_stats.highlights, book_stats.pages,
                 book_stats.series, book_stats.language, partial_md5, total_read_time, total_read_pages) :step()
+            stmt:close()
             sql_stmt = [[
                 SELECT last_insert_rowid() AS num;
             ]]
             id_book = conn:rowexec(sql_stmt)
         else
-            sql_stmt = [[
-                SELECT id
-                FROM   book
-                WHERE  title = ?
-                  AND  authors = ?
-                  AND  md5 = ?;
-            ]]
-            stmt = conn:prepare(sql_stmt)
-            result = stmt:reset():bind(self.data.title, self.data.authors, self.doc_md5):step()
             id_book = result[1]
 
         end
@@ -625,7 +617,7 @@ function ReaderStatistics:addBookStatToDB(book_stats, conn)
         table.sort(sorted_performance)
 
         conn:exec('BEGIN;')
-        stmt = conn:prepare("INSERT OR IGNORE INTO page_stat VALUES(?, ?, ?, ?);")
+        stmt = conn:prepare("INSERT OR IGNORE INTO page_stat_data VALUES(?, ?, ?, ?, ?);")
         local avg_time = math.ceil(book_stats.total_time_in_sec / read_pages)
         if avg_time > self.settings.max_sec then
             avg_time = self.settings.max_sec
@@ -636,21 +628,22 @@ function ReaderStatistics:addBookStatToDB(book_stats, conn)
         end
         local start_open_page = sorted_performance[1]
         --first page
-        stmt:reset():bind(id_book, first_read_page, start_open_page - avg_time, avg_time):step()
+        stmt:reset():bind(id_book, first_read_page, start_open_page - avg_time, avg_time, book_stats.pages):step()
         for i=2, #sorted_performance do
             start_open_page = sorted_performance[i-1]
             local diff_time = sorted_performance[i] - sorted_performance[i-1]
             if diff_time <= self.settings.max_sec then
                 stmt:reset():bind(id_book, book_stats.performance_in_pages[sorted_performance[i-1]],
-                    start_open_page, diff_time):step()
+                    start_open_page, diff_time, book_stats.pages):step()
             elseif diff_time > self.settings.max_sec then --and diff_time <= 2 * avg_time then
                 stmt:reset():bind(id_book, book_stats.performance_in_pages[sorted_performance[i-1]],
-                    start_open_page, avg_time):step()
+                    start_open_page, avg_time, book_stats.pages):step()
             end
         end
         --last page
         stmt:reset():bind(id_book, book_stats.performance_in_pages[sorted_performance[#sorted_performance]],
-            sorted_performance[#sorted_performance], avg_time):step()
+            sorted_performance[#sorted_performance], avg_time, book_stats.pages):step()
+        stmt:close()
         --last open book
         last_open_book = sorted_performance[#sorted_performance] + avg_time
         conn:exec('COMMIT;')
@@ -2092,7 +2085,7 @@ function ReaderStatistics:getBooksFromPeriod(period_begin, period_end, callback_
         ORDER   BY book_tbl.last_open DESC;
     ]]
     local conn = SQ3.open(db_location)
-    local result_book = conn:exec(string.format(sql_stmt_res_book, period_begin + 1, period_end))
+    local result_book = conn:exec(string.format(sql_stmt_res_book, period_begin, period_end - 1))
     conn:close()
 
     if result_book == nil then
@@ -2259,7 +2252,8 @@ function ReaderStatistics:resetStatsForBookForPeriod(id_book, min_start_time, ma
                 AND start_time between ? and ?
             ]]
             local stmt = conn:prepare(sql_stmt)
-            stmt:reset():bind(id_book, min_start_time, max_start_time):step()
+            -- Day lists pass the inclusive first/last record timestamps; period lists pass [begin, end).
+            stmt:reset():bind(id_book, min_start_time, day_str and max_start_time or max_start_time - 1):step()
             stmt:close()
             conn:close()
             if on_reset_confirmed_callback then
@@ -3108,12 +3102,22 @@ function ReaderStatistics:onSyncBookStats()
 end
 
 function ReaderStatistics.onSync(local_path, cached_path, income_path)
+    local ambiguous_books_sql = [[
+        SELECT 1 FROM book WHERE md5 IS NULL
+        GROUP BY title, authors HAVING count(*) > 1 LIMIT 1;
+    ]]
     local conn_income = SQ3.open(income_path)
     local ok1, v1 = pcall(conn_income.rowexec, conn_income, "PRAGMA schema_version")
     if not ok1 or tonumber(v1) == 0 then
         -- no income db or wrong db, first time sync
         logger.warn("statistics open income DB failed", v1)
+        conn_income:close()
         return true
+    end
+    if conn_income:rowexec(ambiguous_books_sql) then
+        logger.warn("statistics sync refused ambiguous legacy book identities in remote DB")
+        conn_income:close()
+        return false
     end
 
     local sql = "attach '" .. income_path:gsub("'", "''") .."' as income_db;"
@@ -3130,31 +3134,39 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
             -- first we delete from income_db books that exist in cached_db but not in local_db,
             -- namely the ones that were deleted since last sync
             DELETE FROM income_db.page_stat_data WHERE id_book IN (
-                SELECT id FROM income_db.book WHERE (title, authors, md5) IN (
-                    SELECT title, authors, md5 FROM cached_db.book WHERE (title, authors, md5) NOT IN (
-                        SELECT title, authors, md5 FROM book
-                    )
+                SELECT i.id FROM income_db.book i WHERE EXISTS (
+                    SELECT 1 FROM cached_db.book c
+                    WHERE (c.title, c.authors, c.md5) IS (i.title, i.authors, i.md5)
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM book m
+                    WHERE (m.title, m.authors, m.md5) IS (i.title, i.authors, i.md5)
                 )
             );
-            DELETE FROM income_db.book WHERE (title, authors, md5) IN (
-                SELECT title, authors, md5 FROM cached_db.book WHERE (title, authors, md5) NOT IN (
-                    SELECT title, authors, md5 FROM book
-                )
+            DELETE FROM income_db.book AS i WHERE EXISTS (
+                SELECT 1 FROM cached_db.book c
+                WHERE (c.title, c.authors, c.md5) IS (i.title, i.authors, i.md5)
+            ) AND NOT EXISTS (
+                SELECT 1 FROM book m
+                WHERE (m.title, m.authors, m.md5) IS (i.title, i.authors, i.md5)
             );
 
             -- then we delete books from local db that were present in last sync but
             -- not any more (ie. deleted in other devices)
             DELETE FROM page_stat_data WHERE id_book IN (
-                SELECT id FROM book WHERE (title, authors, md5) IN (
-                    SELECT title, authors, md5 FROM cached_db.book WHERE (title, authors, md5) NOT IN (
-                        SELECT title, authors, md5 FROM income_db.book
-                    )
+                SELECT m.id FROM book m WHERE EXISTS (
+                    SELECT 1 FROM cached_db.book c
+                    WHERE (c.title, c.authors, c.md5) IS (m.title, m.authors, m.md5)
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM income_db.book i
+                    WHERE (i.title, i.authors, i.md5) IS (m.title, m.authors, m.md5)
                 )
             );
-            DELETE FROM book WHERE (title, authors, md5) IN (
-                SELECT title, authors, md5 FROM cached_db.book WHERE (title, authors, md5) NOT IN (
-                    SELECT title, authors, md5 FROM income_db.book
-                )
+            DELETE FROM book AS m WHERE EXISTS (
+                SELECT 1 FROM cached_db.book c
+                WHERE (c.title, c.authors, c.md5) IS (m.title, m.authors, m.md5)
+            ) AND NOT EXISTS (
+                SELECT 1 FROM income_db.book i
+                WHERE (i.title, i.authors, i.md5) IS (m.title, m.authors, m.md5)
             );
         ]]
     end
@@ -3162,10 +3174,16 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
     conn_cached:close()
     conn_income:close()
     local conn = SQ3.open(local_path)
-    local ok3, v3 = pcall(conn.exec, conn, "PRAGMA schema_version")
+    local ok3, v3 = pcall(conn.rowexec, conn, "PRAGMA schema_version")
     if not ok3 or tonumber(v3) == 0 then
         -- no local db, this is an error
         logger.err("statistics open local DB", v3)
+        conn:close()
+        return false
+    end
+    if conn:rowexec(ambiguous_books_sql) then
+        logger.warn("statistics sync refused ambiguous legacy book identities in local DB")
+        conn:close()
         return false
     end
 
@@ -3177,7 +3195,7 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
         UPDATE book AS b
         SET last_open = i.last_open
         FROM income_db.book AS i
-        WHERE (b.title, b.authors, b.md5) = (i.title, i.authors, i.md5)
+        WHERE (b.title, b.authors, b.md5) IS (i.title, i.authors, i.md5)
           AND i.last_open > b.last_open;
 
         -- We merge the local db with income db to form the synced db.
@@ -3186,16 +3204,17 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
             title, authors, notes, last_open, highlights, pages, series, language, md5, total_read_time, total_read_pages
         ) SELECT
             title, authors, notes, last_open, highlights, pages, series, language, md5, total_read_time, total_read_pages
-        FROM income_db.book
-        WHERE (title, authors, md5) NOT IN (
-            SELECT title, authors, md5 FROM book
+        FROM income_db.book AS i
+        WHERE NOT EXISTS (
+            SELECT 1 FROM book m
+            WHERE (m.title, m.authors, m.md5) IS (i.title, i.authors, i.md5)
         );
 
         -- We create a book_id mapping temp table (view not possible due to attached db)
         CREATE TEMP TABLE book_id_map AS
             SELECT m.id as mid, i.id as iid FROM book m --main
             INNER JOIN income_db.book i
-            ON (m.title, m.authors, m.md5) = (i.title, i.authors, i.md5);
+            ON (m.title, m.authors, m.md5) IS (i.title, i.authors, i.md5);
         ]]
     if attached_cache then
         -- more deletion needed

@@ -189,18 +189,18 @@ function FileManagerShortcuts:updateItemsByPath(old_path, new_path)
         end
     end
     -- update shortcuts
-    local seen = {}
+    local moved = {}
     for old_folder, shortcut in pairs(self.folder_shortcuts) do
-        if not seen[old_folder] then
-            local new_folder = getNewFolder(old_folder)
-            if new_folder then
-                self.folder_shortcuts[old_folder] = nil
-                if old_path then
-                    self.folder_shortcuts[new_folder] = shortcut
-                    seen[new_folder] = true
-                end
+        local new_folder = getNewFolder(old_folder)
+        if new_folder then
+            self.folder_shortcuts[old_folder] = nil
+            if old_path then
+                moved[new_folder] = shortcut
             end
         end
+    end
+    for folder, shortcut in pairs(moved) do
+        self.folder_shortcuts[folder] = shortcut
     end
     -- also update system folders in settings
     for _, prop in pairs(FileManagerShortcuts.provider_props) do

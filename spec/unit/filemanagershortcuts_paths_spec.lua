@@ -60,6 +60,18 @@ describe("FileManagerShortcuts:updateItemsByPath with special paths", function()
         assert.is_nil(names()["/mnt/[new]"])
     end)
 
+    it("moves every nested shortcut without changing the table during traversal", function()
+        local expected = {}
+        shortcuts.folder_shortcuts = {}
+        for i = 1, 80 do
+            local suffix = "/sub" .. i
+            shortcuts.folder_shortcuts["/mnt/source" .. suffix] = { text = tostring(i) }
+            expected["/mnt/target" .. suffix] = tostring(i)
+        end
+        shortcuts:updateItemsByPath("/mnt/source", "/mnt/target")
+        assert.are.same(expected, names())
+    end)
+
     it("removes the shortcuts of a deleted folder and its subfolders only", function()
         G_reader_settings:saveSetting("download_dir", "/mnt/my-books")
         shortcuts:updateItemsByPath(nil, "/mnt/my-books")

@@ -818,9 +818,10 @@ above them, unlike modal widgets and toasts), keeping their owner alive through 
 They're closed top-down, as if the user had dismissed them.
 
 @param widget a window-level widget
+@bool close_menus use the normal menu closing path to preserve its callback
 @treturn int the number of widgets closed
 ]]
-function UIManager:closeWidgetsAbove(widget)
+function UIManager:closeWidgetsAbove(widget, close_menus)
     local above = {}
     for i = #self._window_stack, 1, -1 do
         local w = self._window_stack[i].widget
@@ -829,7 +830,11 @@ function UIManager:closeWidgetsAbove(widget)
             for _, aw in ipairs(above) do
                 -- (A close handler may have closed some of them already.)
                 if self:isWidgetShown(aw) then
-                    self:close(aw)
+                    if close_menus and aw.onCloseAllMenus then
+                        aw:onCloseAllMenus()
+                    else
+                        self:close(aw)
+                    end
                     closed = closed + 1
                 end
             end

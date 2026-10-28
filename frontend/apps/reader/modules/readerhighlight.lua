@@ -1428,7 +1428,7 @@ function ReaderHighlight:showHighlightDialog(index)
                     self:updateHighlight(index, 0, -1, move_by_char)
                 end,
                 hold_callback = function()
-                    move_by_char = not move_by_char
+                    move_by_char = not self.ui.paging and not move_by_char
                     self:updateHighlight(index, 0, -1, true)
                 end,
             },
@@ -1439,7 +1439,7 @@ function ReaderHighlight:showHighlightDialog(index)
                     self:updateHighlight(index, 0, 1, move_by_char)
                 end,
                 hold_callback = function()
-                    move_by_char = not move_by_char
+                    move_by_char = not self.ui.paging and not move_by_char
                     self:updateHighlight(index, 0, 1, true)
                 end,
             },
@@ -1450,7 +1450,7 @@ function ReaderHighlight:showHighlightDialog(index)
                     self:updateHighlight(index, 1, -1, move_by_char)
                 end,
                 hold_callback = function()
-                    move_by_char = not move_by_char
+                    move_by_char = not self.ui.paging and not move_by_char
                     self:updateHighlight(index, 1, -1, true)
                 end,
             },
@@ -1461,7 +1461,7 @@ function ReaderHighlight:showHighlightDialog(index)
                     self:updateHighlight(index, 1, 1, move_by_char)
                 end,
                 hold_callback = function()
-                    move_by_char = not move_by_char
+                    move_by_char = not self.ui.paging and not move_by_char
                     self:updateHighlight(index, 1, 1, true)
                 end,
             },
