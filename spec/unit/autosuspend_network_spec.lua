@@ -5,10 +5,11 @@
 -- where _start_standby takes seconds: ~694 days, i.e. standby stayed off for good after
 -- a failed connection attempt (until the next suspend / resume).
 describe("AutoSuspend standby around network connection attempts", function()
-    local Device, UIManager, NetworkMgr
+    local Device, UIManager, NetworkMgr, time
     local scheduled, prevent, allow
     local orig = {}
-    local wifi_on
+    local orig_standby_timeout
+    local wifi_on, now
 
     setup(function()
         require("commonrequire")
@@ -16,8 +17,9 @@ describe("AutoSuspend standby around network connection attempts", function()
         Device = require("device")
         UIManager = require("ui/uimanager")
         NetworkMgr = require("ui/network/manager")
+        time = require("ui/time")
         for _, k in ipairs{"canSuspend", "canStandby", "canPowerOff"} do orig[k] = Device[k] end
-        for _, k in ipairs{"scheduleIn", "unschedule", "preventStandby", "allowStandby"} do
+        for _, k in ipairs{"scheduleIn", "unschedule", "preventStandby", "allowStandby", "getElapsedTimeSinceBoot"} do
             orig["UI" .. k] = UIManager[k]
         end
         orig.getWifiState = NetworkMgr.getWifiState
@@ -32,7 +34,9 @@ describe("AutoSuspend standby around network connection attempts", function()
         end
         UIManager.preventStandby = function() prevent = prevent + 1 end
         UIManager.allowStandby = function() allow = allow + 1 end
+        UIManager.getElapsedTimeSinceBoot = function() return now end
         NetworkMgr.getWifiState = function() return wifi_on end
+        orig_standby_timeout = G_reader_settings:readSetting("auto_standby_timeout_seconds")
         G_reader_settings:saveSetting("auto_standby_timeout_seconds", 5)
     end)
 
@@ -46,12 +50,13 @@ describe("AutoSuspend standby around network connection attempts", function()
                 Device[k] = v
             end
         end
-        G_reader_settings:delSetting("auto_standby_timeout_seconds")
+        G_reader_settings:saveSetting("auto_standby_timeout_seconds", orig_standby_timeout)
     end)
 
     before_each(function()
         scheduled, prevent, allow = {}, 0, 0
         wifi_on = false
+        now = time.s(1000)
     end)
 
     it("re-checks standby 60 seconds after a connection attempt starts", function()
@@ -64,15 +69,16 @@ describe("AutoSuspend standby around network connection attempts", function()
             if s.fn == as.standby_task then table.insert(delays, s.delay) end
         end
         assert.are.same({ 60 }, delays)
-        -- The attempt failed (Wi-Fi off again, no event): the 60 s check resumes the usual cycle.
+        -- The attempt failed (Wi-Fi off again, no event, no input): 60 s later, the check
+        -- finds the usual 5 s timeout long past, and allows standby.
         wifi_on = false
-        scheduled = {}
+        scheduled, allow = {}, 0
+        now = now + time.s(60)
         as:standby_task()
-        local next_delay
+        assert.are.equal(1, allow)
         for _, s in ipairs(scheduled) do
-            if s.fn == as.standby_task then next_delay = s.delay end
+            assert.are_not.equal(as.standby_task, s.fn)
         end
-        assert.is_true(next_delay == nil or next_delay <= 5) -- allowed, or rescheduled within the usual timeout
         as:onCloseWidget()
     end)
 end)
