@@ -180,12 +180,20 @@ end
 function FileManagerShortcuts:updateItemsByPath(old_path, new_path)
     -- used on renaming/moving/deleting folders in the file browser
     -- if old_path == nil then remove the shortcut and system folder in settings
+    local moved_path = old_path or new_path
+    local function getNewFolder(folder) -- plain prefix match (paths are not Lua patterns)
+        if folder == moved_path then
+            return new_path
+        elseif util.stringStartsWith(folder, moved_path .. "/") then
+            return new_path .. folder:sub(#moved_path + 1)
+        end
+    end
     -- update shortcuts
     local seen = {}
     for old_folder, shortcut in pairs(self.folder_shortcuts) do
         if not seen[old_folder] then
-            local new_folder, count = old_folder:gsub(old_path or new_path, new_path)
-            if count > 0 then
+            local new_folder = getNewFolder(old_folder)
+            if new_folder then
                 self.folder_shortcuts[old_folder] = nil
                 if old_path then
                     self.folder_shortcuts[new_folder] = shortcut
@@ -199,8 +207,8 @@ function FileManagerShortcuts:updateItemsByPath(old_path, new_path)
         if prop.set then
             local old_folder = prop.get()
             if old_folder then
-                local new_folder, count = old_folder:gsub(old_path or new_path, new_path)
-                if count > 0 then
+                local new_folder = getNewFolder(old_folder)
+                if new_folder then
                     prop.set(old_path and new_folder)
                 end
             end
