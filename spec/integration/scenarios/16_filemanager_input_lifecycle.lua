@@ -24,6 +24,24 @@ return {
         T:check(T:topWidget() == T:fileManager(), "new file manager is the top window")
 
         T:run(function()
+            local shortcuts = T:fileManager().folder_shortcuts
+            local previous_shortcuts = shortcuts.folder_shortcuts
+            shortcuts.folder_shortcuts = {}
+            for i = 1, 80 do
+                shortcuts.folder_shortcuts["/synthetic/source/sub" .. i] = { text = tostring(i) }
+            end
+            shortcuts:updateItemsByPath("/synthetic/source", "/synthetic/target")
+            local all_moved = true
+            for i = 1, 80 do
+                local target = shortcuts.folder_shortcuts["/synthetic/target/sub" .. i]
+                if not target or target.text ~= tostring(i)
+                        or shortcuts.folder_shortcuts["/synthetic/source/sub" .. i] then
+                    all_moved = false
+                end
+            end
+            shortcuts.folder_shortcuts = previous_shortcuts
+            T:check(all_moved, "renaming a folder moves every nested shortcut")
+
             local function newInput()
                 return Input:new{ device = Device, input = Device.input.input, event_map = { [42] = "Shift" } }
             end
