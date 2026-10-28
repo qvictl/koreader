@@ -254,6 +254,7 @@ return {
             held_uploads = nil
 
             local ready_job, ready_uploads, pull_requests = nil, {}, 0
+            local hold_pulls, pending_pulls = false, {}
             local current_digest = sent[1].document
             local remote_progress, remote_percentage = expected_progress, 0
             T:run(function()
@@ -286,8 +287,12 @@ return {
                         end,
                         get_progress = function(_, _, _, _, callback)
                             pull_requests = pull_requests + 1
-                            callback(true, { progress = remote_progress, percentage = remote_percentage,
-                                timestamp = 0, device = "Synthetic remote", device_id = "synthetic-remote" })
+                            if hold_pulls then
+                                pending_pulls[#pending_pulls + 1] = callback
+                            else
+                                callback(true, { progress = remote_progress, percentage = remote_percentage,
+                                    timestamp = 0, device = "Synthetic remote", device_id = "synthetic-remote" })
+                            end
                         end,
                     }
                 end
@@ -321,10 +326,27 @@ return {
             T:eq(reopened:getCurrentPage(), 2, "successful replay and pull retain the fresh local progress")
             T:eq(Queue:load()[1].document, "unrelated-ready-book", "only the unrelated failed record remains queued")
             T:run(function()
+                hold_pulls = true
+                reopened.kosync:getProgress(false, true)
+                reopened.kosync:logout()
+                pending_pulls[1](true, { progress = expected_progress, percentage = 0, timestamp = 0,
+                    device = "Synthetic old account", device_id = "synthetic-remote" })
+            end)
+            T:eq(reopened:getCurrentPage(), 2, "an old account pull cannot overwrite the current position after logout")
+            T:run(function()
+                reopened.kosync.settings.username, reopened.kosync.settings.userkey = "third", "synthetic-new-key"
+                reopened.kosync:getProgress(false, true)
                 reopened.kosync.settings.auto_sync = false
                 reopened.kosync:registerEvents()
             end)
+            T:eq(#pending_pulls, 2, "a pull response is held while the actual reader closes")
             T:closeBook()
+            T:run(function()
+                local handled = pcall(pending_pulls[2], true, { progress = expected_progress,
+                    percentage = 0, timestamp = 0, device = "Synthetic remote", device_id = "synthetic-remote" })
+                T:check(handled, "a late pull does not access the closed native document")
+            end)
+            T:check(T:topWidget() == T:fileManager(), "a late pull does not show obsolete reader UI")
         end)
         T:run(function()
             socket.dns.toip, Device.hasWifiToggle = saved_toip, saved_toggle
