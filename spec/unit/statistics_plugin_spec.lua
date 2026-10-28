@@ -1458,6 +1458,25 @@ describe("Statistics plugin", function()
             assert.are.equal(70, dbNum("SELECT total_read_time FROM book WHERE title = 'Legacy';"))
         end)
 
+        for _, duplicate_remote in ipairs{ false, true } do
+            it("rejects ambiguous legacy identities in the " .. (duplicate_remote and "remote" or "local") .. " DB", function()
+                newStats{ no_doc = true }
+                insertBook{ id = 1, title = "Legacy" }
+                insertPageStat(1, 1, 1000, 30, 100)
+                local income = settings_dir .. "/income.sqlite3"
+                makeDB(income)
+                insertBook({ id = 10, title = "Legacy" }, income)
+                insertPageStat(10, 2, 1100, 40, 100, income)
+                insertBook({ id = duplicate_remote and 11 or 2, title = "Legacy", md5 = "duplicate" },
+                    duplicate_remote and income or db_path)
+                dbExec("UPDATE book SET md5 = NULL;")
+                dbExec("UPDATE book SET md5 = NULL;", income)
+                assert.is_false(ReaderStatistics.onSync(db_path, settings_dir .. "/cached.sqlite3", income))
+                assert.are.equal(1, dbNum("SELECT count(*) FROM page_stat_data;"))
+                assert.are.equal(1, dbNum("SELECT count(*) FROM page_stat_data;", income))
+            end)
+        end
+
         it("merges a remote DB into the local one", function()
             local stats = newStats{ title = "Shared", md5 = "s" }
             insertPageStat(1, 1, 1000, 30, 100)

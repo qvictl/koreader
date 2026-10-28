@@ -3108,6 +3108,10 @@ function ReaderStatistics:onSyncBookStats(interactive)
 end
 
 function ReaderStatistics.onSync(local_path, cached_path, income_path)
+    local ambiguous_books_sql = [[
+        SELECT 1 FROM book WHERE md5 IS NULL
+        GROUP BY title, authors HAVING count(*) > 1 LIMIT 1;
+    ]]
     local conn_income = SQ3.open(income_path)
     local ok1, v1 = pcall(conn_income.rowexec, conn_income, "PRAGMA schema_version")
     if not ok1 or tonumber(v1) == 0 then
@@ -3115,6 +3119,11 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
         logger.warn("statistics open income DB failed", v1)
         conn_income:close()
         return true
+    end
+    if conn_income:rowexec(ambiguous_books_sql) then
+        logger.warn("statistics sync refused ambiguous legacy book identities in remote DB")
+        conn_income:close()
+        return false
     end
 
     local sql = "attach '" .. income_path:gsub("'", "''") .."' as income_db;"
@@ -3175,6 +3184,11 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
     if not ok3 or tonumber(v3) == 0 then
         -- no local db, this is an error
         logger.err("statistics open local DB", v3)
+        conn:close()
+        return false
+    end
+    if conn:rowexec(ambiguous_books_sql) then
+        logger.warn("statistics sync refused ambiguous legacy book identities in local DB")
         conn:close()
         return false
     end
