@@ -244,6 +244,29 @@ describe("Statistics plugin", function()
     end)
 
     describe("database setup", function()
+        it("imports legacy stat files without a currently open book", function()
+            local legacy_dir = DataStorage:getDataDir() .. "/statistics"
+            util.makePath(legacy_dir)
+            finally(function() require("ffi/util").purgeDir(legacy_dir) end)
+            for i, title in ipairs{ "Legacy A", "Legacy B", "Legacy A" } do
+                local file = assert(io.open(legacy_dir .. "/book" .. i .. ".stat", "w"))
+                file:write(string.format([[return {
+                    title = %q, authors = "Synthetic author", notes = 0, highlights = 0,
+                    pages = 100, series = "", language = "en", total_time = 60,
+                    details = { { time = 1000, page = 1 }, { time = 1030, page = 2 } },
+                }]], title))
+                file:close()
+            end
+            local stats = setmetatable({ settings = { max_sec = 120 } }, { __index = ReaderStatistics })
+            withConn(db_path, function(conn)
+                assert.are.equal(3, stats:migrateToDB(conn))
+            end)
+            assert.are.same({ { "Legacy A", 2, 90 }, { "Legacy B", 2, 90 } },
+                dbRows("SELECT title, total_read_pages, total_read_time FROM book ORDER BY title;"))
+            assert.are.equal(6, dbNum("SELECT count(*) FROM page_stat_data;"))
+            assert.are.equal(6, dbNum("SELECT count(*) FROM page_stat;"))
+        end)
+
         it("creates the current schema on first run and marks the conversion as done", function()
             local stats = newStats{ no_doc = true }
             assert.is_true(stats.settings.convert_to_db)
@@ -989,6 +1012,21 @@ describe("Statistics plugin", function()
             assert.are.equal(3, #kv.kv_pairs)
         end)
 
+        it("lists and resets a half-open period without touching the next midnight", function()
+            dbExec("DELETE FROM page_stat_data;")
+            insertPageStat(1, 1, TODAY0, 20, 100)
+            insertPageStat(1, 2, TODAY0 + 86400, 30, 100)
+            insertPageStat(2, 3, TODAY0 + 86400, 40, 100)
+            local books = stats:getBooksFromPeriod(TODAY0, TODAY0 + 86400)
+            assert.are.equal(1, #books)
+            assert.are.equal(1, books[1].book_id)
+            assert.are.equal(20, books[1].duration)
+            stats:resetStatsForBookForPeriod(1, TODAY0, TODAY0 + 86400, false)
+            lastShown("ConfirmBox").ok_callback()
+            assert.are.same({ { 1, 2 }, { 2, 3 } },
+                dbRows("SELECT id_book, page FROM page_stat_data ORDER BY id_book;"))
+        end)
+
         it("summarizes all books, most recently opened first", function()
             local title, list = stats:getTotalStats()
             assert.are.equal("Total time spent reading: " .. datetime.secondsToClockDuration(nil, 450, false), title)
@@ -1384,6 +1422,21 @@ describe("Statistics plugin", function()
             os.remove(income)
             assert.is_true(ReaderStatistics.onSync(db_path, settings_dir .. "/cached.sqlite3", income))
             assert.are.equal(1, dbNum("SELECT count(*) FROM page_stat_data;"))
+        end)
+
+        it("rejects an empty local database without attempting the sync SQL", function()
+            newStats{ no_doc = true }
+            local income = settings_dir .. "/income.sqlite3"
+            require("ffi/util").copyFile(db_path, income)
+            local empty = settings_dir .. "/empty.sqlite3"
+            os.remove(empty)
+            finally(function() os.remove(empty) end)
+            local result
+            assert.has_no.errors(function()
+                result = ReaderStatistics.onSync(empty, settings_dir .. "/cached.sqlite3", income)
+            end)
+            assert.is_false(result)
+            assert.are.equal(0, dbNum("PRAGMA schema_version;", empty))
         end)
 
         it("merges a remote DB into the local one", function()

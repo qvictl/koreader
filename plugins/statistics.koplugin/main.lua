@@ -584,37 +584,29 @@ function ReaderStatistics:addBookStatToDB(book_stats, conn)
     if book_stats.total_time_in_sec and book_stats.total_time_in_sec > 0
         and util.tableSize(book_stats.performance_in_pages) > 0 then
         local read_pages = util.tableSize(book_stats.performance_in_pages)
+        local partial_md5 = util.partialMD5(book_stats.file)
         logger.dbg("Insert to database: " .. book_stats.title)
         sql_stmt = [[
-            SELECT count(id)
+            SELECT id
             FROM   book
             WHERE  title = ?
-              AND  authors = ?
-              AND  md5 = ?;
+              AND  authors IS ?
+              AND  md5 IS ?;
         ]]
         local stmt = conn:prepare(sql_stmt)
-        local result = stmt:reset():bind(self.data.title, self.data.authors, self.doc_md5):step()
-        local nr_id = tonumber(result[1])
-        if nr_id == 0 then
-            local partial_md5 = util.partialMD5(book_stats.file)
+        local result = stmt:reset():bind(book_stats.title, book_stats.authors, partial_md5):step()
+        stmt:close()
+        if not result then
             stmt = conn:prepare("INSERT INTO book VALUES(NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);")
             stmt:reset():bind(book_stats.title, book_stats.authors, book_stats.notes,
                 last_open_book, book_stats.highlights, book_stats.pages,
                 book_stats.series, book_stats.language, partial_md5, total_read_time, total_read_pages) :step()
+            stmt:close()
             sql_stmt = [[
                 SELECT last_insert_rowid() AS num;
             ]]
             id_book = conn:rowexec(sql_stmt)
         else
-            sql_stmt = [[
-                SELECT id
-                FROM   book
-                WHERE  title = ?
-                  AND  authors = ?
-                  AND  md5 = ?;
-            ]]
-            stmt = conn:prepare(sql_stmt)
-            result = stmt:reset():bind(self.data.title, self.data.authors, self.doc_md5):step()
             id_book = result[1]
 
         end
@@ -625,7 +617,7 @@ function ReaderStatistics:addBookStatToDB(book_stats, conn)
         table.sort(sorted_performance)
 
         conn:exec('BEGIN;')
-        stmt = conn:prepare("INSERT OR IGNORE INTO page_stat VALUES(?, ?, ?, ?);")
+        stmt = conn:prepare("INSERT OR IGNORE INTO page_stat_data VALUES(?, ?, ?, ?, ?);")
         local avg_time = math.ceil(book_stats.total_time_in_sec / read_pages)
         if avg_time > self.settings.max_sec then
             avg_time = self.settings.max_sec
@@ -636,21 +628,22 @@ function ReaderStatistics:addBookStatToDB(book_stats, conn)
         end
         local start_open_page = sorted_performance[1]
         --first page
-        stmt:reset():bind(id_book, first_read_page, start_open_page - avg_time, avg_time):step()
+        stmt:reset():bind(id_book, first_read_page, start_open_page - avg_time, avg_time, book_stats.pages):step()
         for i=2, #sorted_performance do
             start_open_page = sorted_performance[i-1]
             local diff_time = sorted_performance[i] - sorted_performance[i-1]
             if diff_time <= self.settings.max_sec then
                 stmt:reset():bind(id_book, book_stats.performance_in_pages[sorted_performance[i-1]],
-                    start_open_page, diff_time):step()
+                    start_open_page, diff_time, book_stats.pages):step()
             elseif diff_time > self.settings.max_sec then --and diff_time <= 2 * avg_time then
                 stmt:reset():bind(id_book, book_stats.performance_in_pages[sorted_performance[i-1]],
-                    start_open_page, avg_time):step()
+                    start_open_page, avg_time, book_stats.pages):step()
             end
         end
         --last page
         stmt:reset():bind(id_book, book_stats.performance_in_pages[sorted_performance[#sorted_performance]],
-            sorted_performance[#sorted_performance], avg_time):step()
+            sorted_performance[#sorted_performance], avg_time, book_stats.pages):step()
+        stmt:close()
         --last open book
         last_open_book = sorted_performance[#sorted_performance] + avg_time
         conn:exec('COMMIT;')
@@ -2092,7 +2085,7 @@ function ReaderStatistics:getBooksFromPeriod(period_begin, period_end, callback_
         ORDER   BY book_tbl.last_open DESC;
     ]]
     local conn = SQ3.open(db_location)
-    local result_book = conn:exec(string.format(sql_stmt_res_book, period_begin + 1, period_end))
+    local result_book = conn:exec(string.format(sql_stmt_res_book, period_begin, period_end - 1))
     conn:close()
 
     if result_book == nil then
@@ -2259,7 +2252,8 @@ function ReaderStatistics:resetStatsForBookForPeriod(id_book, min_start_time, ma
                 AND start_time between ? and ?
             ]]
             local stmt = conn:prepare(sql_stmt)
-            stmt:reset():bind(id_book, min_start_time, max_start_time):step()
+            -- Day lists pass the inclusive first/last record timestamps; period lists pass [begin, end).
+            stmt:reset():bind(id_book, min_start_time, day_str and max_start_time or max_start_time - 1):step()
             stmt:close()
             conn:close()
             if on_reset_confirmed_callback then
@@ -3119,6 +3113,7 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
     if not ok1 or tonumber(v1) == 0 then
         -- no income db or wrong db, first time sync
         logger.warn("statistics open income DB failed", v1)
+        conn_income:close()
         return true
     end
 
@@ -3168,10 +3163,11 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
     conn_cached:close()
     conn_income:close()
     local conn = SQ3.open(local_path)
-    local ok3, v3 = pcall(conn.exec, conn, "PRAGMA schema_version")
+    local ok3, v3 = pcall(conn.rowexec, conn, "PRAGMA schema_version")
     if not ok3 or tonumber(v3) == 0 then
         -- no local db, this is an error
         logger.err("statistics open local DB", v3)
+        conn:close()
         return false
     end
 
