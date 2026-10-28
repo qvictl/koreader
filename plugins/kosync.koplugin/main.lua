@@ -768,6 +768,18 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         return
     end
 
+    local ui = self.ui
+    local document = ui.document
+    if not document then return end
+    local filename = document.file
+    local Queue = require("KOSyncQueue")
+    local generation = Queue._generation
+    local request = {}
+    self._push_request = request
+    local function current()
+        return self.ui == ui and ui.document == document and generation == Queue._generation
+            and self._push_request == request
+    end
     local KOSyncClient = require("KOSyncClient")
     local client = KOSyncClient:new{
         custom_url = self.settings.custom_server,
@@ -786,6 +798,21 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         device = chosen_device_name,
         device_id = self.device_id,
     }
+    local queued_before = {}
+    for _, entry in ipairs(Queue:load()) do
+        if entry.document == doc_digest then queued_before[math.floor((entry.queued_at or 0) / 86400)] = entry end
+    end
+    local function queue_if_current()
+        if not current() then return end
+        local today = math.floor(os.time() / 86400)
+        for _, entry in ipairs(Queue:load()) do
+            if entry.document == doc_digest and math.floor((entry.queued_at or 0) / 86400) == today
+                    and not util.tableEquals(entry, queued_before[today]) then
+                return -- A later snapshot already owns this document's pending update.
+            end
+        end
+        Queue:push(queue_item)
+    end
     local ok, err = pcall(client.update_progress,
         client,
         self.settings.username,
@@ -797,7 +824,8 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         chosen_device_name,
         self.device_id,
         function(ok, status, body)
-            logger.dbg("KOSync: [Push] progress to", percentage * 100, "% =>", progress, "for", self.view.document.file)
+            if not current() then return end
+            logger.dbg("KOSync: [Push] progress to", percentage * 100, "% =>", progress, "for", filename)
             logger.dbg("KOSync: ok:", ok, "body:", body)
             if ok then
                 if interactive then
@@ -809,18 +837,17 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
             else
                 -- Queue for retry unless it's an auth failure
                 if status ~= 401 then
-                    local KOSyncQueue = require("KOSyncQueue")
-                    KOSyncQueue:push(queue_item)
+                    queue_if_current()
                 end
                 if interactive then showSyncError() end
             end
         end)
     if not ok then
+        if not current() then return end
         if interactive then showSyncError() end
         if err then logger.dbg("err:", err) end
         -- Network unreachable: queue for retry
-        local KOSyncQueue = require("KOSyncQueue")
-        KOSyncQueue:push(queue_item)
+        queue_if_current()
     else
         -- This is solely for onSuspend's sake, to clear the ghosting left by the "Connected" InfoMessage
         if on_suspend then
