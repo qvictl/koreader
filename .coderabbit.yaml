@@ -51,7 +51,6 @@ reviews:
   path_filters:
     - "!l10n/**"
     - "!base"
-    - "!test/**"
     - "!resources/**"
     - "!spec/unit/data/**"
     - "!**/fixtures/**"
@@ -92,6 +91,9 @@ reviews:
     - path: "frontend/ui/otamanager.lua"
       instructions: |
         OTA updates push code to devices: sensitive path, a human must approve. Check signature / origin verification, atomic install, rollback, and that nothing downloads or installs without explicit user consent.
+    - path: "plugins/kosync.koplugin/**"
+      instructions: |
+        Sync credentials (`userkey`, server URL): sensitive path, a human must approve. Check that credentials never reach logs, crash reports or error messages, are sent only to the configured server over the intended scheme, and are stored with the other settings only.
     - path: "spec/**"
       instructions: |
         Tests: check they exercise the behaviour the PR changes (not only mocks), that a bug fix's regression test would fail without the fix, that they are deterministic (no sleeps / timing assumptions, no real network), clean up temp files and global state, and stay fast. Flag weakened assertions or deleted tests.

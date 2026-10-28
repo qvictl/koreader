@@ -22,7 +22,6 @@ code_review:
 ignore_patterns:
   - "l10n/**"
   - "base"
-  - "test/**"
   - "resources/**"
   - "spec/unit/data/**"
   - "**/fixtures/**"
