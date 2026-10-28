@@ -145,7 +145,7 @@ return {
 
 
             local Queue = require("KOSyncQueue")
-            local sent = {}
+            local sent, held_uploads = {}, nil
             T:run(function()
                 Queue:clear()
                 kosync_client = require("KOSyncClient")
@@ -154,7 +154,11 @@ return {
                     return { update_progress = function(_, username, _, document, _, progress, _, _, _, callback)
                         sent[#sent + 1] = { username = username, document = document, progress = progress,
                             server = config.custom_url }
-                        callback(true)
+                        if held_uploads then
+                            held_uploads[#held_uploads + 1] = callback
+                        else
+                            callback(true)
+                        end
                     end }
                 end
             end)
@@ -229,6 +233,25 @@ return {
             T:waitUntil(function() return #sent == 5 and Queue:count() == 0 end, 5, "new server retries retained progress")
             T:check(sent[4].server == new_server and sent[5].server == new_server,
                 "the retry uses only the new server")
+
+            held_uploads = {}
+            local old_http, old_http_plugin = closeWithDNS("http-old-account", "second", new_server)
+            T:run(function() release(old_http) end)
+            T:waitUntil(function() return #held_uploads == 1 end, 5, "old account upload stays in flight")
+            T:run(function() old_http_plugin:logout() end)
+            local new_http = closeWithDNS("http-new-account", "third", new_server)
+            T:run(function() release(new_http) end)
+            T:waitUntil(function() return #held_uploads == 2 end, 5,
+                "new account starts uploading before the old response arrives")
+            T:check(Queue._draining, "the new account owns an active drain")
+            T:run(function() held_uploads[1](true) end)
+            T:check(Queue._draining, "the old response cannot release the new account's drain")
+            T:eq(Queue:count(), 1, "the old response preserves new account progress")
+            T:run(function() held_uploads[2](true) end)
+            T:waitUntil(function() return Queue:count() == 0 and not Queue._draining end,
+                5, "the new account finishes its independent upload")
+            T:eq(sent[#sent].username, "third", "the new upload uses only the new account")
+            held_uploads = nil
 
             local ready_job, ready_uploads, pull_requests = nil, {}, 0
             local current_digest = sent[1].document

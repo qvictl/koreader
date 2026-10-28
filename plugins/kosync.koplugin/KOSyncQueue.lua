@@ -101,7 +101,7 @@ function KOSyncQueue:drain(send_func, done_func, priority_document)
     local function settle()
         if settled then return end
         settled = true
-        self._draining = nil
+        if generation == self._generation then self._draining = nil end
         local ok, remaining = pcall(self.count, self)
         logger.info("KOSyncQueue: sent", sent, ", remaining", ok and remaining or "unknown")
         if done_func then done_func(sent) end
@@ -182,6 +182,7 @@ end
 
 function KOSyncQueue:invalidatePending()
     self._generation = self._generation + 1
+    self._draining = nil
 end
 
 function KOSyncQueue:clear()

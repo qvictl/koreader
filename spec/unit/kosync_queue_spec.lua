@@ -365,6 +365,29 @@ describe("KOSyncQueue module", function()
         assert.are.equal(2, pulls)
     end)
 
+    it("starts a new generation before the old upload returns without releasing the new drain", function()
+        KOSyncQueue:push{ document = "old-account", progress = "1" }
+        local old_callback
+        KOSyncQueue:drain(function(_, callback) old_callback = callback end)
+        KOSyncQueue:clear()
+        KOSyncQueue:push{ document = "new-a", progress = "2" }
+        KOSyncQueue:push{ document = "new-b", progress = "3" }
+        local sent, pending = {}, {}
+        KOSyncQueue:drain(function(item, callback)
+            sent[#sent + 1], pending[#pending + 1] = item.document, callback
+        end)
+        local started_before_old_callback = #sent == 1 and sent[1] == "new-a"
+        old_callback(true)
+        assert.is_true(started_before_old_callback)
+        assert.is_true(KOSyncQueue._draining)
+        KOSyncQueue:drain(function() error("new drain must remain occupied") end)
+        pending[1](true)
+        assert.same({ "new-a", "new-b" }, sent)
+        pending[2](true)
+        assert.are.equal(0, KOSyncQueue:count())
+        assert.is_nil(KOSyncQueue._draining)
+    end)
+
     it("keeps identical new-account entries when a cleared upload finishes late", function()
         local now = os.time()
         os.time = function() return now end -- luacheck: ignore
