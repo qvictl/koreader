@@ -426,11 +426,12 @@ footerTextGeneratorMap = {
     end,
     dynamic_filler = function(footer)
         local filler_enabled = footer.settings.disable_progress_bar or footer.settings.progress_bar_position ~= "alongside"
-        return nil, true, filler_enabled -- merge
+        -- merge only when enabled: a disabled filler must not remove the separators around it
+        return nil, filler_enabled, filler_enabled
     end,
     dynamic_filler2 = function(footer) -- same
         local filler_enabled = footer.settings.disable_progress_bar or footer.settings.progress_bar_position ~= "alongside"
-        return nil, true, filler_enabled
+        return nil, filler_enabled, filler_enabled
     end,
     additional_content = function(footer)
         if #footer.additional_footer_content == 0 then
