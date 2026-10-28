@@ -82,3 +82,22 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `13_font_menu_faces` | font menu previews (incl. font-family sub-menus) don't keep their faces cached |
 | `14_base_archive_serialization` | archive error recovery and packaging/reloading radix-safe serializer output, including infinities and NaN |
 | `15_network_info` | native interface discovery, the network information event/dialog, displayed interface names and MAC addresses, and dismissal without external network requests |
+| `21_font_lifecycle` | native collection preserves page counts and pixels over three real ReaderUI open/turn/close/reopen cycles; optional Linux RSS/PSS and FreeType-finalizer benchmark |
+
+The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
+process peak RSS, timings and a test-only FreeType face-finalizer observer:
+
+```sh
+tools/benchmark_font_memory.sh --kodir /path/to/native/runtime \
+  --output /path/to/results --book /path/to/book.epub --font 'Noto Sans CJK SC'
+```
+
+Run the baseline and candidate in separate processes with the same frontend,
+book, fonts, screen settings and native dependency builds. Each run performs
+three open/turn/close cycles and writes `memory.jsonl`, `faces.tsv`, screenshots
+and the integration report. `faces_explicit` counts actual finalizations outside
+library teardown; `faces_library_cleanup` identifies releases during
+`FT_Done_FreeType`. Set `FONT_BENCH_EXPECT_ZERO=1` for the fixed runtime to also
+assert that closed books retain zero native faces. The observer is never loaded
+in normal CI or product runs. These are host measurements; device savings must
+be measured separately. Use a fresh output directory for each run.
