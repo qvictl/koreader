@@ -288,6 +288,21 @@ describe("Trapper module", function()
             assert.are.equal(0, #shown)
         end)
 
+        it("dismissablePopen() uses the blocking fallback for an explicit main-thread flag", function()
+            stub(coroutine, "running", function() return {}, true end)
+            local start = spy.on(ffiutil, "openCommandPipe")
+            local ok, completed, output = pcall(function()
+                return Trapper:dismissablePopen("printf main-thread", "unused")
+            end)
+            coroutine.running:revert()
+            ffiutil.openCommandPipe:revert()
+            assert.is_true(ok)
+            assert.is_true(completed)
+            assert.are.equal("main-thread", output)
+            assert.spy(start).was_not.called()
+            assert.are.equal(0, #shown)
+        end)
+
         it("dismissablePopen() reports failure when io.popen() fails", function()
             local orig_popen = io.popen
             io.popen = function() return nil, "cannot fork" end -- luacheck: ignore

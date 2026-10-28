@@ -337,9 +337,9 @@ Notes and limitations:
 @treturn string optional start_failed/read_failed reason; nil on dismissal
 ]]
 function Trapper:dismissablePopen(cmd, trap_widget_or_string)
-    local _coroutine = coroutine.running()
+    local _coroutine, is_main = coroutine.running()
     -- assert(_coroutine ~= nil, "Need to be called from a coroutine")
-    if not _coroutine then
+    if not _coroutine or is_main then
         logger.warn("unwrapped dismissablePopen(), falling back to blocking io.popen()")
         local std_out = io.popen(cmd, "r")
         if std_out then
