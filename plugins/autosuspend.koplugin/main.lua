@@ -716,7 +716,7 @@ function AutoSuspend:onNetworkConnecting()
     -- with some extra breathing room.
     -- If the connection attempt fails (in which case we get neither a NetworkConnected nor a NetworkDisconnected event),
     -- the subsequent checks are in the usual `self.auto_standby_timeout_seconds`.
-    self:_start_standby(time.s(60))
+    self:_start_standby(60)
 end
 
 function AutoSuspend:onNetworkDisconnected()
