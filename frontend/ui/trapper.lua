@@ -14,9 +14,26 @@ local InfoMessage = require("ui/widget/infomessage")
 local TrapWidget = require("ui/widget/trapwidget")
 local UIManager = require("ui/uimanager")
 local buffer = require("string.buffer")
+local ffi = require("ffi")
 local ffiutil = require("ffi/util")
 local logger = require("logger")
 local _ = require("gettext")
+local C = ffi.C
+
+require("ffi/posix_h")
+
+-- Whether a popen()'d command's output can be read now without blocking: either it has
+-- output pending, or it is done (end of file: the command exited, possibly without
+-- printing anything, which the FIONREAD check alone can't tell from "not yet").
+local function isPipeReadable(luafile)
+    if ffiutil.getNonBlockingReadSize(luafile) ~= 0 then
+        return true
+    end
+    local pfd = ffi.new("struct pollfd[1]")
+    pfd[0].fd = C.fileno(luafile)
+    pfd[0].events = C.POLLIN
+    return C.poll(pfd, 1, 0) > 0 and bit.band(pfd[0].revents, C.POLLHUP) ~= 0
+end
 
 local Trapper = {}
 
@@ -317,8 +334,8 @@ Notes and limitations:
    accumulate `cmd` output in some variable, and to output the whole
    variable to stdout at the end.)
 
-2) `cmd` needs to output something (we will wait till some data is available)
-   If there are chances for it to not output anything, append `"; echo"` to `cmd`
+2) `cmd` may exit without outputting anything: that is detected (end of file),
+   and the output is then the empty string.
 
 3) We need a @{ui.widget.trapwidget|TrapWidget} or @{ui.widget.infomessage|InfoMessage},
    that, as a modal, will catch any @{ui.event|Tap event} happening during
@@ -425,7 +442,7 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
                 -- zombie processes.
                 local collect_and_clean
                 collect_and_clean = function()
-                    if ffiutil.getNonBlockingReadSize(std_out) ~= 0 then -- cmd started outputting
+                    if isPipeReadable(std_out) then -- cmd started outputting, or is done
                         std_out:read("*all")
                         std_out:close()
                         logger.dbg("collected cancelled cmd output")
@@ -439,8 +456,8 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
             end
             -- The go_on_func resumed us: we have not been dismissed.
             -- Check if pipe is ready to be read
-            if ffiutil.getNonBlockingReadSize(std_out) ~= 0 then
-                -- Some data is available for reading: read it all,
+            if isPipeReadable(std_out) then
+                -- Some data is available for reading (or cmd is done): read it all,
                 -- but we may block from now on
                 output = std_out:read("*all")
                 std_out:close()
