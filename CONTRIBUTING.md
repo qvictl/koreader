@@ -28,7 +28,7 @@ The `base` submodule points at [qvictl/koreader-base](https://github.com/qvictl/
    |---|---|
    | Diff coverage, **unit tests** only | ≥ **80%** of the changed executable Lua lines |
    | Diff coverage, **unit + integration** | ≥ **90%** of the changed executable Lua lines |
-   | **Overall** coverage (`frontend/` + `plugins/`) | must not drop below `main`'s (ratchet, ± 0.1 pp noise allowance) |
+   | **Overall** coverage (`frontend/` + `plugins/`) | must not drop below `main`'s at the PR's base commit (ratchet, ± 0.1 pp noise allowance) |
    | **Fork-owned modules** ([`.ci/owned-modules.txt`](.ci/owned-modules.txt)) | each ≥ **80%** from 2026-10-27, **85%** from 2026-11-24, **90%** from 2026-12-22 |
    | **Overall unit-test coverage** (`frontend/` + `plugins/`, unit tests only) | ≥ **36.47%** from 2026-11-24, ≥ **41.47%** from 2026-12-22 (day-one 31.47%; not enforced before those dates) |
 
@@ -36,7 +36,8 @@ The `base` submodule points at [qvictl/koreader-base](https://github.com/qvictl/
    - The overall coverage of `frontend/` + `plugins/` had a day-one baseline (2026-10-27, see `.ci/coverage_config.lua`); targets: baseline **+5 pp** by 2026-11-24 and **+10 pp** by 2026-12-22 (tracked and reported, not blocking — the ratchet is what blocks).
    - The unit-test-only coverage of `frontend/` + `plugins/` has its own dated targets (`overall.unit` in `.ci/coverage_config.lua`), blocking from their date; the plan to get there (per-file priorities, batches) is [doc/coverage-plan.md](doc/coverage-plan.md).
    - Upstream sync PRs (`sync/upstream-<date>`) only enforce the owned-modules gate (upstream's own changes are not ours to cover); the diff and ratchet values are reported.
-   - The `main` baseline, the history and the badges live on the [`coverage`](../../tree/coverage) branch ([`HISTORY.md`](../../blob/coverage/HISTORY.md)), updated by CI on every push to `main`.
+   - The ratchet compares a PR with the coverage of the `main` commit it is based on (the first parent of the `refs/pull/N/merge` commit CI measures; for a run dispatched on a branch, its merge base with `main`), not with `main`'s latest: PRs in flight do not have to merge one by one when another one adds tests. If that commit has no coverage record (e.g. its CI did not finish), its nearest recorded ancestor is used; the report names the `main` commit the baseline comes from. Without any record, the ratchet is not checked.
+   - The per-commit coverage of `main` (`history.jsonl`, the ratchet's baselines), the latest one (`baseline.json`), the history and the badges live on the [`coverage`](../../tree/coverage) branch ([`HISTORY.md`](../../blob/coverage/HISTORY.md)), updated by CI on every push to `main`.
    - Every PR gets a coverage comment and job summary: the 5 gates, the owned modules table, and the changed lines no test runs.
 3. **All CI checks green** (required by the branch protection of `main`):
    - **Lint**: upstream's lint (`.ci/check.sh`: luacheck, shellcheck/shfmt, unscaled sizes, gettext…);
