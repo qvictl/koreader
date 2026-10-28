@@ -159,6 +159,21 @@ return {
             T:eq(reconnect_calls, 0, "worker startup failure does not reconnect Wi-Fi")
             T:check(T:topWidget().dimen, "the worker failure message is painted")
             T:tapWidget(T:topWidget(), "dismiss the failed connectivity check")
+            T:run(function()
+                socket.dns.toip = function() error("synthetic resolver failure") end
+                local started, failure = pcall(NetworkMgr.runWhenOnline, NetworkMgr,
+                    function() failed_calls = failed_calls + 1 end)
+                socket.dns.toip = saved_toip
+                if not started then error(failure, 0) end
+            end)
+            T:waitUntil(function()
+                return T:topWidget().text == require("gettext")("Network connectivity check failed. Please try again.")
+            end, 5, "worker task failure is reported instead of silently reconnecting")
+            T:repaint()
+            T:eq(failed_calls, 0, "a missing worker result cannot run the online action")
+            T:eq(reconnect_calls, 0, "a worker task failure is not treated as an offline result")
+            T:check(T:topWidget().dimen, "the failed worker result message is painted")
+            T:tapWidget(T:topWidget(), "dismiss the failed worker result")
 
             local Queue = require("KOSyncQueue")
             local sent, held_uploads = {}, nil
