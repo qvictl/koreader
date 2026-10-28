@@ -218,6 +218,22 @@ describe("Trapper module", function()
             assert.are.equal(0, #child_pids)
         end)
 
+        it("treats LuaJIT main-thread coroutine reporting as unwrapped", function()
+            -- luacheck: push ignore 122
+            local running = coroutine.running
+            coroutine.running = function() return coroutine.create(function() end), true end
+            local ok, err = xpcall(function()
+                local completed, result = Trapper:dismissableRunInSubprocess(function() return "direct" end)
+                assert.is_true(completed)
+                assert.are.equal("direct", result)
+                assert.are.equal(0, #child_pids)
+                assert.are.equal(0, #shown)
+            end, debug.traceback)
+            coroutine.running = running
+            -- luacheck: pop
+            if not ok then error(err, 0) end
+        end)
+
         it("dismissablePopen() falls back to a blocking io.popen()", function()
             local completed, output = Trapper:dismissablePopen("echo hello")
             assert.is_true(completed)
