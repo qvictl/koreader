@@ -486,10 +486,19 @@ describe("Screensaver", function()
         end)
 
         it("caps the number of files considered", function()
+            -- (The cap counts every file scanned, images or not, in directory order: use a
+            -- folder with images only, so that the outcome doesn't depend on that order.)
+            local only_images = img_dir .. "_only"
+            require("util").makePath(only_images)
+            for _, name in ipairs{ "a.png", "b.png" } do
+                ffiUtil.copyFile("resources/koreader.png", only_images .. "/" .. name)
+            end
+            finally(function() ffiUtil.purgeDir(only_images) end)
+            G_reader_settings:saveSetting("screensaver_dir", only_images)
             G_reader_settings:makeTrue("screensaver_cycle_images_alphabetically")
             G_reader_settings:saveSetting("screensaver_max_files", 1)
             local first = pick()
-            assert.truthy(first:find(img_dir, 1, true))
+            assert.truthy(first:find(only_images, 1, true))
             -- a single candidate: the cycle keeps returning it
             assert.are.equal(first, pick())
             assert.are.equal(1, G_reader_settings:readSetting("screensaver_cycle_index"))
