@@ -21,6 +21,12 @@ return {
         T:check(r.window.results[3].is_html, "IT Gamma result is HTML")
         T:check(not r.window.results_pending, "classic lookup is complete at once")
         T:budget("lookup_ms", r.total_ms, 5000, "ms")
+        T:eq(r.window.align, "center", "lookup without word boxes is centered")
+        local initial_area = r.window:getInitialVisibleArea()
+        local painted_area = r.window.dict_frame.dimen
+        T:eq({ initial_area.x, initial_area.y, initial_area.w, initial_area.h },
+            { painted_area.x, painted_area.y, painted_area.w, painted_area.h },
+            "initial dictionary bounds match the painted centered frame")
         DictHelper.close(T, ui)
 
         -- A word only in one dictionary.
