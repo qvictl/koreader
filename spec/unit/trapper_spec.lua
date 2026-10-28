@@ -816,6 +816,14 @@ describe("Trapper module", function()
     end)
 
     describe("dismissablePopen", function()
+        local popen_guard
+        before_each(function()
+            popen_guard = stub(io, "popen", function()
+                error("wrapped commands must not reintroduce blocking stdio ownership", 0)
+            end)
+        end)
+        after_each(function() popen_guard:revert() end)
+
         local function runPopen(cmd, trap)
             return runWrapped(function()
                 return Trapper:dismissablePopen(cmd, trap)

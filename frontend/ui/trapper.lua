@@ -334,6 +334,7 @@ Notes and limitations:
 @param trap_widget_or_string already shown widget, string, or nil, true or false
 @treturn boolean completed (`true` if not interrupted, `false` if dismissed)
 @treturn string output of command
+@treturn string optional start_failed/read_failed reason; nil on dismissal
 ]]
 function Trapper:dismissablePopen(cmd, trap_widget_or_string)
     local _coroutine = coroutine.running()
@@ -454,6 +455,7 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
                 break
             elseif done then
                 completed, output = true, table.concat(chunks)
+                chunks = nil -- transport data must not survive the following UI repaint
                 break
             end
         end
