@@ -14,3 +14,4 @@
 {"date":"2026-10-28","commit":"eaa0685fd3f0e364ef307bb0060ed221a6c6ff66","overall":40.808,"unit":34.808,"owned":90.323,"owned_ok":true,"owned_min":80,"diff_unit":100.000,"diff_combined":100.000}
 {"date":"2026-10-28","commit":"eecef20093e11c71644a8eb6e5e5bb67e9ae9c2d","overall":40.809,"unit":34.808,"owned":90.323,"owned_ok":true,"owned_min":80,"diff_unit":100.000,"diff_combined":100.000}
 {"date":"2026-10-28","commit":"1dd69b7b6003fbd14809efad74bc162c3d379a40","overall":47.644,"unit":42.649,"owned":98.240,"owned_ok":true,"owned_min":80,"diff_unit":100.000,"diff_combined":100.000}
+{"date":"2026-10-28","commit":"606a1a6d7b4fc247722e46c64212159325009371","overall":47.651,"unit":42.652,"owned":98.400,"owned_ok":true,"owned_min":80,"diff_unit":100.000,"diff_combined":100.000}
