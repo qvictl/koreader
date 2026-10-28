@@ -777,6 +777,10 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
     local Queue = require("KOSyncQueue")
     local generation = Queue._generation
     local doc_digest = self:getDocumentDigest()
+    if not doc_digest then
+        if interactive then showSyncError() end
+        return
+    end
     local request = {}
     pending_pushes[doc_digest] = request
     local function data_current()
@@ -788,11 +792,6 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
     local function finish_request()
         if pending_pushes[doc_digest] == request then pending_pushes[doc_digest] = nil end
     end
-    local KOSyncClient = require("KOSyncClient")
-    local client = KOSyncClient:new{
-        custom_url = self.settings.custom_server,
-        service_spec = self.path .. "/api.json"
-    }
     local metadata = self:getMetadata()
     local progress = self:getLastProgress()
     local percentage = self:getLastPercent()
@@ -804,6 +803,30 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         percentage = percentage,
         device = chosen_device_name,
         device_id = self.device_id,
+    }
+    if on_suspend then
+        -- A worker may outlive suspend or never resume. Persist first and let
+        -- the queue remove only the exact successfully uploaded snapshot.
+        Queue:push(queue_item)
+        finish_request()
+        local sender = { path = self.path, settings = {
+            username = self.settings.username, userkey = self.settings.userkey,
+            custom_server = self.settings.custom_server,
+        } }
+        local started, err = pcall(KOSync.drainQueue, sender, nil, doc_digest)
+        if not started then logger.dbg("KOSync: suspend upload failure:", err) end
+        local widget = UIManager:getTopmostVisibleWidget()
+        if widget and widget.modal and widget.tag == "NetworkMgr" and not widget.dismiss_callback then
+            widget.dismiss_callback = function() UIManager:setDirty(nil, "full") end
+        end
+        if Device:hasWifiManager() then NetworkMgr:disableWifi() end
+        self.push_timestamp = now
+        return
+    end
+    local KOSyncClient = require("KOSyncClient")
+    local client = KOSyncClient:new{
+        custom_url = self.settings.custom_server,
+        service_spec = self.path .. "/api.json"
     }
     local queued_before = {}
     for _, entry in ipairs(Queue:load()) do
@@ -831,7 +854,7 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         chosen_device_name,
         self.device_id,
         function(ok, status, body)
-            if not data_current() then return end
+            if not data_current() then finish_request(); return end
             if not ok and status ~= 401 then queue_if_current() end
             finish_request()
             logger.dbg("KOSync: [Push] progress to", percentage * 100, "% =>", progress, "for", filename)
@@ -853,28 +876,6 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         finish_request()
         if interactive and view_current() then showSyncError() end
         if err then logger.dbg("err:", err) end
-    else
-        -- This is solely for onSuspend's sake, to clear the ghosting left by the "Connected" InfoMessage
-        if on_suspend then
-            -- Our top-level widget should be the "Connected to network" InfoMessage from NetworkMgr's reconnectOrShowNetworkMenu
-            local widget = UIManager:getTopmostVisibleWidget()
-            if widget and widget.modal and widget.tag == "NetworkMgr" and not widget.dismiss_callback then
-                -- We want a full-screen flash on dismiss
-                widget.dismiss_callback = function()
-                    -- Enqueued, because we run before the InfoMessage's close
-                    UIManager:setDirty(nil, "full")
-                end
-            end
-        end
-    end
-
-    if on_suspend then
-        -- NOTE: We want to murder Wi-Fi once we're done in this specific case (i.e., Suspend),
-        --       because some of our hasWifiManager targets will horribly implode when attempting to suspend with the Wi-Fi chip powered on,
-        --       and they'll have attempted to kill Wi-Fi well before *we* run (e.g., in `Device:onPowerEvent`, *before* actually sending the Suspend Event)...
-        if Device:hasWifiManager() then
-            NetworkMgr:disableWifi()
-        end
     end
 
     self.push_timestamp = now
