@@ -1,5 +1,10 @@
 -- Memory budget: after the first cycles have warmed up the caches, more open / page turns /
 -- close cycles must not make the process grow (RSS, Lua heap), i.e. no leak.
+--
+-- Every cycle ends at the end of the book: paging past the last page shows ReaderStatus' end of
+-- book dialog, and the book is closed (Home) with that dialog still shown. That dialog used to be
+-- left on the window stack (hidden under the file manager, flagged in UIManager._dirty), keeping
+-- the whole ReaderUI alive: ~1 MB of Lua heap per book and cycle.
 return {
     name = "Memory budget (open/close cycles)",
     timeout = 300,
@@ -7,22 +12,48 @@ return {
         cre_font = "Noto Sans CJK SC",
     },
     run = function(T)
+        local Event = require("ui/event")
+        local UIManager = require("ui/uimanager")
+        -- (Not keeping any reference to the dialog here, that would keep it alive.)
+        local function isEndOfBookDialog(w)
+            return w ~= nil and w.name == "end_document"
+        end
+        local function endOfBookDialogLeft()
+            for w in UIManager:topdown_widgets_iter() do
+                if isEndOfBookDialog(w) then return true end
+            end
+            for w in pairs(UIManager._dirty) do
+                if type(w) == "table" and isEndOfBookDialog(w) then return true end
+            end
+            return false
+        end
         local samples = {}
         local CYCLES = 10
         for cycle = 1, CYCLES do
             for _, book in ipairs({ "books/zh.epub", "books/en.epub" }) do
                 local ui = T:openBook(T:fixture(book))
-                -- (Books reopen at their last position: start from the beginning, so that
-                -- we never reach the end of the book and its end-of-document dialog.)
-                T:run(function() ui:handleEvent(require("ui/event"):new("GotoPage", 1)) end)
+                local pages = ui.document:getPageCount()
+                -- Books reopen at their last position, i.e. the last page after the first cycle.
+                if cycle > 1 then
+                    T:expect(ui:getCurrentPage() == pages, book .. " reopened at its last page")
+                end
+                T:run(function() ui:handleEvent(Event:new("GotoPage", 1)) end)
                 for _ = 1, 8 do
-                    T:run(function() ui:handleEvent(require("ui/event"):new("GotoViewRel", 1)) end)
+                    T:run(function() ui:handleEvent(Event:new("GotoViewRel", 1)) end)
                 end
                 T:repaint()
                 T:run(function() ui.toc:onShowToc() end)
                 T:repaint()
                 T:run(function() ui.toc.toc_menu.close_callback() end)
+                -- Page past the end of the book: the end of book dialog shows up…
+                T:run(function() ui:handleEvent(Event:new("GotoPage", pages)) end)
+                T:run(function() ui:handleEvent(Event:new("GotoViewRel", 1)) end)
+                T:repaint()
+                T:check(isEndOfBookDialog(T:topWidget()), book .. ": end of book dialog shown")
+                -- …and close the book with it shown: it must go away with the book.
                 T:closeBook()
+                -- (Soft check: go on, so that the budgets below show what the leak costs.)
+                T:expect(not endOfBookDialogLeft(), book .. ": end of book dialog closed with the book")
             end
             T:wait(0.5) -- let the deferred memory release run
             -- The global document cache is bounded, but fills up over the first cycles:

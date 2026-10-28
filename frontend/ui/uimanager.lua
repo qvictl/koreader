@@ -887,6 +887,39 @@ function UIManager:isWidgetShown(widget)
     return false
 end
 
+--[[--
+Closes the widgets stacked above a widget that is about to be torn down, except modal widgets and toasts.
+
+Those widgets were shown on top of it, on its behalf (e.g., ReaderStatus' end of book dialog above ReaderUI).
+Left alone, they would stay on the window stack forever, hidden under the next fullscreen widget (which is shown
+above them, unlike modal widgets and toasts), keeping their owner alive through their callbacks.
+They're closed top-down, as if the user had dismissed them.
+
+@param widget a window-level widget
+@treturn int the number of widgets closed
+]]
+function UIManager:closeWidgetsAbove(widget)
+    local above = {}
+    for i = #self._window_stack, 1, -1 do
+        local w = self._window_stack[i].widget
+        if w == widget then
+            local closed = 0
+            for _, aw in ipairs(above) do
+                -- (A close handler may have closed some of them already.)
+                if self:isWidgetShown(aw) then
+                    self:close(aw)
+                    closed = closed + 1
+                end
+            end
+            return closed
+        end
+        if not w.modal and not w.toast then
+            table.insert(above, w)
+        end
+    end
+    return 0
+end
+
 --- Signals to quit.
 -- An exit_code of false is not allowed.
 function UIManager:quit(exit_code, implicit)

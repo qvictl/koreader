@@ -77,6 +77,6 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `08_subprocess` | `runInSubProcess`: exit status, erroring and yielding tasks contained (no escaped child), bidirectional pipes, double fork, pipe creation failures (fd limit) without leaks; Trapper restores the caller's `dismiss_callback` |
 | `09_suspend_resume` | power button (emulator screensaver), Suspend/Resume events, input inhibition, memory release on suspend |
 | `10_low_memory_profile` | low memory profile: crengine storage factor 4, DocCache ≤ 32 MiB, memory released after open & close, open/close cycles |
-| `11_memory_budget` | 10 open/turn/TOC/close cycles of 2 books: the RSS & Lua heap floors must not rise after warm-up (leak check) |
+| `11_memory_budget` | 10 open/turn/TOC/end of book/close cycles of 2 books: books reopen at their last page, each book is closed with its end of book dialog shown, which must go away with it; the RSS & Lua heap floors must not rise after warm-up (leak check) |
 | `12_japanese_kana_guard` | Japanese plugin leaves kana-less text alone in non-Japanese books (no lookups), still handles kana / Japanese books; its menu option |
 | `13_font_menu_faces` | font menu previews (incl. font-family sub-menus) don't keep their faces cached |
