@@ -765,6 +765,9 @@ function ReaderUI:doShowReader(file, provider, seamless)
         if coroutine.running() then
             local unlock_success = coroutine.yield()
             if not unlock_success then
+                -- Release the document opened for the prompt, or it stays registered (and in memory)
+                -- for the rest of the session, as the next open of that file reuses it.
+                document:close()
                 self:showFileManager(file)
                 return
             end
