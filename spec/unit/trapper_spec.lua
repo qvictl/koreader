@@ -475,6 +475,31 @@ describe("Trapper module", function()
             assert.is_true(runUntil(function() return isReaped(child_pids[1]) end, 500))
         end)
 
+        it("releases transport chunks before decoding results", function()
+            local weak = setmetatable({}, { __mode = "v" })
+            local concat, decode = table.concat, require("string.buffer").decode
+            table.concat = function(chunks, ...)
+                weak[1] = chunks
+                return concat(chunks, ...)
+            end
+            local checked = false
+            stub(require("string.buffer"), "decode", function(...)
+                collectgarbage("collect")
+                assert.is_nil(weak[1])
+                checked = true
+                return decode(...)
+            end)
+            local ok, err = pcall(function()
+                local res = runSub(function() return { payload = "transport" } end)
+                assert.is_true(runUntil(done(res)))
+                assert.is_true(res.values[1])
+                assert.is_true(checked)
+            end)
+            table.concat = concat
+            require("string.buffer").decode:revert()
+            assert(ok, err)
+        end)
+
         it("returns a simple string with task_returns_simple_string", function()
             local res = runSub(function() return "plain text" end, nil, true)
             assert.is_true(runUntil(done(res)))
@@ -743,7 +768,7 @@ describe("Trapper module", function()
             local fd = child_fds[1]
             local ready = ffi.new("struct pollfd[1]")
             ready[0].fd, ready[0].events = fd, C.POLLIN
-            assert.is_true(C.poll(ready, 1, -1) > 0)
+            assert.is_true(C.poll(ready, 1, 5000) > 0, "child output did not become ready")
             assert.are_not.equal(0, ffiutil.getNonBlockingReadSize(fd))
             -- Simulate a child that SIGKILL did not reach (yet).
             stub(ffiutil, "terminateSubProcess")
@@ -924,6 +949,30 @@ describe("Trapper module", function()
             assert.are.same({ true, "some output", n = 2 }, res.values)
             assert.are.same({ trap }, closed)
             assert.are.equal(2, repaints)
+        end)
+
+        it("releases command transport chunks before repainting", function()
+            local weak = setmetatable({}, { __mode = "v" })
+            local concat = table.concat
+            table.concat = function(chunks, ...)
+                weak[1] = chunks
+                return concat(chunks, ...)
+            end
+            local checked = false
+            UIManager.forceRePaint = function()
+                if #closed == 0 then return end
+                collectgarbage("collect")
+                assert.is_nil(weak[1])
+                checked = true
+            end
+            local ok, err = pcall(function()
+                local res = runPopen("printf transport", "Working")
+                assert.is_true(runUntil(done(res)))
+                assert.are.same({ true, "transport", n = 2 }, res.values)
+                assert.is_true(checked)
+            end)
+            table.concat = concat
+            assert(ok, err)
         end)
 
         it("returns large outputs entirely", function()

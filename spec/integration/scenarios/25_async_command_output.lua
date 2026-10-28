@@ -32,6 +32,25 @@ return {
             return count
         end
         local original_start = util.openCommandPipe
+        local original_read, original_done = util.readAvailableFromFD, util.isSubProcessDone
+        local observed_output, observed_eof, observed_done
+        util.readAvailableFromFD = function(...)
+            local chunk, eof, drained, read_error = original_read(...)
+            if chunk and #chunk > 0 then observed_output = true end
+            observed_eof = observed_eof or eof
+            return chunk, eof, drained, read_error
+        end
+        util.isSubProcessDone = function(...)
+            local done = original_done(...)
+            observed_done = observed_done or done
+            return done
+        end
+        local release = prefix .. ".release"
+        local gate = "n=0; while [ ! -e " .. quote(release)
+            .. " ] && [ \"$n\" -lt 400 ]; do sleep 0.05; n=$((n+1)); done"
+        local function release_command()
+            assert(io.open(release, "w")):close()
+        end
         local command_pids = {}
         util.openCommandPipe = function(...)
             local pid, fd = original_start(...)
@@ -42,6 +61,8 @@ return {
         local active, completed, output
         local function start(command, text)
             active, completed, output = true, nil, nil
+            observed_output, observed_eof, observed_done = false, false, false
+            os.remove(release)
             T:run(function()
                 Trapper:wrap(function()
                     completed, output = Trapper:dismissablePopen(command, text)
@@ -59,9 +80,10 @@ return {
             responsive("streaming_command_heartbeat_ms")
 
             reset_heartbeat()
-            start("printf eof; exec 1>&-; sleep 1.2", "Waiting for shell exit")
-            T:wait(0.3)
+            start("printf eof; exec 1>&-; " .. gate, "Waiting for shell exit")
+            T:waitUntil(function() return observed_eof end, 5, "collector observes stdout EOF")
             T:check(active, "stdout EOF alone does not complete the command")
+            release_command()
             T:waitUntil(function() return not active end, 5, "shell exit after stdout EOF")
             T:check(completed and output == "eof", "EOF output is retained until the shell exits")
             responsive("eof_before_shell_exit_heartbeat_ms")
@@ -73,9 +95,10 @@ return {
             T:eq(C.prctl(37, ffi.cast("uintptr_t", subreaper_previous), 0, 0, 0), 0, "read subreaper state")
             T:eq(C.prctl(36, 1, 0, 0, 0), 0, "adopt the test command descendant")
             reset_heartbeat()
-            start("(sleep 1.2; printf late) & printf '%s\\n' \"$!\"; exit 0", "Waiting for inherited stdout")
-            T:wait(0.3)
+            start("(" .. gate .. "; printf late) & printf '%s\\n' \"$!\"; exit 0", "Waiting for inherited stdout")
+            T:waitUntil(function() return observed_done end, 5, "collector reaps the shell")
             T:check(active, "shell exit alone does not discard an inherited stdout writer")
+            release_command()
             T:waitUntil(function() return not active end, 5, "descendant output")
             T:check(completed and output:match("^%d+\nlate$"), "descendant output is collected after shell exit")
             descendant = tonumber(output:match("^(%d+)"))
@@ -88,16 +111,17 @@ return {
             responsive("inherited_command_writer_heartbeat_ms")
 
             reset_heartbeat()
-            start("printf start; touch " .. quote(marker) .. "; sleep 1.2; cat " .. quote(payload_path)
+            start("printf start; touch " .. quote(marker) .. "; " .. gate .. "; cat " .. quote(payload_path)
                 .. "; touch " .. quote(finished), "Cancel streaming command")
             T:waitUntil(function() return lfs.attributes(marker) end, 5, "command prefix")
-            T:wait(0.2) -- Let the first output poll consume the prefix.
+            T:waitUntil(function() return observed_output end, 5, "collector consumes the command prefix")
             T:check(active, "a partial command remains dismissable")
             T:repaint()
             local started = T:now()
             T:tapWidget(T:topWidget(), "cancel streaming command")
             T:waitUntil(function() return not active end, 3, "command cancellation")
             T:check(not completed and output == nil, "cancelled command output is discarded")
+            release_command()
             T:budget("streaming_command_cancel_ms", T:now() - started, 800, "ms")
             T:waitUntil(function() return lfs.attributes(finished) end, 20, "cancelled command finishes normally")
             T:check(lfs.attributes(finished), "cancellation did not kill the command")
@@ -109,6 +133,7 @@ return {
         heartbeat = false
         UIManager:unschedule(beat)
         util.openCommandPipe = original_start
+        util.readAvailableFromFD, util.isSubProcessDone = original_read, original_done
         if not ok then
             for _, pid in ipairs(command_pids) do
                 -- An unreaped live leader pins its pid/pgid against reuse.
@@ -118,7 +143,7 @@ return {
         end
         if descendant then C.kill(descendant, 9); C.waitpid(descendant, nil, 0) end
         if subreaper_previous then C.prctl(36, subreaper_previous[0], 0, 0, 0) end
-        os.remove(payload_path); os.remove(marker); os.remove(finished)
+        os.remove(payload_path); os.remove(marker); os.remove(finished); os.remove(release)
         if not ok then error(err, 0) end
     end,
 }
