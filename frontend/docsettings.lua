@@ -421,7 +421,7 @@ end
 --- Removes sidecar dir iff empty.
 function DocSettings.removeSidecarDir(dir)
     if dir and isDir(dir) then
-        if dir:match("^"..DOCSETTINGS_DIR) or dir:match("^"..DOCSETTINGS_HASH_DIR) then
+        if util.stringStartsWith(dir, DOCSETTINGS_DIR) or util.stringStartsWith(dir, DOCSETTINGS_HASH_DIR) then
             util.removePath(dir) -- remove empty parent folders
         else
             os.remove(dir) -- keep parent folders
