@@ -9,6 +9,7 @@ local MAX_ENTRIES = 200 -- paranoia cap
 
 local KOSyncQueue = {
     _draining = nil,
+    _generation = 0,
 }
 
 function KOSyncQueue:_storage()
@@ -79,6 +80,7 @@ function KOSyncQueue:drain(send_func, done_func)
         return
     end
     self._draining = true
+    local generation = self._generation
 
     logger.info("KOSyncQueue: draining", #queue, "queued items")
     local sent = 0
@@ -111,6 +113,7 @@ function KOSyncQueue:drain(send_func, done_func)
 
     local function sendNext(i)
         if settled then return end
+        if generation ~= self._generation then settle(); return end
         local item = queue[i]
         if not item then
             settle()
@@ -131,6 +134,7 @@ function KOSyncQueue:drain(send_func, done_func)
         local function callback(ok)
             if settled or completed then return end
             completed = true
+            if generation ~= self._generation then settle(); return end
             if not ok then
                 fail()
                 return
@@ -166,6 +170,7 @@ function KOSyncQueue:count()
 end
 
 function KOSyncQueue:clear()
+    self._generation = self._generation + 1
     self:save({})
 end
 

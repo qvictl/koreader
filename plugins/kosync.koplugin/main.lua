@@ -945,24 +945,37 @@ function KOSync:_onCloseDocument()
     --       and we handle those system focus events via... Suspend & Resume events, so we need to neuter those handlers early.
     self.onResume = nil
     self.onSuspend = nil
-    -- If we're already online, push normally.
-    -- Otherwise, queue progress for later instead of blocking with goOnlineToRun.
-    if NetworkMgr:isOnline() then
-        self:updateProgress(false, false)
-    else
-        local doc_digest = self:getDocumentDigest()
-        if doc_digest then
-            local KOSyncQueue = require("KOSyncQueue")
-            KOSyncQueue:push({
-                document = doc_digest,
-                metadata = self:getMetadata(),
-                progress = self:getLastProgress(),
-                percentage = self:getLastPercent(),
-                device = self.settings.kosync_hostname or Device.model,
-                device_id = self.device_id,
-            })
-        end
-    end
+    if not self.settings.username or not self.settings.userkey then return end
+    local doc_digest = self:getDocumentDigest()
+    if not doc_digest then return end
+    local KOSyncQueue = require("KOSyncQueue")
+    -- Snapshot and persist everything while the document still exists.
+    KOSyncQueue:push({
+        document = doc_digest,
+        metadata = self:getMetadata(),
+        progress = self:getLastProgress(),
+        percentage = self:getLastPercent(),
+        device = self.settings.kosync_hostname or Device.model,
+        device_id = self.device_id,
+    })
+    local generation = KOSyncQueue._generation
+    local sender = {
+        path = self.path,
+        settings = {
+            username = self.settings.username,
+            userkey = self.settings.userkey,
+            custom_server = self.settings.custom_server,
+        },
+    }
+    -- Do not retain the reader/plugin instance in work that can outlive closing.
+    UIManager:nextTick(function()
+        if generation ~= KOSyncQueue._generation then return end
+        NetworkMgr:checkOnline(function(online)
+            if online and generation == KOSyncQueue._generation then
+                KOSync.drainQueue(sender)
+            end
+        end)
+    end)
 end
 
 function KOSync:schedulePeriodicPush()

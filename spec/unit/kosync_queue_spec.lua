@@ -364,6 +364,25 @@ describe("KOSyncQueue module", function()
         assert.are.equal(2, pulls)
     end)
 
+    it("keeps identical new-account entries when a cleared upload finishes late", function()
+        local now = os.time()
+        os.time = function() return now end -- luacheck: ignore
+        local function push()
+            KOSyncQueue:push{ document = "same-book", progress = "123" }
+        end
+        push()
+        local pending, count
+        KOSyncQueue:drain(function(_, callback) pending = callback end, function(sent) count = sent end)
+        KOSyncQueue:clear()
+        push()
+        pending(true)
+        assert.are.equal(1, KOSyncQueue:count())
+        assert.are.equal(0, count)
+        assert.is_nil(KOSyncQueue._draining)
+        KOSyncQueue:drain(function(_, callback) callback(true) end)
+        assert.are.equal(0, KOSyncQueue:count())
+    end)
+
     it("should clear the queue", function()
         KOSyncQueue:push({ document = "a", progress = "1", percentage = 0.1, device = "D", device_id = "d1" })
         KOSyncQueue:clear()

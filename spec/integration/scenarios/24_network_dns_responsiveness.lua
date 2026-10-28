@@ -14,6 +14,7 @@ return {
         require("util").makePath(base)
         local saved_toggle, saved_toip = Device.hasWifiToggle, socket.dns.toip
         local jobs, heartbeat_count = {}, 0
+        local kosync_client, saved_client_new
         local heartbeat
         heartbeat = function()
             heartbeat_count = heartbeat_count + 1
@@ -26,10 +27,10 @@ return {
             file:close()
             return pid
         end
-        local function start(tag, action, direct)
+        local function start(tag, action, direct, delayed)
             local gate = ffi.new("int[2]")
             assert(C.pipe(gate) == 0)
-            local job = { write_fd = tonumber(gate[1]), entered = base .. "/" .. tag .. ".entered",
+            local job = { write_fd = tonumber(gate[1]), read_fd = tonumber(gate[0]), entered = base .. "/" .. tag .. ".entered",
                 returned = base .. "/" .. tag .. ".returned" }
             jobs[#jobs + 1] = job
             socket.dns.toip = function()
@@ -47,9 +48,12 @@ return {
                 return "192.0.2.1"
             end
             if direct then action() else NetworkMgr:runWhenOnline(action) end
-            socket.dns.toip = saved_toip
-            C.close(gate[0])
-            job.widget = T:topWidget()
+            if not delayed then
+                socket.dns.toip = saved_toip
+                C.close(gate[0])
+                job.read_fd = nil
+            end
+            job.widget = not delayed and T:topWidget() or nil
             return job
         end
         local function release(job)
@@ -132,15 +136,84 @@ return {
             T:repaint()
             T:check(T:topWidget().dimen, "the Wallabag result is painted")
             T:tapWidget(T:topWidget(), "dismiss Wallabag result")
+
+            local Queue = require("KOSyncQueue")
+            local sent = {}
+            T:run(function()
+                Queue:clear()
+                kosync_client = require("KOSyncClient")
+                saved_client_new = kosync_client.new
+                kosync_client.new = function()
+                    return { update_progress = function(_, username, _, document, _, progress, _, _, _, callback)
+                        sent[#sent + 1] = { username = username, document = document, progress = progress }
+                        callback(true)
+                    end }
+                end
+            end)
+            local function closeWithDNS(tag, username)
+                local reader = T:openBook(T:fixture("books/en.epub"))
+                local plugin, job, expected_progress
+                T:run(function()
+                    plugin = reader.kosync
+                    T:check(plugin, "real KOSync plugin is attached to the reader")
+                    plugin.settings = require("util").tableDeepCopy(plugin.settings)
+                    plugin.settings.username, plugin.settings.userkey = username, "synthetic-key"
+                    plugin.settings.auto_sync = true
+                    plugin.onCloseDocument = plugin._onCloseDocument
+                    expected_progress = plugin:getLastProgress()
+                    job = start(tag, function() end, true, true)
+                end)
+                T:closeBook()
+                T:waitUntil(function() return pidOf(job) end, 5, "closed book checks DNS asynchronously")
+                T:run(function()
+                    C.close(job.read_fd)
+                    job.read_fd = nil
+                    socket.dns.toip = saved_toip
+                    job.widget = T:topWidget()
+                end)
+                T:check(not require("apps/reader/readerui").instance,
+                    "the reader closes before its DNS worker is released")
+                return job, plugin, expected_progress
+            end
+            local closed, old_plugin, expected_progress = closeWithDNS("closed-book", "first")
+            T:eq(Queue:count(), 1, "closing persists progress before checking DNS")
+            T:eq(Queue:load()[1].progress, expected_progress, "persisted progress comes from the live document")
+            T:run(function()
+                old_plugin.settings, old_plugin.ui = nil, nil
+                for _, method in ipairs{ "getDocumentDigest", "getMetadata", "getLastProgress", "getLastPercent" } do
+                    old_plugin[method] = function() error("closed document accessed") end
+                end
+                release(closed)
+            end)
+            T:waitUntil(function() return #sent == 1 and Queue:count() == 0 end, 5, "closed book uploads its independent snapshot")
+            T:eq(sent[1].progress, expected_progress, "post-close upload uses the persisted progress snapshot")
+
+            local stale, stale_plugin = closeWithDNS("old-account", "first")
+            T:run(function()
+                stale_plugin:logout()
+                Queue:push{ document = "new-account-book", progress = "456" }
+                release(stale)
+            end)
+            T:waitUntil(function() return not UIManager:isWidgetShown(stale.widget) end,
+                5, "old account's late DNS check finishes")
+            T:eq(#sent, 1, "an old account's resolver cannot send the new queue")
+            T:eq(Queue:load()[1].document, "new-account-book", "account switch preserves the new queue")
+            local retry = closeWithDNS("new-account", "second")
+            T:run(function() release(retry) end)
+            T:waitUntil(function() return #sent == 3 and Queue:count() == 0 end, 5, "new account retries its queued progress")
+            T:check(sent[2].username == "second" and sent[3].username == "second",
+                "the later close drains with only the new account's credentials")
         end)
         T:run(function()
             socket.dns.toip, Device.hasWifiToggle = saved_toip, saved_toggle
             UIManager:unschedule(heartbeat)
+            if saved_client_new then kosync_client.new = saved_client_new end
             for _, job in ipairs(jobs) do
                 if job.widget and UIManager:isWidgetShown(job.widget) then job.widget:_dismissAndResend() end
                 local pid = pidOf(job)
                 if pid then ffiUtil.terminateSubProcess(pid) end
                 if job.write_fd then C.close(job.write_fd) end
+                if job.read_fd then C.close(job.read_fd) end
             end
             ffiUtil.purgeDir(base)
         end)
