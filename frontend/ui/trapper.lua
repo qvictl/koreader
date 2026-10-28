@@ -688,7 +688,9 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
                 break
             end
             if #chunk > 0 or not drained then
-                check_interval_sec = 0.1
+                -- Continue active transfers promptly, allowing input between reads.
+                check_interval_sec = 0.01
+                check_num = 0
             end
             logger.dbg("process not yet done, will check again soon")
         end

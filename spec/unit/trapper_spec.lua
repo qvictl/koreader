@@ -17,7 +17,8 @@ describe("Trapper module", function()
     local next_ticks -- actions passed to UIManager:nextTick()
     local repaints   -- number of UIManager:forceRePaint() calls
     local saved_ui
-    local orig_run_in_subprocess
+    local orig_run_in_subprocess, orig_read_all
+    local guard_blocking_reads
     local child_pids, child_fds
     local tmp_files, gate_releases
 
@@ -50,6 +51,7 @@ describe("Trapper module", function()
 
     -- A worker waits for an explicit parent release, with no timing assumption.
     local function ipcGate()
+        guard_blocking_reads = true
         local pair = ffi.new("int[2]")
         assert.are.equal(0, C.pipe(pair))
         local reader, writer = tonumber(pair[0]), tonumber(pair[1])
@@ -63,10 +65,13 @@ describe("Trapper module", function()
         end
         gate_releases[#gate_releases + 1] = release
         return function()
+            released = true
             C.close(writer)
             local byte = ffi.new("char[1]")
-            while C.read(reader, byte, 1) < 0 and ffi.errno() == C.EINTR do end
+            local count
+            repeat count = C.read(reader, byte, 1) until count >= 0 or ffi.errno() ~= C.EINTR
             C.close(reader)
+            assert.are.equal(1, count)
         end, release
     end
 
@@ -123,6 +128,19 @@ describe("Trapper module", function()
         saved_ui = {}
         child_pids, child_fds = {}, {}
         tmp_files, gate_releases = {}, {}
+        guard_blocking_reads = false
+        orig_read_all = ffiutil.readAllFromFD
+        local parent = C.getpid()
+        ffiutil.readAllFromFD = function(fd)
+            if guard_blocking_reads and C.getpid() == parent then
+                local ready = ffi.new("struct pollfd[1]")
+                ready[0].fd, ready[0].events = fd, C.POLLIN
+                C.poll(ready, 1, 0)
+                assert.is_true(bit.band(ready[0].revents, C.POLLHUP) ~= 0,
+                    "blocking result read while a writer is gated")
+            end
+            return orig_read_all(fd)
+        end
         replaceUI("scheduleIn", function(_, delay, fn)
             table.insert(tasks, { delay = delay, fn = fn })
         end)
@@ -151,6 +169,7 @@ describe("Trapper module", function()
     end)
 
     after_each(function()
+        ffiutil.readAllFromFD = orig_read_all
         ffiutil.runInSubProcess = orig_run_in_subprocess
         for name, fn in pairs(saved_ui) do
             UIManager[name] = fn
@@ -473,13 +492,62 @@ describe("Trapper module", function()
             assert.is_true(res.values[1])
             assert.are.equal(size, #res.values[2])
             assert.are.equal(string.rep("x", size), res.values[2])
-            -- The child may already have been reaped while draining its output.
-            if #tasks > 0 then
-                assert.are.equal(1, #tasks)
-                assert.are.equal(1, tasks[1].delay)
-            end
             assert.is_true(runUntil(function() return #tasks == 0 end, 500))
             assert.is_true(runUntil(function() return isReaped(child_pids[1]) end, 500))
+        end)
+
+        it("schedules a reaper when EOF arrives while the worker is alive", function()
+            local await_release, release = ipcGate()
+            local await_ready, ready = ipcGate()
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "complete", true)
+                    ready()
+                    await_release()
+                end, with_pipe)
+            end
+            local res = runSub(function() end, nil, true)
+            await_ready()
+            assert.is_true(runUntil(done(res)))
+            assert.are.same({ true, "complete", n = 2 }, res.values)
+            assert.are.equal(1, #tasks)
+            assert.are.equal(1, tasks[1].delay)
+            release()
+            assert.is_true(runUntil(function() return #tasks == 0 end))
+            assert.is_true(isReaped(child_pids[1]))
+        end)
+
+        it("yields between read budgets and resumes an active transfer promptly", function()
+            local await_release, release = ipcGate()
+            local await_ready, ready = ipcGate()
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "prefix", false)
+                    ready()
+                    await_release()
+                end, with_pipe)
+            end
+            local original_read = ffiutil.readAvailableFromFD
+            ffiutil.readAvailableFromFD = function(fd)
+                local data, eof, drained, err = original_read(fd)
+                if data and #data > 0 then drained = false end
+                return data, eof, drained, err
+            end
+            local ok, err = xpcall(function()
+                local res = runSub(function() end, nil, true)
+                await_ready()
+                runNextTask()
+                assert.is_false(res.done)
+                assert.are.equal(1, #tasks)
+                assert.is_true(tasks[1].delay > 0 and tasks[1].delay <= 0.02)
+                release()
+                assert.is_true(runUntil(done(res)))
+                assert.are.same({ true, "prefix", n = 2 }, res.values)
+            end, debug.traceback)
+            ffiutil.readAvailableFromFD = original_read
+            if not ok then error(err, 0) end
         end)
 
         it("keeps polling after partial output and remains cancellable", function()
@@ -543,11 +611,13 @@ describe("Trapper module", function()
 
         it("reports read errors without returning a partial result or leaking its pipe", function()
             local await_release = ipcGate()
+            local await_ready, ready = ipcGate()
             local original_read = ffiutil.readAvailableFromFD
             local spawn = ffiutil.runInSubProcess
             ffiutil.runInSubProcess = function(_, with_pipe)
                 return spawn(function(_, writer)
                     ffiutil.writeToFD(writer, "partial", false)
+                    ready()
                     await_release()
                 end, with_pipe)
             end
@@ -560,6 +630,7 @@ describe("Trapper module", function()
             end
             local ok, err = xpcall(function()
                 local res = runSub(function() end, "Working", true)
+                await_ready()
                 assert.is_true(runUntil(done(res)))
                 assert.are.equal("partial", received)
                 assert.are.same({ false, nil, "read_failed", n = 3 }, res.values)
