@@ -582,83 +582,97 @@ function KOSync:login(menu)
     dialog:onShowKeyboard()
 end
 
-function KOSync:doRegister(username, password, menu)
+function KOSync:_runAuthInWorker(method, username, password, busy_text, callback)
     local KOSyncClient = require("KOSyncClient")
     local client = KOSyncClient:new{
         custom_url = self.settings.custom_server,
-        service_spec = self.path .. "/api.json"
+        service_spec = self.path .. "/api.json",
     }
-    -- on Android to avoid ANR (no-op on other platforms)
-    Device:setIgnoreInput(true)
+    local Queue = require("KOSyncQueue")
+    local generation, ui = Queue._generation, self.ui
+    local document = ui and ui.document
     local userkey = md5(password)
-    local ok, status, body = pcall(client.register, client, username, userkey)
-    if not ok then
-        if status then
-            UIManager:show(InfoMessage:new{
-                text = _("An error occurred while registering:") ..
-                    "\n" .. status,
-            })
-        else
-            UIManager:show(InfoMessage:new{
-                text = _("An unknown error occurred while registering."),
-            })
+    client:_runInSubprocess(function()
+        return pcall(client[method], client, username, userkey)
+    end, function(completed, ok, status, body)
+        if generation ~= Queue._generation or self.ui ~= ui or (ui and ui.document ~= document) then return end
+        if not completed then
+            if status == "busy" then
+                UIManager:show(InfoMessage:new{
+                    text = _("A synchronization request is already in progress. Please try again."),
+                })
+            elseif status then
+                showSyncError()
+            end
+            return
         end
-    elseif status then
-        self.settings.username = username
-        self.settings.userkey = userkey
-        if menu then
-            menu:updateItems()
-        end
-        self.updated = true
-        UIManager:show(InfoMessage:new{
-            text = _("Registered to KOReader server."),
-        })
-    else
-        UIManager:show(InfoMessage:new{
-            text = body and body.message or _("Unknown server error"),
-        })
-    end
-    Device:setIgnoreInput(false)
+        callback(ok, status, body, userkey)
+    end, busy_text)
+end
+
+function KOSync:doRegister(username, password, menu)
+    self:_runAuthInWorker("register", username, password, _("Registering. Please wait…"),
+        function(ok, status, body, userkey)
+            if not ok then
+                if status then
+                    UIManager:show(InfoMessage:new{
+                        text = _("An error occurred while registering:") ..
+                            "\n" .. status,
+                    })
+                else
+                    UIManager:show(InfoMessage:new{
+                        text = _("An unknown error occurred while registering."),
+                    })
+                end
+            elseif status then
+                self.settings.username = username
+                self.settings.userkey = userkey
+                if menu and UIManager:isWidgetShown(menu) then
+                    menu:updateItems()
+                end
+                self.updated = true
+                UIManager:show(InfoMessage:new{
+                    text = _("Registered to KOReader server."),
+                })
+            else
+                UIManager:show(InfoMessage:new{
+                    text = body and body.message or _("Unknown server error"),
+                })
+            end
+        end)
 end
 
 function KOSync:doLogin(username, password, menu)
-    local KOSyncClient = require("KOSyncClient")
-    local client = KOSyncClient:new{
-        custom_url = self.settings.custom_server,
-        service_spec = self.path .. "/api.json"
-    }
-    Device:setIgnoreInput(true)
-    local userkey = md5(password)
-    local ok, status, body = pcall(client.authorize, client, username, userkey)
-    if not ok then
-        if status then
-            UIManager:show(InfoMessage:new{
-                text = _("An error occurred while logging in:") ..
-                    "\n" .. status,
-            })
-        else
-            UIManager:show(InfoMessage:new{
-                text = _("An unknown error occurred while logging in."),
-            })
-        end
-        Device:setIgnoreInput(false)
-        return
-    elseif status then
-        self.settings.username = username
-        self.settings.userkey = userkey
-        self.updated = true
-        if menu then
-            menu:updateItems()
-        end
-        UIManager:show(InfoMessage:new{
-            text = _("Logged in to KOReader server."),
-        })
-    else
-        UIManager:show(InfoMessage:new{
-            text = body and body.message or _("Unknown server error"),
-        })
-    end
-    Device:setIgnoreInput(false)
+    self:_runAuthInWorker("authorize", username, password, _("Logging in. Please wait…"),
+        function(ok, status, body, userkey)
+            if not ok then
+                if status then
+                    UIManager:show(InfoMessage:new{
+                        text = _("An error occurred while logging in:") ..
+                            "\n" .. status,
+                    })
+                else
+                    UIManager:show(InfoMessage:new{
+                        text = _("An unknown error occurred while logging in."),
+                    })
+                end
+                return
+            elseif status then
+                self.settings.username = username
+                self.settings.userkey = userkey
+                self.updated = true
+                if menu and UIManager:isWidgetShown(menu) then
+                    menu:updateItems()
+                end
+                UIManager:show(InfoMessage:new{
+                    text = _("Logged in to KOReader server."),
+                })
+            else
+                UIManager:show(InfoMessage:new{
+                    text = body and body.message or _("Unknown server error"),
+                })
+            end
+        end)
 end
 
 function KOSync:logout(menu)
