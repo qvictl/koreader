@@ -1,0 +1,182 @@
+[
+  {
+    "word": "test",
+    "round": 1,
+    "wall_ms": 6.372082978487015,
+    "user_ms": 4.028,
+    "system_ms": 2.014,
+    "output_bytes": 177122,
+    "results": 3,
+    "sha256": "2cb4bb2fe7ee82e7ba82cb928dbf575b0af75c17d2f1e7ce43b2b67cd8ef65bb"
+  },
+  {
+    "word": "run",
+    "round": 1,
+    "wall_ms": 11.997085995972157,
+    "user_ms": 7.825,
+    "system_ms": 3.9119999999999995,
+    "output_bytes": 519982,
+    "results": 3,
+    "sha256": "33627e2d50028c104b1cdfd2f4bfd8588509c2512dcc27c23132d01adb1a9b07"
+  },
+  {
+    "word": "harbor",
+    "round": 1,
+    "wall_ms": 3.630160994362086,
+    "user_ms": 2.3249999999999997,
+    "system_ms": 1.1620000000000001,
+    "output_bytes": 23271,
+    "results": 2,
+    "sha256": "2a9a8a20bb39dab35602477509fc658604dd36faad262bd141103c6988acdebe"
+  },
+  {
+    "word": "light",
+    "round": 1,
+    "wall_ms": 8.564507006667554,
+    "user_ms": 6.294999999999999,
+    "system_ms": 2.098,
+    "output_bytes": 340856,
+    "results": 3,
+    "sha256": "c51fe15ad7ee1ecde4e27f3a36c5fa3431dfbeb287c311f675401b761fcbea41"
+  },
+  {
+    "word": "accomodation",
+    "round": 1,
+    "wall_ms": 22.469535004347563,
+    "user_ms": 19.298,
+    "system_ms": 3.0469999999999997,
+    "output_bytes": 37485,
+    "results": 6,
+    "sha256": "f16bc5bda3742b387917c210789bc858c4871dee7a56793c568585692189bafc"
+  },
+  {
+    "word": "qwxzvbnmplk",
+    "round": 1,
+    "wall_ms": 21.615925012156367,
+    "user_ms": 18.396,
+    "system_ms": 3.066,
+    "output_bytes": 3,
+    "results": 0,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "word": "test",
+    "round": 2,
+    "wall_ms": 6.671105045825243,
+    "user_ms": 3.682,
+    "system_ms": 2.761,
+    "output_bytes": 177122,
+    "results": 3,
+    "sha256": "2cb4bb2fe7ee82e7ba82cb928dbf575b0af75c17d2f1e7ce43b2b67cd8ef65bb"
+  },
+  {
+    "word": "run",
+    "round": 2,
+    "wall_ms": 12.763623963110149,
+    "user_ms": 8.322,
+    "system_ms": 4.161,
+    "output_bytes": 519982,
+    "results": 3,
+    "sha256": "33627e2d50028c104b1cdfd2f4bfd8588509c2512dcc27c23132d01adb1a9b07"
+  },
+  {
+    "word": "harbor",
+    "round": 2,
+    "wall_ms": 3.523189981933683,
+    "user_ms": 2.223,
+    "system_ms": 1.111,
+    "output_bytes": 23271,
+    "results": 2,
+    "sha256": "2a9a8a20bb39dab35602477509fc658604dd36faad262bd141103c6988acdebe"
+  },
+  {
+    "word": "light",
+    "round": 2,
+    "wall_ms": 8.14915302908048,
+    "user_ms": 4.002,
+    "system_ms": 4.002,
+    "output_bytes": 340856,
+    "results": 3,
+    "sha256": "c51fe15ad7ee1ecde4e27f3a36c5fa3431dfbeb287c311f675401b761fcbea41"
+  },
+  {
+    "word": "accomodation",
+    "round": 2,
+    "wall_ms": 21.529943973291665,
+    "user_ms": 17.298000000000002,
+    "system_ms": 4.069999999999999,
+    "output_bytes": 37485,
+    "results": 6,
+    "sha256": "f16bc5bda3742b387917c210789bc858c4871dee7a56793c568585692189bafc"
+  },
+  {
+    "word": "qwxzvbnmplk",
+    "round": 2,
+    "wall_ms": 21.20879100402817,
+    "user_ms": 17.04,
+    "system_ms": 4.0089999999999995,
+    "output_bytes": 3,
+    "results": 0,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "word": "test",
+    "round": 3,
+    "wall_ms": 5.799036007374525,
+    "user_ms": 3.379,
+    "system_ms": 2.2529999999999997,
+    "output_bytes": 177122,
+    "results": 3,
+    "sha256": "2cb4bb2fe7ee82e7ba82cb928dbf575b0af75c17d2f1e7ce43b2b67cd8ef65bb"
+  },
+  {
+    "word": "run",
+    "round": 3,
+    "wall_ms": 12.04170600976795,
+    "user_ms": 4.925,
+    "system_ms": 6.8950000000000005,
+    "output_bytes": 519982,
+    "results": 3,
+    "sha256": "33627e2d50028c104b1cdfd2f4bfd8588509c2512dcc27c23132d01adb1a9b07"
+  },
+  {
+    "word": "harbor",
+    "round": 3,
+    "wall_ms": 3.678111999761313,
+    "user_ms": 0.0,
+    "system_ms": 3.4579999999999997,
+    "output_bytes": 23271,
+    "results": 2,
+    "sha256": "2a9a8a20bb39dab35602477509fc658604dd36faad262bd141103c6988acdebe"
+  },
+  {
+    "word": "light",
+    "round": 3,
+    "wall_ms": 8.717128948774189,
+    "user_ms": 3.783,
+    "system_ms": 4.729,
+    "output_bytes": 340856,
+    "results": 3,
+    "sha256": "c51fe15ad7ee1ecde4e27f3a36c5fa3431dfbeb287c311f675401b761fcbea41"
+  },
+  {
+    "word": "accomodation",
+    "round": 3,
+    "wall_ms": 22.354763001203537,
+    "user_ms": 16.517999999999997,
+    "system_ms": 4.858,
+    "output_bytes": 37485,
+    "results": 6,
+    "sha256": "f16bc5bda3742b387917c210789bc858c4871dee7a56793c568585692189bafc"
+  },
+  {
+    "word": "qwxzvbnmplk",
+    "round": 3,
+    "wall_ms": 21.71197603456676,
+    "user_ms": 18.002,
+    "system_ms": 3.176,
+    "output_bytes": 3,
+    "results": 0,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  }
+]
