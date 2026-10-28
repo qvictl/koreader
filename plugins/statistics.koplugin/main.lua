@@ -312,6 +312,9 @@ Do you want to create an empty database?
                     end
                 end,
             })
+            -- The DB is empty: there is nothing to migrate (and no page_stat table to migrate from).
+            conn:close()
+            return
         end
 
         -- Check if we need to migrate to a newer schema
