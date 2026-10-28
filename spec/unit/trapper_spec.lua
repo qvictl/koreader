@@ -289,12 +289,12 @@ describe("Trapper module", function()
         end)
 
         it("dismissablePopen() uses the blocking fallback for an explicit main-thread flag", function()
-            stub(coroutine, "running", function() return {}, true end)
+            local running_stub = stub(coroutine, "running", function() return {}, true end)
             local start = spy.on(ffiutil, "openCommandPipe")
             local ok, completed, output = pcall(function()
                 return Trapper:dismissablePopen("printf main-thread", "unused")
             end)
-            coroutine.running:revert()
+            running_stub:revert()
             ffiutil.openCommandPipe:revert()
             assert.is_true(ok)
             assert.is_true(completed)
@@ -493,7 +493,7 @@ describe("Trapper module", function()
         it("releases transport chunks before decoding results", function()
             local weak = setmetatable({}, { __mode = "v" })
             local concat, decode = table.concat, require("string.buffer").decode
-            table.concat = function(chunks, ...)
+            table.concat = function(chunks, ...) -- luacheck: ignore 122
                 weak[1] = chunks
                 return concat(chunks, ...)
             end
@@ -510,7 +510,7 @@ describe("Trapper module", function()
                 assert.is_true(res.values[1])
                 assert.is_true(checked)
             end)
-            table.concat = concat
+            table.concat = concat -- luacheck: ignore 122
             require("string.buffer").decode:revert()
             assert(ok, err)
         end)
@@ -969,7 +969,7 @@ describe("Trapper module", function()
         it("releases command transport chunks before repainting", function()
             local weak = setmetatable({}, { __mode = "v" })
             local concat = table.concat
-            table.concat = function(chunks, ...)
+            table.concat = function(chunks, ...) -- luacheck: ignore 122
                 weak[1] = chunks
                 return concat(chunks, ...)
             end
@@ -986,7 +986,7 @@ describe("Trapper module", function()
                 assert.are.same({ true, "transport", n = 2 }, res.values)
                 assert.is_true(checked)
             end)
-            table.concat = concat
+            table.concat = concat -- luacheck: ignore 122
             assert(ok, err)
         end)
 
