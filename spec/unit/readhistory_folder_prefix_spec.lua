@@ -73,9 +73,8 @@ describe("History and collections on folder rename/delete", function()
                     [base .. "/sub10/b.epub"] = { file = base .. "/sub10/b.epub", text = "b.epub", order = 2 },
                 },
             }
-            ReadCollection.coll_settings = {
-                favorites = { folders = { [base .. "/sub"] = {}, [base .. "/sub10"] = {} } },
-            }
+            -- (no collection folders on this branch)
+            ReadCollection.coll_settings = { favorites = {} }
             stub(ReadCollection, "write")
         end)
         after_each(function()
@@ -83,7 +82,7 @@ describe("History and collections on folder rename/delete", function()
             ReadCollection.coll, ReadCollection.coll_settings = orig_coll, orig_coll_settings
         end)
 
-        it("renames only the files and folders inside the renamed folder", function()
+        it("renames only the files inside the renamed folder", function()
             -- state after "mv sub new"
             touch(base .. "/new/a.epub")
             touch(base .. "/sub10/b.epub")
@@ -94,20 +93,13 @@ describe("History and collections on folder rename/delete", function()
             assert.is_truthy(coll[base .. "/new/a.epub"])
             assert.is_truthy(coll[base .. "/sub10/b.epub"])
             assert.is_nil(coll[base .. "/sub/a.epub"])
-            local folders = ReadCollection.coll_settings.favorites.folders
-            assert.is_truthy(folders[base .. "/new"])
-            assert.is_truthy(folders[base .. "/sub10"])
-            assert.is_nil(folders[base .. "/sub"])
         end)
 
-        it("removes only the files and folders inside the deleted folder", function()
+        it("removes only the files inside the deleted folder", function()
             ReadCollection:removeItemsByPath(base .. "/sub")
             local coll = ReadCollection.coll.favorites
             assert.is_nil(coll[base .. "/sub/a.epub"])
             assert.is_truthy(coll[base .. "/sub10/b.epub"])
-            local folders = ReadCollection.coll_settings.favorites.folders
-            assert.is_nil(folders[base .. "/sub"])
-            assert.is_truthy(folders[base .. "/sub10"])
         end)
     end)
 end)
