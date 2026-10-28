@@ -462,7 +462,11 @@ end
 
 function KOSync:setCustomServer(server)
     logger.dbg("KOSync: Setting custom server to:", server)
-    self.settings.custom_server = server ~= "" and server or nil
+    server = server ~= "" and server or nil
+    if self.settings.custom_server ~= server then
+        require("KOSyncQueue"):invalidatePending()
+        self.settings.custom_server = server
+    end
 end
 
 function KOSync:setSyncForward(strategy)

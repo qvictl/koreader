@@ -169,8 +169,12 @@ function KOSyncQueue:count()
     return #self:load()
 end
 
-function KOSyncQueue:clear()
+function KOSyncQueue:invalidatePending()
     self._generation = self._generation + 1
+end
+
+function KOSyncQueue:clear()
+    self:invalidatePending()
     self:save({})
 end
 
