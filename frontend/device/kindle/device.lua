@@ -58,7 +58,8 @@ local function kindleGetSavedNetworks()
             return lipc_handle:access_hash_property("com.lab126.wifid", "profileData", ha_input)
         end)
         if success then
-            local profiles = ha_result:to_table()
+            -- to_table() returns nil when lipc handed us a NULL hasharray
+            local profiles = ha_result:to_table() or {}
             ha_result:destroy()
             ha_input:destroy()
             lipc_handle:close()
@@ -85,7 +86,9 @@ local function kindleGetCurrentProfile()
         end)
 
         if success then
-            local profile = ha_result:to_table()[1] -- there is only a single element
+            -- There is only a single element (to_table() returns nil on a NULL hasharray)
+            local profiles = ha_result:to_table()
+            local profile = profiles and profiles[1]
             ha_input:destroy()
             ha_result:destroy()
             lipc_handle:close()
@@ -489,7 +492,7 @@ function Kindle:initNetworkManager(NetworkMgr)
         for _, network in ipairs(scan_list) do
             local password = nil
             if network.known == "yes" then
-                for _, p in ipairs(saved_profiles) do
+                for _, p in ipairs(saved_profiles or {}) do
                     -- Earlier FW do not have a netid field at all, fall back to essid as that's the best we'll get (we don't get bssid either)...
                     if (p.netid and p.netid == network.netid) or (p.netid == nil and p.essid == network.essid) then
                         password = p.psk
