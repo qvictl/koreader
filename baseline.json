@@ -7,9 +7,9 @@
     "files": 491
   },
   "overall_unit": {
-    "covered": 32628,
+    "covered": 32627,
     "total": 93738,
-    "percent": 34.808,
+    "percent": 34.807,
     "min": null
   },
   "diff_unit": {
@@ -23,9 +23,9 @@
     "percent": 100.000
   },
   "owned": {
-    "covered": 554,
+    "covered": 556,
     "total": 620,
-    "percent": 89.355,
+    "percent": 89.677,
     "min": 80,
     "ok": true,
     "modules": {
@@ -37,15 +37,15 @@
       },
       "frontend/apps/reader/modules/readerdictionary.lua": {
         "scope": "fork",
-        "covered": 319,
+        "covered": 320,
         "total": 375,
-        "percent": 85.067
+        "percent": 85.333
       },
       "frontend/ui/widget/dictquicklookup.lua": {
         "scope": "fork",
-        "covered": 37,
+        "covered": 38,
         "total": 42,
-        "percent": 88.095
+        "percent": 90.476
       },
       "frontend/ui/trapper.lua": {
         "scope": "fork",
@@ -154,7 +154,7 @@
     }
   ],
   "ok": true,
-  "commit": "9e220d7a4c8f1ad7beb5c400f47ba02e08407b17",
+  "commit": "2f32c511f3517feac0f3133c8fdd678e338a89e0",
   "event": "push",
-  "updated": "2026-10-28T08:09:01Z"
+  "updated": "2026-10-28T08:20:58Z"
 }
