@@ -1439,6 +1439,25 @@ describe("Statistics plugin", function()
             assert.are.equal(0, dbNum("PRAGMA schema_version;", empty))
         end)
 
+        it("merges legacy books without hashes and still imports unrelated remote books", function()
+            newStats{ no_doc = true }
+            insertBook{ id = 1, title = "Legacy", last_open = NOW }
+            dbExec("UPDATE book SET md5 = NULL;")
+            insertPageStat(1, 1, 1000, 30, 100)
+            local income = settings_dir .. "/income.sqlite3"
+            withConn(income, function(conn) ReaderStatistics:createDB(conn) end)
+            insertBook({ id = 10, title = "Legacy", last_open = NOW + 10 }, income)
+            dbExec("UPDATE book SET md5 = NULL;", income)
+            insertPageStat(10, 2, 1100, 40, 100, income)
+            insertBook({ id = 11, title = "Remote only", md5 = "remote-only" }, income)
+            insertPageStat(11, 1, 1200, 50, 100, income)
+            assert.is_true(ReaderStatistics.onSync(db_path, settings_dir .. "/cached.sqlite3", income))
+            assert.are.equal(2, dbNum("SELECT count(*) FROM book;"))
+            assert.are.equal(3, dbNum("SELECT count(*) FROM page_stat_data;"))
+            assert.are.equal(NOW + 10, dbNum("SELECT last_open FROM book WHERE title = 'Legacy';"))
+            assert.are.equal(70, dbNum("SELECT total_read_time FROM book WHERE title = 'Legacy';"))
+        end)
+
         it("merges a remote DB into the local one", function()
             local stats = newStats{ title = "Shared", md5 = "s" }
             insertPageStat(1, 1, 1000, 30, 100)
@@ -1466,35 +1485,42 @@ describe("Statistics plugin", function()
             assert.are.equal(4, dbNum("SELECT count(*) FROM page_stat_data;"))
         end)
 
-        it("propagates deletions using the DB cached at the previous sync", function()
-            newStats{ no_doc = true }
-            insertBook{ id = 1, title = "Kept", md5 = "k" }
-            insertBook{ id = 2, title = "Deleted remotely", md5 = "dr" }
-            insertPageStat(1, 1, 1000, 30, 100)
-            insertPageStat(1, 2, 1100, 30, 100)
-            insertPageStat(2, 1, 1000, 30, 100)
-            -- previous sync state: everything above, plus a book since deleted locally
-            local cached = settings_dir .. "/cached.sqlite3"
-            os.remove(cached)
-            require("ffi/util").copyFile(db_path, cached)
-            insertBook({ id = 3, title = "Deleted locally", md5 = "dl" }, cached)
-            insertPageStat(3, 1, 1000, 30, 100, cached)
-            -- a page stat deleted locally since last sync
-            dbExec("DELETE FROM page_stat_data WHERE id_book = 1 AND page = 2;")
-            -- remote: deleted "Deleted remotely", still has "Deleted locally" and the deleted page stat
-            local income = settings_dir .. "/income.sqlite3"
-            makeDB(income)
-            insertBook({ id = 10, title = "Kept", md5 = "k" }, income)
-            insertBook({ id = 11, title = "Deleted locally", md5 = "dl" }, income)
-            insertPageStat(10, 1, 1000, 30, 100, income)
-            insertPageStat(10, 2, 1100, 30, 100, income)
-            insertPageStat(11, 1, 1000, 30, 100, income)
+        for _, missing_hash in ipairs{ false, true } do
+            it("propagates cached deletions " .. (missing_hash and "without hashes" or "with hashes"), function()
+                newStats{ no_doc = true }
+                insertBook{ id = 1, title = "Kept", md5 = "k" }
+                insertBook{ id = 2, title = "Deleted remotely", md5 = "dr" }
+                insertPageStat(1, 1, 1000, 30, 100)
+                insertPageStat(1, 2, 1100, 30, 100)
+                insertPageStat(2, 1, 1000, 30, 100)
+                -- previous sync state: everything above, plus a book since deleted locally
+                local cached = settings_dir .. "/cached.sqlite3"
+                os.remove(cached)
+                require("ffi/util").copyFile(db_path, cached)
+                insertBook({ id = 3, title = "Deleted locally", md5 = "dl" }, cached)
+                insertPageStat(3, 1, 1000, 30, 100, cached)
+                -- a page stat deleted locally since last sync
+                dbExec("DELETE FROM page_stat_data WHERE id_book = 1 AND page = 2;")
+                -- remote: deleted "Deleted remotely", still has "Deleted locally" and the deleted page stat
+                local income = settings_dir .. "/income.sqlite3"
+                makeDB(income)
+                insertBook({ id = 10, title = "Kept", md5 = "k" }, income)
+                insertBook({ id = 11, title = "Deleted locally", md5 = "dl" }, income)
+                insertPageStat(10, 1, 1000, 30, 100, income)
+                insertPageStat(10, 2, 1100, 30, 100, income)
+                insertPageStat(11, 1, 1000, 30, 100, income)
 
-            assert.is_true(ReaderStatistics.onSync(db_path, cached, income))
+                if missing_hash then
+                    for _, path in ipairs{ db_path, cached, income } do
+                        dbExec("UPDATE book SET md5 = NULL;", path)
+                    end
+                end
+                assert.is_true(ReaderStatistics.onSync(db_path, cached, income))
 
-            assert.are.same({ { "Kept" } }, dbRows("SELECT title FROM book;"))
-            assert.are.same({ { 1, 1 } }, dbRows("SELECT id_book, page FROM page_stat_data;"))
-        end)
+                assert.are.same({ { "Kept" } }, dbRows("SELECT title FROM book;"))
+                assert.are.same({ { 1, 1 } }, dbRows("SELECT id_book, page FROM page_stat_data;"))
+            end)
+        end
 
         it("manages the sync server from the settings dialog", function()
             local cs = {

@@ -3131,31 +3131,39 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
             -- first we delete from income_db books that exist in cached_db but not in local_db,
             -- namely the ones that were deleted since last sync
             DELETE FROM income_db.page_stat_data WHERE id_book IN (
-                SELECT id FROM income_db.book WHERE (title, authors, md5) IN (
-                    SELECT title, authors, md5 FROM cached_db.book WHERE (title, authors, md5) NOT IN (
-                        SELECT title, authors, md5 FROM book
-                    )
+                SELECT i.id FROM income_db.book i WHERE EXISTS (
+                    SELECT 1 FROM cached_db.book c
+                    WHERE (c.title, c.authors, c.md5) IS (i.title, i.authors, i.md5)
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM book m
+                    WHERE (m.title, m.authors, m.md5) IS (i.title, i.authors, i.md5)
                 )
             );
-            DELETE FROM income_db.book WHERE (title, authors, md5) IN (
-                SELECT title, authors, md5 FROM cached_db.book WHERE (title, authors, md5) NOT IN (
-                    SELECT title, authors, md5 FROM book
-                )
+            DELETE FROM income_db.book AS i WHERE EXISTS (
+                SELECT 1 FROM cached_db.book c
+                WHERE (c.title, c.authors, c.md5) IS (i.title, i.authors, i.md5)
+            ) AND NOT EXISTS (
+                SELECT 1 FROM book m
+                WHERE (m.title, m.authors, m.md5) IS (i.title, i.authors, i.md5)
             );
 
             -- then we delete books from local db that were present in last sync but
             -- not any more (ie. deleted in other devices)
             DELETE FROM page_stat_data WHERE id_book IN (
-                SELECT id FROM book WHERE (title, authors, md5) IN (
-                    SELECT title, authors, md5 FROM cached_db.book WHERE (title, authors, md5) NOT IN (
-                        SELECT title, authors, md5 FROM income_db.book
-                    )
+                SELECT m.id FROM book m WHERE EXISTS (
+                    SELECT 1 FROM cached_db.book c
+                    WHERE (c.title, c.authors, c.md5) IS (m.title, m.authors, m.md5)
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM income_db.book i
+                    WHERE (i.title, i.authors, i.md5) IS (m.title, m.authors, m.md5)
                 )
             );
-            DELETE FROM book WHERE (title, authors, md5) IN (
-                SELECT title, authors, md5 FROM cached_db.book WHERE (title, authors, md5) NOT IN (
-                    SELECT title, authors, md5 FROM income_db.book
-                )
+            DELETE FROM book AS m WHERE EXISTS (
+                SELECT 1 FROM cached_db.book c
+                WHERE (c.title, c.authors, c.md5) IS (m.title, m.authors, m.md5)
+            ) AND NOT EXISTS (
+                SELECT 1 FROM income_db.book i
+                WHERE (i.title, i.authors, i.md5) IS (m.title, m.authors, m.md5)
             );
         ]]
     end
@@ -3179,7 +3187,7 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
         UPDATE book AS b
         SET last_open = i.last_open
         FROM income_db.book AS i
-        WHERE (b.title, b.authors, b.md5) = (i.title, i.authors, i.md5)
+        WHERE (b.title, b.authors, b.md5) IS (i.title, i.authors, i.md5)
           AND i.last_open > b.last_open;
 
         -- We merge the local db with income db to form the synced db.
@@ -3188,16 +3196,17 @@ function ReaderStatistics.onSync(local_path, cached_path, income_path)
             title, authors, notes, last_open, highlights, pages, series, language, md5, total_read_time, total_read_pages
         ) SELECT
             title, authors, notes, last_open, highlights, pages, series, language, md5, total_read_time, total_read_pages
-        FROM income_db.book
-        WHERE (title, authors, md5) NOT IN (
-            SELECT title, authors, md5 FROM book
+        FROM income_db.book AS i
+        WHERE NOT EXISTS (
+            SELECT 1 FROM book m
+            WHERE (m.title, m.authors, m.md5) IS (i.title, i.authors, i.md5)
         );
 
         -- We create a book_id mapping temp table (view not possible due to attached db)
         CREATE TEMP TABLE book_id_map AS
             SELECT m.id as mid, i.id as iid FROM book m --main
             INNER JOIN income_db.book i
-            ON (m.title, m.authors, m.md5) = (i.title, i.authors, i.md5);
+            ON (m.title, m.authors, m.md5) IS (i.title, i.authors, i.md5);
         ]]
     if attached_cache then
         -- more deletion needed

@@ -74,6 +74,13 @@ return {
             conn = SQ3.open(empty)
             T:eq(tonumber(conn:rowexec("PRAGMA schema_version")), 0, "rejected local database remains empty")
             conn:close()
+            T:check(stats.onSync(path, settings .. "/legacy-sync-cache.sqlite3", settings .. "/legacy-import.sqlite3"),
+                "legacy readings synchronize without a file hash")
+            conn = SQ3.open(path)
+            T:eq(tonumber(conn:rowexec([[SELECT count(*) FROM page_stat_data p JOIN book b ON b.id = p.id_book
+                WHERE b.title = 'Legacy synthetic book' AND b.md5 IS NULL]])), 3,
+                "cloud sync retains all legacy reading records")
+            conn:close()
         end)
     end,
 }
