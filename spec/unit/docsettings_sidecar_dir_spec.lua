@@ -40,4 +40,13 @@ describe("DocSettings.removeSidecarDir with special characters in the data dir",
         assert.is_nil(lfs.attributes(sdr, "mode"))
         assert.are.equal("directory", lfs.attributes(parent, "mode"))
     end)
+
+    it("keeps the parent folders of a doc in a folder whose name starts like the docsettings dir", function()
+        local parent = data_dir .. "/docsettings-old/books"
+        local sdr = parent .. "/foo.sdr"
+        assert.is_true(util.makePath(sdr))
+        DocSettings.removeSidecarDir(sdr)
+        assert.is_nil(lfs.attributes(sdr, "mode"))
+        assert.are.equal("directory", lfs.attributes(parent, "mode"))
+    end)
 end)
