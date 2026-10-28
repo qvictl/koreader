@@ -1,0 +1,20 @@
+{
+  "baseline": "fec96036b2c68ae2a137c8bc5a458cac9367f0a5",
+  "candidate": "e0069d4222af72b8686f21a6692a5767748bf0d9",
+  "payload_bytes": 8388608,
+  "metric": "live Lua heap delta before decoding after forced collection, KiB",
+  "samples": {
+    "before": [
+      24817.465,
+      24835.344,
+      24763.75
+    ],
+    "after": [
+      16672.453,
+      16653.992,
+      17383.812
+    ]
+  },
+  "median_reduction_kib": 8145.011999999999,
+  "scope": "Linux x86_64 emulator; not process RSS or measured Kindle savings"
+}
