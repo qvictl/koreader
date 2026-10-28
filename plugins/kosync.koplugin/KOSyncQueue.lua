@@ -176,6 +176,13 @@ function KOSyncQueue:drain(send_func, done_func, priority_document)
     sendNext(1)
 end
 
+function KOSyncQueue:hasPending(document)
+    for _, item in ipairs(self:load()) do
+        if item.document == document then return true end
+    end
+    return false
+end
+
 function KOSyncQueue:count()
     return #self:load()
 end

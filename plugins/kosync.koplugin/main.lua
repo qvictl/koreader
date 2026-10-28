@@ -863,13 +863,20 @@ function KOSync:getProgress(ensure_networking, interactive)
         service_spec = self.path .. "/api.json"
     }
     local doc_digest = self:getDocumentDigest()
+    local function apply_progress(progress, notify)
+        if ui.document ~= document or generation ~= KOSyncQueue._generation
+                or KOSyncQueue:hasPending(doc_digest) then return end
+        self:syncToProgress(progress)
+        if notify then showSyncedMessage() end
+    end
     local ok, err = pcall(client.get_progress,
         client,
         self.settings.username,
         self.settings.userkey,
         doc_digest,
         function(ok, body)
-            if ui.document ~= document or generation ~= KOSyncQueue._generation then return end
+            if ui.document ~= document or generation ~= KOSyncQueue._generation
+                    or KOSyncQueue:hasPending(doc_digest) then return end
             logger.dbg("KOSync: [Pull] progress for", self.view.document.file)
             logger.dbg("KOSync: ok:", ok, "body:", body)
             if not ok or not body then
@@ -920,8 +927,7 @@ function KOSync:getProgress(ensure_networking, interactive)
             if interactive then
                 -- If user actively pulls progress from other devices,
                 -- we always update the progress without further confirmation.
-                self:syncToProgress(body.progress)
-                showSyncedMessage()
+                apply_progress(body.progress, true)
                 return
             end
 
@@ -934,29 +940,27 @@ function KOSync:getProgress(ensure_networking, interactive)
             end
             if self_older then
                 if self.settings.sync_forward == SYNC_STRATEGY.SILENT then
-                    self:syncToProgress(body.progress)
-                    showSyncedMessage()
+                    apply_progress(body.progress, true)
                 elseif self.settings.sync_forward == SYNC_STRATEGY.PROMPT then
                     UIManager:show(ConfirmBox:new{
                         text = T(_("Sync to latest location %1% from device '%2'?"),
                                  Math.round(body.percentage * 100),
                                  body.device),
                         ok_callback = function()
-                            self:syncToProgress(body.progress)
+                            apply_progress(body.progress)
                         end,
                     })
                 end
             else -- if not self_older then
                 if self.settings.sync_backward == SYNC_STRATEGY.SILENT then
-                    self:syncToProgress(body.progress)
-                    showSyncedMessage()
+                    apply_progress(body.progress, true)
                 elseif self.settings.sync_backward == SYNC_STRATEGY.PROMPT then
                     UIManager:show(ConfirmBox:new{
                         text = T(_("Sync to previous location %1% from device '%2'?"),
                                  Math.round(body.percentage * 100),
                                  body.device),
                         ok_callback = function()
-                            self:syncToProgress(body.progress)
+                            apply_progress(body.progress)
                         end,
                     })
                 end
@@ -1055,9 +1059,7 @@ end
 
 function KOSync:_pullIfNoPendingProgress(document)
     if not self.ui.document then return end
-    for _, item in ipairs(require("KOSyncQueue"):load()) do
-        if item.document == document then return end
-    end
+    if require("KOSyncQueue"):hasPending(document) then return end
     self:getProgress(false, false)
 end
 
