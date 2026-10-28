@@ -451,6 +451,24 @@ describe("Kindle device", function()
             time.boottime_or_realtime_coarse:revert()
         end)
 
+        it("consumes queued power-management arguments in arrival order", function()
+            local fake_ui = { event_handlers = {} }
+            dev:UIManagerReady(fake_ui)
+            dev:setEventHandlers(fake_ui)
+            for event, method in pairs{
+                IntoSS = "intoScreenSaver", OutOfSS = "outofScreenSaver",
+                ReadyToSuspend = "readyToSuspend", WakeupFromSuspend = "wakeupFromSuspend",
+            } do
+                local received = {}
+                stub(dev, method, function(_, argument) received[#received + 1] = argument end)
+                dev.input.fake_event_args[event] = { 2, 4, 6 }
+                for _ = 1, 3 do fake_ui.event_handlers[event](event) end
+                assert.same({ 2, 4, 6 }, received)
+                assert.same({}, dev.input.fake_event_args[event])
+                dev[method]:revert()
+            end
+        end)
+
         it("wires the powerd lipc events to the right handlers, with their argument", function()
             local fake_ui = { event_handlers = {} }
             stub(dev, "intoScreenSaver")

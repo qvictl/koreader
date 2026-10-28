@@ -17,9 +17,10 @@ describe("Trapper module", function()
     local next_ticks -- actions passed to UIManager:nextTick()
     local repaints   -- number of UIManager:forceRePaint() calls
     local saved_ui
-    local orig_run_in_subprocess
+    local orig_run_in_subprocess, orig_read_all
+    local guard_blocking_reads
     local child_pids, child_fds
-    local tmp_files
+    local tmp_files, gate_releases
 
     local function replaceUI(name, fn)
         saved_ui[name] = UIManager[name]
@@ -46,6 +47,32 @@ describe("Trapper module", function()
             ffiutil.usleep(5000)
         end
         return false
+    end
+
+    -- A worker waits for an explicit parent release, with no timing assumption.
+    local function ipcGate()
+        guard_blocking_reads = true
+        local pair = ffi.new("int[2]")
+        assert.are.equal(0, C.pipe(pair))
+        local reader, writer = tonumber(pair[0]), tonumber(pair[1])
+        local released = false
+        local function release()
+            if released then return end
+            released = true
+            C.write(writer, "x", 1)
+            C.close(writer)
+            C.close(reader)
+        end
+        gate_releases[#gate_releases + 1] = release
+        return function()
+            released = true
+            C.close(writer)
+            local byte = ffi.new("char[1]")
+            local count
+            repeat count = C.read(reader, byte, 1) until count >= 0 or ffi.errno() ~= C.EINTR
+            C.close(reader)
+            assert.are.equal(1, count)
+        end, release
     end
 
     -- Run a function under Trapper:wrap(), recording its return values.
@@ -100,7 +127,20 @@ describe("Trapper module", function()
         tasks, shown, closed, next_ticks, repaints = {}, {}, {}, {}, 0
         saved_ui = {}
         child_pids, child_fds = {}, {}
-        tmp_files = {}
+        tmp_files, gate_releases = {}, {}
+        guard_blocking_reads = false
+        orig_read_all = ffiutil.readAllFromFD
+        local parent = C.getpid()
+        ffiutil.readAllFromFD = function(fd)
+            if guard_blocking_reads and C.getpid() == parent then
+                local ready = ffi.new("struct pollfd[1]")
+                ready[0].fd, ready[0].events = fd, C.POLLIN
+                C.poll(ready, 1, 0)
+                assert.is_true(bit.band(ready[0].revents, C.POLLHUP) ~= 0,
+                    "blocking result read while a writer is gated")
+            end
+            return orig_read_all(fd)
+        end
         replaceUI("scheduleIn", function(_, delay, fn)
             table.insert(tasks, { delay = delay, fn = fn })
         end)
@@ -129,6 +169,7 @@ describe("Trapper module", function()
     end)
 
     after_each(function()
+        ffiutil.readAllFromFD = orig_read_all
         ffiutil.runInSubProcess = orig_run_in_subprocess
         for name, fn in pairs(saved_ui) do
             UIManager[name] = fn
@@ -139,6 +180,7 @@ describe("Trapper module", function()
         for _, path in ipairs(tmp_files) do
             touch(path)
         end
+        for _, release in ipairs(gate_releases) do release() end
         for _, pid in ipairs(child_pids) do
             ffiutil.terminateSubProcess(pid)
             ffiutil.isSubProcessDone(pid, true)
@@ -216,6 +258,22 @@ describe("Trapper module", function()
             assert.are.same({ b = 2 }, b)
             assert.are.equal(0, #shown)
             assert.are.equal(0, #child_pids)
+        end)
+
+        it("treats LuaJIT main-thread coroutine reporting as unwrapped", function()
+            -- luacheck: push ignore 122
+            local running = coroutine.running
+            coroutine.running = function() return coroutine.create(function() end), true end
+            local ok, err = xpcall(function()
+                local completed, result = Trapper:dismissableRunInSubprocess(function() return "direct" end)
+                assert.is_true(completed)
+                assert.are.equal("direct", result)
+                assert.are.equal(0, #child_pids)
+                assert.are.equal(0, #shown)
+            end, debug.traceback)
+            coroutine.running = running
+            -- luacheck: pop
+            if not ok then error(err, 0) end
         end)
 
         it("dismissablePopen() falls back to a blocking io.popen()", function()
@@ -434,12 +492,154 @@ describe("Trapper module", function()
             assert.is_true(res.values[1])
             assert.are.equal(size, #res.values[2])
             assert.are.equal(string.rep("x", size), res.values[2])
-            -- The child was still alive (blocked in write()) when its output was
-            -- read: a collector is scheduled to reap it.
-            assert.are.equal(1, #tasks)
-            assert.are.equal(1, tasks[1].delay)
             assert.is_true(runUntil(function() return #tasks == 0 end, 500))
             assert.is_true(runUntil(function() return isReaped(child_pids[1]) end, 500))
+        end)
+
+        it("schedules a reaper when EOF arrives while the worker is alive", function()
+            local await_release, release = ipcGate()
+            local await_ready, ready = ipcGate()
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "complete", true)
+                    ready()
+                    await_release()
+                end, with_pipe)
+            end
+            local res = runSub(function() end, nil, true)
+            await_ready()
+            assert.is_true(runUntil(done(res)))
+            assert.are.same({ true, "complete", n = 2 }, res.values)
+            assert.are.equal(1, #tasks)
+            assert.are.equal(1, tasks[1].delay)
+            release()
+            assert.is_true(runUntil(function() return #tasks == 0 end))
+            assert.is_true(isReaped(child_pids[1]))
+        end)
+
+        it("yields between read budgets and resumes an active transfer promptly", function()
+            local await_release, release = ipcGate()
+            local await_ready, ready = ipcGate()
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "prefix", false)
+                    ready()
+                    await_release()
+                end, with_pipe)
+            end
+            local original_read = ffiutil.readAvailableFromFD
+            ffiutil.readAvailableFromFD = function(fd)
+                local data, eof, drained, err = original_read(fd)
+                if data and #data > 0 then drained = false end
+                return data, eof, drained, err
+            end
+            local ok, err = xpcall(function()
+                local res = runSub(function() end, nil, true)
+                await_ready()
+                runNextTask()
+                assert.is_false(res.done)
+                assert.are.equal(1, #tasks)
+                assert.is_true(tasks[1].delay > 0 and tasks[1].delay <= 0.02)
+                release()
+                assert.is_true(runUntil(done(res)))
+                assert.are.same({ true, "prefix", n = 2 }, res.values)
+            end, debug.traceback)
+            ffiutil.readAvailableFromFD = original_read
+            if not ok then error(err, 0) end
+        end)
+
+        it("keeps polling after partial output and remains cancellable", function()
+            local ready = tmpPath()
+            local await_release, release = ipcGate()
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "prefix:", false)
+                    touch(ready)
+                    await_release()
+                    ffiutil.writeToFD(writer, "complete", true)
+                end, with_pipe)
+            end
+            local res = runSub(function() end, "Working", true)
+            assert.is_true(runUntil(function() return lfs.attributes(ready) ~= nil end))
+            runNextTask()
+            assert.is_false(res.done)
+            release()
+            assert.is_true(runUntil(done(res)))
+            assert.are.same({ true, "prefix:complete", n = 2 }, res.values)
+        end)
+
+        it("does not wait for EOF held open by a worker descendant", function()
+            local await_release, release = ipcGate()
+            local res = runSub(function()
+                local pid = C.fork()
+                if pid == 0 then
+                    await_release()
+                    C._exit(0)
+                end
+                assert(pid > 0)
+                return "complete"
+            end, "Working", true)
+            assert.is_true(runUntil(done(res)))
+            assert.are.same({ true, "complete", n = 2 }, res.values)
+            release()
+        end)
+
+        it("discards partial results and closes the pipe immediately on cancellation", function()
+            local ready = tmpPath()
+            local await_release = ipcGate()
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "partial", false)
+                    touch(ready)
+                    await_release()
+                end, with_pipe)
+            end
+            local res = runSub(function() end, "Working", true)
+            assert.is_true(runUntil(function() return lfs.attributes(ready) ~= nil end))
+            runNextTask()
+            assert.is_false(res.done)
+            shown[#shown].dismiss_callback()
+            assert.are.same({ false, n = 1 }, res.values)
+            assert.are.equal(-1, C.fcntl(child_fds[1], C.F_GETFL))
+            assert.is_true(runUntil(function() return #tasks == 0 end))
+            assert.is_true(isReaped(child_pids[1]))
+        end)
+
+        it("reports read errors without returning a partial result or leaking its pipe", function()
+            local await_release = ipcGate()
+            local await_ready, ready = ipcGate()
+            local original_read = ffiutil.readAvailableFromFD
+            local spawn = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(_, with_pipe)
+                return spawn(function(_, writer)
+                    ffiutil.writeToFD(writer, "partial", false)
+                    ready()
+                    await_release()
+                end, with_pipe)
+            end
+            local received
+            ffiutil.readAvailableFromFD = function(fd)
+                if received then return nil, false, false, "read failed" end
+                local data, eof, drained, err = original_read(fd)
+                if data and #data > 0 then received = data end
+                return data, eof, drained, err
+            end
+            local ok, err = xpcall(function()
+                local res = runSub(function() end, "Working", true)
+                await_ready()
+                assert.is_true(runUntil(done(res)))
+                assert.are.equal("partial", received)
+                assert.are.same({ false, nil, "read_failed", n = 3 }, res.values)
+                assert.are.equal(-1, C.fcntl(child_fds[1], C.F_GETFL))
+                assert.is_true(runUntil(function() return #tasks == 0 end))
+                assert.is_true(isReaped(child_pids[1]))
+            end, debug.traceback)
+            ffiutil.readAvailableFromFD = original_read
+            if not ok then error(err, 0) end
         end)
 
         it("does not hang when the child crashes, and reaps it", function()
@@ -601,7 +801,7 @@ describe("Trapper module", function()
             local res = runSub(function() return "never" end, "Working")
             logger.warn:revert()
             assert.is_true(res.done)
-            assert.are.same({ false, n = 1 }, res.values)
+            assert.are.same({ false, nil, "start_failed", n = 3 }, res.values)
             assert.spy(warn).was.called_with("dismissableRunInSubprocess: could not start subprocess:",
                 "fork failed: Cannot allocate memory")
             -- the TrapWidget is not left on screen, nothing is scheduled
