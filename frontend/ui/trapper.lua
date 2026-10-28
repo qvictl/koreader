@@ -402,10 +402,11 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
     if pid then
         local chunks, process_done, failed = {}, false, false
         local function collect(discard)
-            local drained = true
+            local drained, got_output = true, false
             if read_fd then
-                local chunk, eof, empty, err = ffiutil.readAvailableFromFD(read_fd)
-                drained = empty
+                local chunk, eof, read_drained, err = ffiutil.readAvailableFromFD(read_fd)
+                drained = read_drained
+                got_output = chunk ~= nil and chunk ~= ""
                 if err then
                     logger.warn("dismissablePopen: could not read command output:", err)
                     failed, eof = true, true
@@ -416,13 +417,13 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
                 if eof then C.close(read_fd); read_fd = nil end
             end
             process_done = process_done or ffiutil.isSubProcessDone(pid)
-            return read_fd == nil and process_done, drained
+            return read_fd == nil and process_done, drained, got_output
         end
         local collect_and_clean
         collect_and_clean = function()
-            local done, drained = collect(true)
+            local done, drained, got_output = collect(true)
             if not done then
-                UIManager:scheduleIn(drained and collect_interval_sec or 0.05, collect_and_clean)
+                UIManager:scheduleIn((got_output or not drained) and 0.01 or collect_interval_sec, collect_and_clean)
             end
         end
         while true do
@@ -439,7 +440,14 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
                 UIManager:scheduleIn(collect_interval_sec, collect_and_clean)
                 break
             end
-            local done = collect(false)
+            local done, drained, got_output = collect(false)
+            -- Yield between batches without throttling a ready writer to the
+            -- idle polling interval (small kernel pipe buffers are common).
+            if got_output or not drained then
+                check_interval_sec, check_num = 0.01, 0
+            elseif check_interval_sec < 0.125 then
+                check_interval_sec = 0.125
+            end
             if failed then
                 chunks = nil
                 if not done then UIManager:scheduleIn(collect_interval_sec, collect_and_clean) end

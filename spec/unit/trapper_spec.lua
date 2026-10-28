@@ -18,6 +18,7 @@ describe("Trapper module", function()
     local repaints   -- number of UIManager:forceRePaint() calls
     local saved_ui
     local orig_run_in_subprocess
+    local orig_command_pipe, orig_read_available
     local child_pids, child_fds
     local tmp_files, gate_releases
 
@@ -137,6 +138,8 @@ describe("Trapper module", function()
         replaceUI("forceRePaint", function() repaints = repaints + 1 end)
         replaceUI("preventStandby", spy.new(function() end))
         replaceUI("allowStandby", spy.new(function() end))
+        orig_command_pipe = ffiutil.openCommandPipe
+        orig_read_available = ffiutil.readAvailableFromFD
         orig_run_in_subprocess = ffiutil.runInSubProcess
         ffiutil.runInSubProcess = function(...)
             local pid, fd = orig_run_in_subprocess(...)
@@ -151,6 +154,8 @@ describe("Trapper module", function()
     end)
 
     after_each(function()
+        ffiutil.openCommandPipe = orig_command_pipe
+        ffiutil.readAvailableFromFD = orig_read_available
         ffiutil.runInSubProcess = orig_run_in_subprocess
         for name, fn in pairs(saved_ui) do
             UIManager[name] = fn
@@ -732,6 +737,91 @@ describe("Trapper module", function()
             end)
         end
         local function done(res) return function() return res.done end end
+
+        local function shellGate()
+            local pipe = ffi.new("int[2]")
+            assert.are.equal(0, C.pipe(pipe))
+            local released = false
+            local function release()
+                if released then return end
+                released = true
+                C.write(pipe[1], "go\n", 3)
+                C.close(pipe[1]); C.close(pipe[0])
+            end
+            gate_releases[#gate_releases + 1] = release
+            local run = ffiutil.runInSubProcess
+            ffiutil.runInSubProcess = function(func, with_pipe)
+                return run(function(pid, fd)
+                    assert(C.dup2(pipe[0], 0) == 0)
+                    C.close(pipe[1])
+                    if pipe[0] ~= 0 then C.close(pipe[0]) end
+                    func(pid, fd)
+                end, with_pipe)
+            end
+            return "read ready", release
+        end
+
+        it("remains dismissable after a prefix, and its collector never waits for the suffix", function()
+            local gate, release = shellGate()
+            local saw_prefix = false
+            ffiutil.readAvailableFromFD = function(fd)
+                local chunk, eof, drained, err = orig_read_available(fd)
+                saw_prefix = saw_prefix or chunk == "prefix"
+                return chunk, eof, drained, err
+            end
+            local res = runPopen("printf prefix; " .. gate .. "; printf suffix")
+            assert.is_true(runUntil(function() return saw_prefix end))
+            assert.is_false(res.done)
+            local pid = child_pids[#child_pids]
+            shown[1]:onTapDismiss(nil, { ges = "tap" })
+            assert.are.same({ false, nil, n = 2 }, res.values)
+            runNextTask(0) -- the background drain sees EAGAIN, never read('*all')
+            assert.are.equal(1, #tasks)
+            assert.are.equal(0, C.kill(pid, 0)) -- cancellation does not kill it
+            release()
+            assert.is_true(runUntil(function() return #tasks == 0 end))
+            assert.is_true(isReaped(pid))
+        end)
+
+        it("keeps yielding after stdout EOF until the shell exits", function()
+            local gate, release = shellGate()
+            local saw_eof = false
+            ffiutil.readAvailableFromFD = function(fd)
+                local chunk, eof, drained, err = orig_read_available(fd)
+                saw_eof = saw_eof or eof
+                return chunk, eof, drained, err
+            end
+            local res = runPopen("exec 1>&-; " .. gate)
+            assert.is_true(runUntil(function() return saw_eof end))
+            assert.is_false(res.done)
+            runNextTask(0) -- no pclose or blocking waitpid after EOF
+            assert.is_false(res.done)
+            release()
+            assert.is_true(runUntil(done(res)))
+            assert.are.same({ true, "", n = 2 }, res.values)
+        end)
+
+        it("reports a read failure immediately and reaps the live command later", function()
+            local gate, release = shellGate()
+            ffiutil.readAvailableFromFD = function() return nil, false, false, "expected read error" end
+            local res = runPopen(gate)
+            assert.is_true(runUntil(done(res)))
+            assert.are.same({ false, nil, "read_failed", n = 3 }, res.values)
+            local pid = child_pids[#child_pids]
+            assert.are.equal(0, C.kill(pid, 0))
+            runNextTask(0)
+            assert.are.equal(1, #tasks)
+            release()
+            assert.is_true(runUntil(function() return #tasks == 0 end))
+            assert.is_true(isReaped(pid))
+        end)
+
+        it("reports spawn failures distinctly from dismissal", function()
+            ffiutil.openCommandPipe = function() return false, "expected spawn error" end
+            local res = runPopen("printf ignored")
+            assert.is_true(res.done)
+            assert.are.same({ false, nil, "start_failed", n = 3 }, res.values)
+        end)
 
         it("returns the command output, with a visible TrapWidget", function()
             local res = runPopen("printf 'some output'", "Running")
