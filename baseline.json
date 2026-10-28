@@ -1,35 +1,35 @@
 {
   "date": "2026-10-28",
   "overall": {
-    "covered": 52201,
-    "total": 99006,
-    "percent": 52.725,
+    "covered": 52224,
+    "total": 99025,
+    "percent": 52.738,
     "files": 491
   },
   "overall_unit": {
-    "covered": 47269,
-    "total": 98330,
-    "percent": 48.072,
+    "covered": 47287,
+    "total": 98349,
+    "percent": 48.081,
     "min": null
   },
   "diff_unit": {
-    "covered": 0,
-    "total": 0,
+    "covered": 43,
+    "total": 43,
     "percent": 100.000
   },
   "diff_combined": {
-    "covered": 0,
-    "total": 0,
+    "covered": 43,
+    "total": 43,
     "percent": 100.000
   },
   "ratchet": {
-    "baseline": 52.722,
-    "label": "main@fb228384 (nearest ancestor with coverage of base 76672416)"
+    "baseline": 52.725,
+    "label": "main@d5f4e963 (this change's base)"
   },
   "owned": {
-    "covered": 665,
-    "total": 677,
-    "percent": 98.227,
+    "covered": 700,
+    "total": 712,
+    "percent": 98.315,
     "min": 80,
     "ok": true,
     "modules": {
@@ -53,9 +53,9 @@
       },
       "frontend/ui/trapper.lua": {
         "scope": "fork",
-        "covered": 49,
-        "total": 49,
-        "percent": 100.000
+        "covered": 83,
+        "total": 84,
+        "percent": 98.810
       },
       "frontend/ui/uimanager.lua": {
         "scope": "func:UIManager:widgetInvert",
@@ -119,9 +119,9 @@
       },
       "base/ffi/util.lua": {
         "scope": "func:util.runInSubProcess,util.isSubProcessDone,util.terminateSubProcess,util.readAllFromFD",
-        "covered": 86,
+        "covered": 87,
         "total": 92,
-        "percent": 93.478
+        "percent": 94.565
       }
     }
   },
@@ -158,7 +158,7 @@
     }
   ],
   "ok": true,
-  "commit": "d5f4e963655ef7950d827a145ffd7daa3ab66082",
+  "commit": "96deb9a072840d1faeea4c20c49323f7b7cf7ddf",
   "event": "push",
-  "updated": "2026-10-28T22:43:07Z"
+  "updated": "2026-10-28T23:03:11Z"
 }
