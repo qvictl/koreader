@@ -255,6 +255,13 @@ describe("ReaderDictionary sdcv lookups", function()
             for _, ifo in ipairs(ifos) do
                 if ifo.name == "Beta" then beta_file = ifo.file end
             end
+            -- (ReaderDictionary:init() guarantees the setting exists: restore its previous value)
+            local prev_disabled = G_reader_settings:readSetting("dicts_disabled")
+            finally(function()
+                G_reader_settings:saveSetting("dicts_disabled", prev_disabled)
+                rd.preferred_dictionaries = {}
+                rd:updateSdcvDictNamesOptions()
+            end)
             G_reader_settings:saveSetting("dicts_disabled", { [beta_file] = true })
             rd.preferred_dictionaries = { "Gamma" }
             rd:updateSdcvDictNamesOptions()
@@ -263,9 +270,6 @@ describe("ReaderDictionary sdcv lookups", function()
             rd.preferred_dictionaries = { "Beta" }
             rd:updateSdcvDictNamesOptions()
             assert.are.same({ "Beta", "Alpha", "Delta", "Epsilon", "Ext", "Gamma" }, rd.enabled_dict_names)
-            G_reader_settings:saveSetting("dicts_disabled", {})
-            rd.preferred_dictionaries = {}
-            rd:updateSdcvDictNamesOptions()
         end)
     end)
 
@@ -673,13 +677,13 @@ describe("ReaderDictionary sdcv lookups", function()
             G_reader_settings:makeTrue("dict_progressive_lookup")
             local nb_runs = 0
             local run = rd.runSdcv
+            finally(function() rd.runSdcv = nil end)
             rd.runSdcv = function(...)
                 nb_runs = nb_runs + 1
                 return run(...)
             end
             useSdcv(rd, writeScript("sdcv_crash2", "kill -SEGV $$"))
             local w = lookup("harbor")
-            rd.runSdcv = nil
             -- all the (exact) queries were tried
             assert.are.equal(3, nb_runs)
             assert.is_true(w.results[1].no_result)
@@ -824,9 +828,9 @@ describe("ReaderDictionary sdcv lookups", function()
             local C = ffi.C
             local fake_C = setmetatable({ pipe = function() return -1 end }, { __index = function(_, k) return C[k] end })
             local restore = setUpvalue(SdcvProcess.new, "C", fake_C)
+            finally(restore)
             local warn = spy.on(logger, "warn")
             local proc = SdcvProcess:new({ "/bin/true" })
-            restore()
             assert.is_nil(proc)
             assert.spy(warn).was_called_with("ReaderDictionary: could not create pipe for sdcv:", match._)
             logger.warn:revert()
@@ -852,6 +856,10 @@ describe("ReaderDictionary sdcv lookups", function()
             }, { __index = ffi })
             local restore_C = setUpvalue(SdcvProcess.poll, "C", fake_C)
             local restore_ffi = setUpvalue(SdcvProcess.poll, "ffi", fake_ffi)
+            finally(function()
+                restore_C()
+                restore_ffi()
+            end)
 
             fake_errno = C.EINTR
             local proc = SdcvProcess:new({ "/bin/sh", "-c", "echo hello" })
@@ -864,8 +872,6 @@ describe("ReaderDictionary sdcv lookups", function()
             proc = SdcvProcess:new({ "/bin/sh", "-c", "exec sleep 30" })
             local pid = proc.pid
             assert.is_true(proc:poll()) -- done, as failed
-            restore_C()
-            restore_ffi()
             assert.spy(warn).was_called_with("ReaderDictionary: could not read sdcv output:", match.is_string())
             logger.warn:revert()
             assert.is_nil(proc.fd)
@@ -874,12 +880,12 @@ describe("ReaderDictionary sdcv lookups", function()
 
         it("should work without posix_spawn, forking instead", function()
             local restore = setUpvalue(getUpvalue(SdcvProcess.new, "spawn"), "has_posix_spawn", false)
+            finally(restore)
             local completed, output = rd:runSdcv(rd:getSdcvArgs(dict_dir, { "harbor" }, { "Beta" }, false))
             assert.is_true(completed)
             assert.matches("beta: another harbor", output)
             -- An exec failure in the child just gives no output
             local proc = SdcvProcess:new({ tmp .. "/no/such/sdcv" })
-            restore()
             assert.truthy(proc)
             proc:wait()
             assert.are.equal("", proc:getOutput())
@@ -905,10 +911,12 @@ describe("ReaderDictionary sdcv lookups", function()
             -- (a module local, shared by all its functions)
             local restore_android = setUpvalue(ReaderDictionary.getSdcvArgs, "android", fake_android)
             local restore_C = setUpvalue(SdcvProcess.new, "C", fake_C)
+            finally(function()
+                restore_C()
+                restore_android()
+            end)
             local args = rd:getSdcvArgs(dict_dir, { "harbor" }, { "Beta" }, false)
             local completed, output = rd:runSdcv(args)
-            restore_C()
-            restore_android()
             assert.are.equal(lib_dir .. "/libsdcv.so", args[1])
             assert.is_true(completed)
             assert.matches("beta: another harbor", output)
