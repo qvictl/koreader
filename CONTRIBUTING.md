@@ -45,6 +45,19 @@ The `base` submodule points at [qvictl/koreader-base](https://github.com/qvictl/
    - **Coverage** and **Tests policy** (see above).
 4. **Test evidence in the description**: what you tested and how, and which integration scenario covers the change (see the PR template). For performance or memory changes, give before/after numbers (the integration scenarios' metrics are in the job summary and the `integration-results` artifact).
 
+## Review and merge
+
+Every PR to `main` is reviewed by AI reviewers (CodeRabbit, Gemini Code Assist) and evaluated by the *Review gate*
+workflow, which keeps a checklist comment on the PR. The gate approves and enables auto-merge only when all required
+checks pass, an AI reviewer reviewed the head commit without requesting changes, every review thread is resolved, the
+change is small (≤ 500 non-test / non-doc lines) and touches no sensitive path (CI, policy, release / OTA tooling, build
+scripts); otherwise a maintainer decides (`human-approved` label). AI comments flagged as potential issues / bugs must be
+fixed or answered with a justification before resolving them. Full rules, override and activation steps:
+[REVIEW_POLICY.md](REVIEW_POLICY.md).
+
+所有合入 `main` 的 PR 由 AI 审查（CodeRabbit、Gemini Code Assist）并经 *Review gate* 评估；只有全部条件满足时才自动批准和合并，
+否则由维护者决定。AI 标出的潜在问题 / bug 必须修复或回复理由后才能解决对话。详见 [REVIEW_POLICY.md](REVIEW_POLICY.md)。
+
 ## Running the tests locally
 
 ```sh

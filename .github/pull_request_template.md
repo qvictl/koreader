@@ -1,6 +1,7 @@
 <!--
 Thanks for your contribution! PRs written by people or by AI are equally welcome here:
 we gate on tests (see CONTRIBUTING.md). Please fill in every section.
+AI reviewers and the review gate: see REVIEW_POLICY.md.
 -->
 
 ### What and why
@@ -30,3 +31,4 @@ Integration scenario(s): <!-- e.g. 05_dictionary_progressive -->
 - [ ] `./tools/run_integration_tests.sh` passes locally (or I rely on CI and checked its results)
 - [ ] An emulator integration scenario covers the user-visible change (named above)
 - [ ] Coverage check green: changed lines ≥ 80% by unit tests and ≥ 90% by unit + integration tests, no overall drop, owned modules on target
+- [ ] Every AI review comment flagged as a potential issue / bug is fixed or answered with a justification before resolving it ([REVIEW_POLICY.md](../blob/main/REVIEW_POLICY.md))
