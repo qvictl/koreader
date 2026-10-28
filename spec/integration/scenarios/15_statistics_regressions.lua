@@ -96,5 +96,31 @@ return {
                 "refused synchronization preserves local readings")
             conn:close()
         end)
+        local conflict_message = require("gettext")("Statistics synchronization stopped: the local database contains duplicate book identities without file hashes.")
+        T:run(function()
+            local cloud = T:fileManager().cloudstorage
+            local providers = cloud.providers
+            cloud.providers = { synthetic = {
+                run = function(callback) callback() end,
+                downloadFile = function(_, destination)
+                    local copy_error = require("ffi/util").copyFile(settings .. "/legacy-import.sqlite3", destination)
+                    assert(not copy_error, copy_error)
+                    return 200, "synthetic-etag"
+                end,
+                uploadFile = function() error("an ambiguous database must never upload") end,
+            } }
+            local ok, err = pcall(cloud.sync, cloud, { type = "synthetic", url = "synthetic" }, path, stats.onSync)
+            cloud.providers = providers
+            if not ok then error(err, 0) end
+        end)
+        T:waitUntil(function()
+            local widget = T:topWidget()
+            return widget and widget.text == conflict_message
+        end, 5, "cloud sync displays the specific database conflict")
+        T:repaint()
+        local notification = T:topWidget()
+        T:check(notification.dimen and notification.dimen.w > 0,
+            "the statistics synchronization conflict is painted")
+        T:tapWidget(notification, "dismiss statistics conflict")
     end,
 }
