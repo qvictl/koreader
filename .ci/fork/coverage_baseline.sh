@@ -14,7 +14,8 @@
 #       - otherwise (workflow_dispatch on a branch, e.g. by the upstream sync), and for a PR
 #         checkout that is not a merge: git merge-base HEAD MAIN_REF (default origin/main).
 #   coverage_baseline.sh lookup BASE HISTORY_JSONL [unit|combined]
-#       Prints "SHA PERCENT exact|ancestor": main's overall coverage recorded for BASE on the
+#       Selects the unit or combined metric (default combined), skipping unmeasured values.
+#       Prints "SHA PERCENT exact|ancestor": main's selected coverage recorded for BASE on the
 #       `coverage` branch (history.jsonl: one record per measured main commit, keyed by its
 #       SHA; the last record of a commit wins), or else for BASE's nearest recorded ancestor
 #       (needs BASE's history: full clone). Prints nothing when no ancestor has a record.

@@ -9,9 +9,10 @@
 # `integration-coverage*/` (emulator integration tests).
 #
 # Environment: EVENT_NAME, PR_NUMBER, PR_BASE, PUSH_BEFORE, GH_TOKEN, GITHUB_REPOSITORY.
-# Pull requests: all gates are enforced (diff, ratchet, owned modules, dated unit-test
-# coverage target); upstream sync PRs
-# (bringing upstream commits): only the owned modules gate. Pushes: report only.
+# Pull requests: changed-line units, unit ratchet and dated unit targets are enforced.
+# Upstream sync PRs enforce the dated unit target; pushes only report unit metrics.
+# Release candidates enforce the combined gates too (COVERAGE_MODE=combined,
+# EVENT_NAME=release, RELEASE_BASE=previous measured combined ancestor).
 # The ratchet compares with the coverage recorded for the main commit the change is based on
 # (or its nearest recorded ancestor), not with main's latest: see coverage_baseline.sh.
 # Outputs (GITHUB_OUTPUT): ok=true|false; writes coverage-result.json (for the history).
@@ -84,7 +85,9 @@ else
 fi
 git show origin/coverage:history.jsonl >"${tmp}/coverage-history.jsonl" 2>/dev/null || : >"${tmp}/coverage-history.jsonl"
 if read -r bsha bpct bkind < <("${src}/.ci/fork/coverage_baseline.sh" lookup "${ratchet_base}" "${tmp}/coverage-history.jsonl" "${mode}"); then
-    if [[ "${bkind}" == exact ]]; then
+    if [[ "${EVENT_NAME}" == release ]]; then
+        label="main@${bsha:0:8} (previous actual combined measurement)"
+    elif [[ "${bkind}" == exact ]]; then
         label="main@${bsha:0:8} (this change's base)"
     else
         label="main@${bsha:0:8} (nearest ancestor with coverage of base ${ratchet_base:0:8})"
