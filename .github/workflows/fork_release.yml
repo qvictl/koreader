@@ -174,7 +174,8 @@ jobs:
         run: |
           git fetch --quiet origin '+refs/heads/upstream:refs/remotes/origin/upstream' '+refs/heads/stable/*:refs/remotes/origin/stable/*'
           git fetch --quiet --no-tags https://github.com/koreader/koreader.git "+refs/tags/${{ matrix.base }}:refs/tags/${{ matrix.base }}"
-          git clone --quiet --filter=tree:0 --no-checkout "https://github.com/${GITHUB_REPOSITORY%%/*}/koreader-base.git" base-repo
+          # Fetching upstream into a partial fork clone can leave common trees missing.
+          git clone --quiet --no-checkout "https://github.com/${GITHUB_REPOSITORY%%/*}/koreader-base.git" base-repo
           git -C base-repo fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
           git -C base-repo fetch --quiet https://github.com/koreader/koreader-base.git '+refs/heads/master:refs/remotes/upstream-src/master'
       - name: Build overlay
