@@ -193,8 +193,13 @@ class SelectionTests(GitFixture, unittest.TestCase):
 
     def test_shared_native_and_unknown_file_fall_back(self):
         for path in ("spec/unit/commonrequire.lua", "frontend/ui/uimanager.lua", "base", "Makefile", "test/sample.epub"):
-            self.write(path, "changed")
-            self.assertEqual(self.choose()["mode"], "full")
+            with self.subTest(path=path):
+                self.write(path, "changed")
+                result = self.choose()
+                self.assertEqual(result["mode"], "full")
+                self.assertEqual(result["changed_files"], [path])
+                self.assertEqual(result["reasons"], ["shared or unclassified change: " + path])
+                self.base = self.git("rev-parse", "HEAD")
 
     def test_no_proven_suite_never_succeeds_with_empty_selection(self):
         self.write("frontend/unmapped.lua", "return {}\n")
