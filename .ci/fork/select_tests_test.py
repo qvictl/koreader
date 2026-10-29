@@ -3,6 +3,7 @@
 from pathlib import Path
 import os
 import shlex
+import shutil
 import textwrap
 import subprocess
 import sys
@@ -374,7 +375,7 @@ class WorkflowTests(GitFixture, unittest.TestCase):
 
 
 class CoveragePrefixTests(GitFixture, unittest.TestCase):
-    def run_prefix(self, before, manifest_base=None):
+    def run_prefix(self, before, manifest_base=None, fail_attribution=False, event="push", mode="diff", release_base=""):
         root = Path(__file__).resolve().parents[2]
         script = (root / ".ci/fork/coverage.sh").read_text().split("# luajit & luacov.", 1)[0]
         script += '\nprintf "MODE=%s ENFORCE=%s BASE=%s\\n" "$mode" "$enforce" "$base"\n'
@@ -385,9 +386,17 @@ class CoveragePrefixTests(GitFixture, unittest.TestCase):
         manifest = selector.select(self.repo)
         manifest["base_sha"] = manifest_base
         (artifacts / "unit-coverage/unit-selection.json").write_text(json.dumps(manifest))
-        env = dict(os.environ, EVENT_NAME="push", COVERAGE_MODE="diff", PUSH_BEFORE=before,
+        env = dict(os.environ, EVENT_NAME=event, COVERAGE_MODE=mode, PUSH_BEFORE=before, RELEASE_BASE=release_base,
                    PR_NUMBER="", PR_BASE="", RUNNER_TEMP=str(work),
                    GITHUB_OUTPUT=str(work / "output"), GITHUB_STEP_SUMMARY=str(work / "summary"))
+        if fail_attribution:
+            bindir = work / "git-wrapper"
+            bindir.mkdir(exist_ok=True)
+            wrapper = bindir / "git"
+            wrapper.write_text('#!/bin/sh\nif [ "$1" = rev-list ]; then exit 2; fi\nexec '
+                               + shlex.quote(shutil.which("git")) + ' "$@"\n')
+            wrapper.chmod(0o755)
+            env["PATH"] = str(bindir) + os.pathsep + env["PATH"]
         result = subprocess.run(["bash", "-eo", "pipefail", "-c", script, "coverage-prefix", str(artifacts)],
                                 cwd=self.repo, env=env, capture_output=True, text=True)
         return result, work
@@ -402,11 +411,66 @@ class CoveragePrefixTests(GitFixture, unittest.TestCase):
                 for path in ("frontend/leaf.lua", "frontend/mid.lua", "frontend/other.lua"):
                     self.assertIn("+++ b/" + path, diff)
 
-    def test_upstream_sync_still_enforces_the_requested_diff_gate(self):
+    def test_proven_upstream_sync_retains_its_existing_diff_exception(self):
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        head = self.commit()
+        self.git("branch", "upstream", head)
+        self.git("remote", "add", "origin", str(self.repo))
+        result, _ = self.run_prefix(self.base, manifest_base=self.base)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MODE=diff ENFORCE= BASE=", result.stdout)
+
+    def test_failed_upstream_fetch_cannot_reuse_a_stale_exemption(self):
         self.write("frontend/leaf.lua", "return { changed = true }")
         head = self.commit()
         self.git("update-ref", "refs/remotes/origin/upstream", head)
+        self.git("remote", "add", "origin", str(self.repo / "missing-remote.git"))
         result, _ = self.run_prefix(self.base, manifest_base=self.base)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MODE=diff ENFORCE=diff", result.stdout)
+
+    def test_ordinary_own_commits_keep_diff80_with_a_valid_upstream_ref(self):
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        self.commit()
+        self.git("branch", "upstream", self.base)
+        self.git("remote", "add", "origin", str(self.repo))
+        result, _ = self.run_prefix(self.base, manifest_base=self.base)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MODE=diff ENFORCE=diff", result.stdout)
+
+    def test_failed_attribution_keeps_diff80(self):
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        head = self.commit()
+        self.git("branch", "upstream", head)
+        self.git("remote", "add", "origin", str(self.repo))
+        result, _ = self.run_prefix(self.base, manifest_base=self.base, fail_attribution=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MODE=diff ENFORCE=diff", result.stdout)
+
+    def test_release_never_waives_gates_for_upstream_commits(self):
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        head = self.commit()
+        self.git("branch", "upstream", head)
+        self.git("branch", "main", head)
+        self.git("remote", "add", "origin", str(self.repo))
+        root = Path(__file__).resolve().parents[2]
+        tools = self.repo / ".ci/fork"
+        tools.mkdir(parents=True)
+        (tools / "coverage_baseline.sh").symlink_to(root / ".ci/fork/coverage_baseline.sh")
+        history = json.dumps({"commit": self.base, "mode": "combined", "overall": 100, "unit": 100}) + "\n"
+        blob = subprocess.check_output(["git", "-C", str(self.repo), "hash-object", "-w", "--stdin"], input=history.encode()).decode().strip()
+        tree = subprocess.check_output(["git", "-C", str(self.repo), "mktree"], input=("100644 blob " + blob + "\thistory.jsonl\n").encode()).decode().strip()
+        commit = self.git("commit-tree", tree, "-m", "coverage fixture")
+        self.git("update-ref", "refs/heads/coverage", commit)
+        result, _ = self.run_prefix(self.base, event="release", mode="combined", release_base=self.base)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        enforced = set(result.stdout.rsplit("MODE=combined ENFORCE=", 1)[1].split()[0].split(","))
+        self.assertTrue({"diff", "ratchet", "owned", "unit", "unit_ratchet"} <= enforced)
+
+    def test_initial_push_cannot_claim_an_upstream_exception(self):
+        self.git("branch", "upstream", self.base)
+        self.git("remote", "add", "origin", str(self.repo))
+        result, _ = self.run_prefix("0" * 40)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("MODE=diff ENFORCE=diff", result.stdout)
 

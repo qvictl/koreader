@@ -71,8 +71,11 @@ case "${EVENT_NAME}" in
 
         ;;
 esac
+upstream_ready=false
+if git fetch --quiet origin '+refs/heads/upstream:refs/remotes/origin/upstream'; then
+    upstream_ready=true
+fi
 if [[ "${mode}" != diff ]]; then
-    git fetch --quiet origin '+refs/heads/upstream:refs/remotes/origin/upstream' || true
     git fetch --quiet origin '+refs/heads/coverage:refs/remotes/origin/coverage'
     git fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null || true
 fi
@@ -85,12 +88,20 @@ case "${EVENT_NAME}" in
     workflow_dispatch) ratchet_base="$("${src}/.ci/fork/coverage_baseline.sh" base workflow_dispatch)" || ratchet_base="${base}" ;;
     *) ratchet_base="${base}" ;;
 esac
-if [[ "${mode}" != diff ]] && [[ "${EVENT_NAME}" != release ]] && [[ -n "${enforce}" ]] && git rev-parse -q --verify origin/upstream >/dev/null; then
-    all="$(git rev-list --count "${base}..HEAD")"
-    own="$(git rev-list --count "${base}..HEAD" --not origin/upstream)"
-    if [[ "${own}" != "${all}" ]]; then
-        enforce=unit
-        note="This change brings $((all - own)) upstream commit(s) (upstream sync): only the dated unit target is enforced; combined owned coverage is checked at release."
+sync_exempt=false
+sync_note=''
+if [[ "${EVENT_NAME}" != release && "${initial_push}" != true && "${upstream_ready}" == true && -n "${enforce}" ]]; then
+    if all="$(git rev-list --count "${base}..HEAD")" &&
+        own="$(git rev-list --count "${base}..HEAD" --not origin/upstream)" &&
+        [[ "${all}" =~ ^[0-9]+$ && "${own}" =~ ^[0-9]+$ && "${own}" -lt "${all}" ]]; then
+        if [[ "${mode}" == diff ]]; then
+            sync_exempt=true
+            enforce=''
+            sync_note="Upstream sync: $((all - own)) proven upstream commit(s); existing changed-line exemption retained. Full unit/combined targets and diff90 remain mandatory at release."
+        else
+            enforce=unit
+            note="This change brings $((all - own)) upstream commit(s): only the dated unit target is enforced in this full-unit measurement."
+        fi
     fi
 fi
 echo "base: ${base}, ratchet base: ${ratchet_base}, head: $(git rev-parse HEAD), enforce: ${enforce:-none}"
@@ -161,8 +172,13 @@ if [[ "${mode}" != diff ]]; then
 fi
 echo "ratchet baseline: ${baseline[*]}"
 if [[ "${mode}" == diff ]]; then
-    enforce='diff'
-    note='Changed-line unit coverage only; full unit/combined metrics and targets are checked at release.'
+    if [[ "${sync_exempt}" == true ]]; then
+        enforce=''
+        note="${sync_note}"
+    else
+        enforce='diff'
+        note='Changed-line unit coverage only; full unit/combined metrics and targets are checked at release.'
+    fi
 fi
 
 # luajit & luacov.
