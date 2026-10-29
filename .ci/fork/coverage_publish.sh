@@ -22,6 +22,10 @@ set -eo pipefail
 # Also exercised offline: a unit-only re-run must not erase real combined data.
 merge_record() {
     local result="$1" history="$2" commit
+    jq -e '.mode != "diff" and .overall_unit != null' "${result}" >/dev/null || {
+        echo "partial coverage cannot be published" >&2
+        return 2
+    }
     commit="$(jq -r '.commit' "${result}")"
     jq -n --arg c "${commit}" --slurpfile result "${result}" --rawfile history "${history}" '
         ($history | split("\n") | map(fromjson? | objects | select(.commit == $c)) | last // {}) as $old |
@@ -42,6 +46,10 @@ if [[ "${1:-}" == --merge-record ]]; then
     exit
 fi
 result="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+jq -e '.mode != "diff" and .overall_unit != null' "${result}" >/dev/null || {
+    echo "partial coverage cannot be published" >&2
+    exit 2
+}
 repo="${COVERAGE_PUBLISH_REPOSITORY:-${GITHUB_REPOSITORY:?}}"
 commit="$(jq -r '.commit' "${result}")"
 work="$(mktemp -d)"

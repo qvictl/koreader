@@ -37,7 +37,7 @@ case "$1" in
         declare -A pct
         while IFS=$'\t' read -r c p; do
             [[ -z "${c}" ]] || [[ -z "${p}" ]] || pct[${c}]="${p}"
-        done < <(jq -R -r --arg metric "${metric}" 'fromjson? | objects
+        done < <(jq -R -r --arg metric "${metric}" 'fromjson? | objects | select(.mode != "diff")
             | [.commit, (if $metric == "unit" then (.overall_unit.percent // .unit) else
                 (if .mode == "unit" then null else (.overall | if type == "object" then .percent else . end) end) end)]
             | select(.[0] != null and .[1] != null) | @tsv' "$3" 2>/dev/null)

@@ -211,10 +211,13 @@ EOF
 mode_run() {
     local mode="$1" baseline="$2" expected="$3" expression="$4" code=0 extra=()
     [[ "${mode}" != combined ]] || extra=(--integration "${work}/integration.stats.out")
+    [[ "${baseline}" == none ]] || extra+=(--baseline-overall "${baseline}")
+    local enforce=diff,ratchet
+    [[ "${mode}" != diff ]] || enforce='diff'
     (cd "${kodir}" && ./luajit -e "package.path='spec/rocks/share/lua/5.1/?.lua;spec/rocks/share/lua/5.1/?/init.lua;'..package.path" \
         "${tool}" --mode "${mode}" --config "${work}/config.lua" --src "${repo}" \
         --unit "${work}/unit80.stats.out" "${extra[@]}" --diff "${work}/changed.diff" \
-        --baseline-overall "${baseline}" --enforce diff,ratchet --json "${work}/mode.json" >/dev/null) || code=$?
+        --enforce "${enforce}" --json "${work}/mode.json" >/dev/null) || code=$?
     check "$5: exit" "${code}" "${expected}"
     check "$5: metrics" "$(jq -e "${expression}" "${work}/mode.json")" true
 }
@@ -224,6 +227,20 @@ mode_run combined 40 1 '([.gates[] | select(.name == "Diff coverage, unit + inte
     'release still rejects combined changed-line coverage below 90%'
 mode_run unit 50 1 '([.gates[] | select(.id == "ratchet" and .enforced and (.ok | not))] | length) == 1' \
     'daily unit overall ratchet rejects a regression'
+mode_run diff none 0 '.mode == "diff" and .overall == null and .overall_unit == null and .owned == null and .owned_unit == null and .diff_combined == null and .diff_unit.percent == 80 and ([.gates[] | select(.id != "diff")] | length) == 0' \
+    'partial unit stats enforce changed80 only and cannot claim whole metrics'
+cp "${work}/mode.json" "${work}/partial.json"
+# A fully covered changed diff must not hide a lower full-unit metric at release.
+code=0
+(cd "${kodir}" && ./luajit -e "package.path='spec/rocks/share/lua/5.1/?.lua;spec/rocks/share/lua/5.1/?/init.lua;'..package.path" \
+    "${tool}" --mode combined --config "${work}/config.lua" --src "${repo}" \
+    --unit "${work}/unit80.stats.out" --integration "${work}/integration.stats.out" \
+    --baseline-overall 90 --baseline-unit 41 --baseline-unit-label exact-unit-ancestor \
+    --enforce ratchet,unit_ratchet --json "${work}/unit-ratchet.json" >/dev/null) || code=$?
+check 'release full-unit ratchet independently rejects 40% below41%' "${code}" 1
+check 'release combined ratchet may pass while unit ratchet fails' \
+    "$(jq -e '.overall.percent == 90 and .overall_unit.percent == 40 and .unit_ratchet.baseline == 41 and ([.gates[] | select(.enforced and (.ok | not)) | .id] == ["unit_ratchet"])' "${work}/unit-ratchet.json")" true
+
 {
     echo "{\"commit\":\"${A}\",\"overall\":49.95,\"unit\":30}"
     echo "{\"commit\":\"${B}\",\"mode\":\"unit\",\"overall\":null,\"unit\":40}"
@@ -234,6 +251,14 @@ check 'unit lookup uses the exact daily unit record, not the combined ancestor' 
     "$(cd "${h}" && "${baseline_tool}" lookup "${B}" "${work}/split-history.jsonl" unit)" "${B} 40 exact"
 echo 'not json' >>"${work}/split-history.jsonl"
 publisher="$(dirname "${tool}")/coverage_publish.sh"
+code=0
+"${publisher}" --merge-record "${work}/partial.json" "${work}/split-history.jsonl" >/dev/null 2>&1 || code=$?
+check 'partial results cannot enter whole coverage history even through merge-record' "${code}" 2
+printf '{"commit":"%s","mode":"diff","overall_unit":{"percent":100},"overall":{"percent":100}}\n' "${B}" >>"${work}/split-history.jsonl"
+check 'unit lookup ignores partial rows even if they contain a numeric whole field' \
+    "$(cd "${h}" && "${baseline_tool}" lookup "${B}" "${work}/split-history.jsonl" unit)" "${B} 40 exact"
+mode_run unit 50 1 '.overall_unit.percent == 40' 'full unit fixture remains compatible'
+
 jq --arg c "${A}" '. + {commit:$c,date:"2026-10-28"}' "${work}/mode.json" >"${work}/unit-result.json"
 "${publisher}" --merge-record "${work}/unit-result.json" "${work}/split-history.jsonl" >"${work}/merged-record.json"
 check 'unit-only rerun preserves an existing real combined measurement' \
