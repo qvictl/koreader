@@ -205,8 +205,10 @@ jobs:
       - name: Base unit tests (with coverage)
         if: inputs.unit_tests && inputs.base_coverage
         run: |
-          # Collect base coverage from this exact product build, before front tests reset it.
-          make --assume-old=all "${{ env.EMU_DIR }}/koreader/.luacov"
+          # Match standalone base CI's default coverage configuration (front excludes MD5).
+          # Front coverage-run recreates its own .luacov target afterwards.
+          rm -f "${{ env.EMU_DIR }}/koreader/.luacov"
+          find "${{ env.EMU_DIR }}/koreader" -name 'luacov.stats.out*' -type f -delete
           ./base/utils/fake_tty.py make --assume-old=all testbase T="--coverage -j 1 -o ${PWD}/junit-base.xml"
           mkdir -p base-coverage
           n=0
