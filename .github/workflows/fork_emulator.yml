@@ -24,6 +24,14 @@ on:
         description: 'Run the unit tests'
         default: true
         type: boolean
+      unit_test_base:
+        description: 'Explicit CI change base; empty retains full unit tests'
+        default: ''
+        type: string
+      unit_test_event:
+        description: 'CI event used to resolve the tested PR merge base'
+        default: ''
+        type: string
       base_coverage:
         description: 'Collect base unit coverage for a product release candidate'
         default: false
@@ -198,8 +206,39 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: make --assume-old=base all
 
+      - name: Select affected front unit suites
+        if: inputs.unit_tests
+        id: selection
+        shell: bash
+        env:
+          CHANGE_BASE: ${{ inputs.unit_test_base }}
+          CHANGE_EVENT: ${{ inputs.unit_test_event }}
+          FULL_RELEASE_UNITS: ${{ inputs.base_coverage }}
+        run: |
+          python3 .ci/fork/select_tests_test.py
+          MESON_AVAILABLE="$(./kodev docker kontainer exec sh -c 'if command -v meson >/dev/null; then echo true; else echo false; fi')"
+          if [[ "${FULL_RELEASE_UNITS}" != true && -n "${CHANGE_BASE}" && ! "${CHANGE_BASE}" =~ ^0+$ ]]; then
+            if [[ "${CHANGE_EVENT}" == pull_request ]] && git rev-parse -q --verify HEAD^2 >/dev/null; then
+              CHANGE_BASE="$(git rev-parse HEAD^1)"
+            else
+              CHANGE_BASE="$(git merge-base "${CHANGE_BASE}" HEAD)"
+            fi
+            selection_args=(--base "${CHANGE_BASE}" --head "$(git rev-parse HEAD)")
+            [[ "${MESON_AVAILABLE}" == true ]] || selection_args+=(--full)
+            python3 .ci/fork/select_tests.py "${selection_args[@]}" --output unit-selection.json
+          else
+            python3 .ci/fork/select_tests.py --output unit-selection.json
+          fi
+          cat unit-selection.json
+          rm -rf coverage
+          mkdir -p coverage
+          cp unit-selection.json coverage/unit-selection.json
+          git rev-parse HEAD >coverage/koreader-sha.txt
+          echo "front_units=$(python3 -c 'import json; print(json.load(open("unit-selection.json"))["mode"])')" >>"${GITHUB_OUTPUT}"
+          echo "base_units=$(python3 -c 'import json; print(json.load(open("unit-selection.json"))["base_unit_tests"])')" >>"${GITHUB_OUTPUT}"
+
       - name: Base unit tests
-        if: inputs.unit_tests && !inputs.base_coverage
+        if: inputs.unit_tests && !inputs.base_coverage && steps.selection.outputs.base_units == 'full'
         run: ./base/utils/fake_tty.py make --assume-old=all testbase T="-o ${PWD}/junit-base.xml"
 
       - name: Base unit tests (with coverage)
@@ -221,12 +260,13 @@ jobs:
           git -C base rev-parse HEAD >base-coverage/base-sha.txt
 
       - name: Front unit tests (with coverage)
-        if: inputs.unit_tests
+        if: inputs.unit_tests && steps.selection.outputs.front_units != 'none'
         run: |
-          ./base/utils/fake_tty.py make --assume-old=all coverage-run T="-o ${PWD}/junit-front.xml"
+          ./base/utils/fake_tty.py python3 .ci/fork/run_unit_tests.py --selection unit-selection.json --junit "${PWD}/junit-front.xml"
           mkdir -p coverage
           cp "${{ env.EMU_DIR }}/koreader/luacov.stats.out" coverage/unit.stats.out
           git rev-parse HEAD >coverage/koreader-sha.txt
+          cp unit-selection.json coverage/unit-selection.json
           tail -n +"$(( $(grep -nm1 -e '^Summary$' "${{ env.EMU_DIR }}/koreader/luacov.report.out" | cut -d: -f1) - 1 ))" \
             "${{ env.EMU_DIR }}/koreader/luacov.report.out" | tail -n 3
 

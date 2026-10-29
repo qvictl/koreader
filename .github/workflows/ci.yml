@@ -2,10 +2,9 @@
 #
 # CI for `main` and pull requests to it:
 #   - Lint                 : upstream's lint (shellcheck, luacheck, unscaled sizes, gettext…)
-#   - Build and unit tests : emulator build + base & front unit tests (busted, front with luacov),
+#   - Build and unit tests : emulator build + affected front unit suites (full fallback; luacov),
 #                            Kindle HF & PW2 builds (upstream build machinery)
-#   - Coverage             : changed-line unit coverage >= 80%, unit overall ratchet,
-#                            dated unit targets (owned-unit coverage is reported).
+#   - Coverage             : changed-line unit coverage >= 80%; partial whole metrics are unmeasured.
 # Emulator integration and combined coverage run only in Fork release.
 # The "Tests policy" check lives in tests_policy.yml (it must re-run when labels change).
 #
@@ -29,8 +28,8 @@ on:
         type: string
 
 concurrency:
-  # Pushes to main: one group per commit (never cancelled), so that every main commit gets its
-  # coverage record (the baseline of the PRs based on it).
+  # Pushes to main: one group per commit (never cancelled), so each commit
+  # tests its own change range. Whole coverage is measured at release.
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.sha) || github.ref }}
   cancel-in-progress: true
 
@@ -52,6 +51,9 @@ jobs:
   emulator:
     name: Emulator
     uses: ./.github/workflows/fork_emulator.yml
+    with:
+      unit_test_base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || '' }}
+      unit_test_event: ${{ github.event_name }}
 
   kindle:
     name: Kindle
@@ -90,7 +92,7 @@ jobs:
         id: coverage
         env:
           GH_TOKEN: ${{ github.token }}
-          COVERAGE_MODE: unit
+          COVERAGE_MODE: diff
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -102,36 +104,6 @@ jobs:
           name: coverage-result
           path: coverage-result.json
           retention-days: 30
-
-  coverage-publish:
-    # main's coverage, recorded per commit (`coverage` branch): the baseline of the ratchet of
-    # the PRs based on this commit, history, badges. Publishes of several main commits may run
-    # in parallel or out of order (coverage_publish.sh retries rejected pushes and only moves
-    # baseline.json forward).
-    name: Coverage history
-    needs: coverage-report
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.coverage-report.result == 'success'
-    runs-on: ubuntu-26.04
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-        with:
-          clean: false
-          # main's history (commit order).
-          fetch-depth: 0
-          filter: tree:0
-          show-progress: false
-          sparse-checkout: .ci
-      - name: Download result
-        uses: actions/download-artifact@v8.0.2
-        with:
-          name: coverage-result
-      - name: Publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: ./.ci/fork/coverage_publish.sh coverage-result.json
 
   # }}}
 

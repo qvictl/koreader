@@ -30,5 +30,5 @@ Integration scenario(s): <!-- e.g. 05_dictionary_progressive -->
 - [ ] Tests added or updated for every code change (or the reason why not is explained above)
 - [ ] Integration scenario changes are ready for the release candidate suite (optional local results noted above)
 - [ ] An emulator integration scenario covers the user-visible change (named above)
-- [ ] Coverage check green: unit changed-line coverage ≥ 80%, unit ratchet (0.1 pp allowance), dated unit targets; owned unit values are reported. Releases also enforce unit + integration changed-line coverage ≥ 90%, combined ratchet and owned targets
+- [ ] Coverage check green: selected UT changed-line coverage ≥ 80% (existing proven upstream-sync exception retained). Releases run full UT/IT and enforce separate unit/combined ratchets (0.1 pp allowance), dated unit/module targets, and unit + integration changed-line coverage ≥ 90%
 - [ ] Every AI review comment flagged as a potential issue / bug is fixed or answered with a justification before resolving it ([REVIEW_POLICY.md](../blob/main/REVIEW_POLICY.md))
