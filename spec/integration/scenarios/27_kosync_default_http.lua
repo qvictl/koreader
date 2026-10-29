@@ -333,7 +333,11 @@ return {
             local suspend = server:plan(200, { message = "accepted old snapshot" })
             T:run(function()
                 Device.hasWifiManager = function() return false end
-                local called, failure = pcall(plugin.updateProgress, plugin, false, true, true)
+                local online_gate = NetworkMgr.willRerunWhenOnline
+                NetworkMgr.willRerunWhenOnline = function() error("suspend must persist without an online gate") end
+                plugin.push_timestamp = UI:getElapsedTimeSinceBoot()
+                local called, failure = pcall(plugin._onSuspend, plugin)
+                NetworkMgr.willRerunWhenOnline = online_gate
                 Device.hasWifiManager = original_wifi
                 if not called then error(failure, 0) end
             end)
