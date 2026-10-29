@@ -208,9 +208,9 @@ function Cloud:sync(server, file_path, sync_cb, is_silent, caller_pre_callback)
                     show_msg()
                     return
                 end
-                local ok, cb_return = pcall(sync_cb, file_path, cached_file_path, income_file_path)
+                local ok, cb_return, cb_error = pcall(sync_cb, file_path, cached_file_path, income_file_path)
                 if not ok or not cb_return then
-                    show_msg()
+                    show_msg(ok and cb_error or nil)
                     if not ok then logger.err("sync service callback failed:", cb_return) end
                     return
                 end

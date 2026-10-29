@@ -89,6 +89,9 @@ end
 function ScreenSaverWidget:onSuspend()
     -- Also flip this back on suspend, in case we suspend again on a delayed screensaver (e.g., via SleepCover or AutoSuspend).
     Device.screen_saver_lock = false
+    local Screensaver = require("ui/screensaver")
+    UIManager:unschedule(Screensaver.close_widget)
+    Screensaver.delayed_close = nil
 end
 
 return ScreenSaverWidget

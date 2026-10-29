@@ -873,11 +873,11 @@ function Kindle:setEventHandlers(uimgr)
     end
     UIManager.event_handlers.IntoSS = function(input_event)
         -- Retrieve the argument set by Input:handleKeyBoardEv
-        local arg = table.remove(self.input.fake_event_args[input_event])
+        local arg = table.remove(self.input.fake_event_args[input_event], 1)
         self:intoScreenSaver(arg)
     end
     UIManager.event_handlers.OutOfSS = function(input_event)
-        local arg = table.remove(self.input.fake_event_args[input_event])
+        local arg = table.remove(self.input.fake_event_args[input_event], 1)
         self:outofScreenSaver(arg)
     end
     UIManager.event_handlers.ExitingSS = function()
@@ -892,11 +892,11 @@ function Kindle:setEventHandlers(uimgr)
         self:_afterNotCharging()
     end
     UIManager.event_handlers.WakeupFromSuspend = function(input_event)
-        local arg = table.remove(self.input.fake_event_args[input_event])
+        local arg = table.remove(self.input.fake_event_args[input_event], 1)
         self:wakeupFromSuspend(arg)
     end
     UIManager.event_handlers.ReadyToSuspend = function(input_event)
-        local arg = table.remove(self.input.fake_event_args[input_event])
+        local arg = table.remove(self.input.fake_event_args[input_event], 1)
         self:readyToSuspend(arg)
     end
 end

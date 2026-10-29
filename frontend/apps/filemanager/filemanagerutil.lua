@@ -59,11 +59,14 @@ end
 
 function filemanagerutil.getRandomFile(dir, match_func, max_files)
     local files = {}
+    -- Rejected files must not make a bounded UI scan visit the whole directory.
     util.findFiles(dir, function(file)
         if match_func(file) then
             table.insert(files, file)
+            return true
         end
-    end, false, max_files)
+        return false
+    end, false, max_files, max_files and math.max(1024, max_files * 4))
     if #files > 0 then
         math.randomseed(os.time())
         return files[math.random(#files)]

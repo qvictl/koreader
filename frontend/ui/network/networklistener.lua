@@ -64,22 +64,24 @@ function NetworkListener:onInfoWifiOff()
 end
 
 function NetworkListener:onInfoWifiOn()
-    if not NetworkMgr:isOnline() then
-        enableWifi()
-    else
-        local info_text
-        local current_network = NetworkMgr:getCurrentNetwork()
-        -- this method is only available for some implementations
-        if current_network and current_network.ssid then
-            info_text = T(_("Already connected to network %1."), BD.wrap(current_network.ssid))
+    NetworkMgr:checkOnline(function(online)
+        if not online then
+            enableWifi()
         else
-            info_text = _("Already connected.")
+            local info_text
+            local current_network = NetworkMgr:getCurrentNetwork()
+            -- this method is only available for some implementations
+            if current_network and current_network.ssid then
+                info_text = T(_("Already connected to network %1."), BD.wrap(current_network.ssid))
+            else
+                info_text = _("Already connected.")
+            end
+            UIManager:show(InfoMessage:new{
+                text = info_text,
+                timeout = 1,
+            })
         end
-        UIManager:show(InfoMessage:new{
-            text = info_text,
-            timeout = 1,
-        })
-    end
+    end)
 end
 
 -- Everything below is to handle auto_disable_wifi ;).

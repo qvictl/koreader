@@ -533,6 +533,23 @@ describe("UIManager spec", function()
             assert.are.same(1, #UIManager._window_stack)
         end)
 
+        it("can close menus through their normal callbacks", function()
+            local base = widget{ name = "base" }
+            local saved = false
+            local menu = widget{
+                name = "menu",
+                onCloseAllMenus = function(self)
+                    saved = true
+                    UIManager:close(self)
+                end,
+            }
+            UIManager:show(base)
+            UIManager:show(menu)
+            assert.are.equal(1, UIManager:closeWidgetsAbove(base, true))
+            assert.is_true(saved)
+            assert.are.same({ "menu" }, closed)
+        end)
+
         it("should do nothing for a widget that is not shown", function()
             local dialog = widget{ name = "dialog" }
             UIManager:show(dialog)

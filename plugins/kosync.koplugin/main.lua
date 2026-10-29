@@ -189,8 +189,29 @@ end
 
 function KOSync:onReaderReady()
     if self.settings.auto_sync then
+        local ui = self.ui
         UIManager:nextTick(function()
-            self:getProgress(true, false)
+            if not ui.document then return end
+            local KOSyncQueue = require("KOSyncQueue")
+            if KOSyncQueue:count() == 0 then
+                self:getProgress(true, false)
+                return
+            end
+            local document = self:getDocumentDigest()
+            local upload_pending
+            upload_pending = function()
+                if not ui.document then return end
+                -- An existing drain may be waiting on another book. Once it settles,
+                -- give this document its own prioritized attempt before deciding to pull.
+                if KOSyncQueue._draining then
+                    UIManager:scheduleIn(0.25, upload_pending)
+                    return
+                end
+                self:drainQueue(function()
+                    self:_pullIfNoPendingProgress(document)
+                end, document)
+            end
+            NetworkMgr:runWhenOnline(upload_pending)
         end)
     end
     -- NOTE: Keep in mind that, on Android, turning on WiFi requires a focus switch, which will trip a Suspend/Resume pair.
@@ -462,7 +483,11 @@ end
 
 function KOSync:setCustomServer(server)
     logger.dbg("KOSync: Setting custom server to:", server)
-    self.settings.custom_server = server ~= "" and server or nil
+    server = server ~= "" and server or nil
+    if self.settings.custom_server ~= server then
+        require("KOSyncQueue"):invalidatePending()
+        self.settings.custom_server = server
+    end
 end
 
 function KOSync:setSyncForward(strategy)
@@ -557,83 +582,104 @@ function KOSync:login(menu)
     dialog:onShowKeyboard()
 end
 
-function KOSync:doRegister(username, password, menu)
+function KOSync:_runAuthInWorker(method, username, password, busy_text, callback)
     local KOSyncClient = require("KOSyncClient")
     local client = KOSyncClient:new{
         custom_url = self.settings.custom_server,
-        service_spec = self.path .. "/api.json"
+        service_spec = self.path .. "/api.json",
     }
-    -- on Android to avoid ANR (no-op on other platforms)
-    Device:setIgnoreInput(true)
+    local Queue = require("KOSyncQueue")
+    local generation, ui = Queue._generation, self.ui
+    local document = ui and ui.document
     local userkey = md5(password)
-    local ok, status, body = pcall(client.register, client, username, userkey)
-    if not ok then
-        if status then
-            UIManager:show(InfoMessage:new{
-                text = _("An error occurred while registering:") ..
-                    "\n" .. status,
-            })
-        else
-            UIManager:show(InfoMessage:new{
-                text = _("An unknown error occurred while registering."),
-            })
+    client:_runInSubprocess(function()
+        local ok, status, body = pcall(client[method], client, username, userkey)
+        if not ok then
+            local message, valid = client:_workerBody({ message = tostring(status) }, true)
+            return false, valid and message.message or _("Invalid server response.")
         end
-    elseif status then
-        self.settings.username = username
-        self.settings.userkey = userkey
-        if menu then
-            menu:updateItems()
+        local bounded, valid = client:_workerBody(body, true)
+        if not valid then return false, _("Invalid server response.") end
+        return true, status == true, bounded
+    end, function(completed, ok, status, body)
+        if generation ~= Queue._generation or self.ui ~= ui or (ui and ui.document ~= document) then return end
+        if not completed then
+            if status == "busy" then
+                UIManager:show(InfoMessage:new{
+                    text = _("A synchronization request is already in progress. Please try again."),
+                })
+            elseif status then
+                showSyncError()
+            end
+            return
         end
-        self.updated = true
-        UIManager:show(InfoMessage:new{
-            text = _("Registered to KOReader server."),
-        })
-    else
-        UIManager:show(InfoMessage:new{
-            text = body and body.message or _("Unknown server error"),
-        })
-    end
-    Device:setIgnoreInput(false)
+        callback(ok, status, body, userkey)
+    end, busy_text)
+end
+
+function KOSync:doRegister(username, password, menu)
+    self:_runAuthInWorker("register", username, password, _("Registering. Please wait…"),
+        function(ok, status, body, userkey)
+            if not ok then
+                if status then
+                    UIManager:show(InfoMessage:new{
+                        text = _("An error occurred while registering:") ..
+                            "\n" .. status,
+                    })
+                else
+                    UIManager:show(InfoMessage:new{
+                        text = _("An unknown error occurred while registering."),
+                    })
+                end
+            elseif status then
+                self.settings.username = username
+                self.settings.userkey = userkey
+                if menu and UIManager:isWidgetShown(menu) then
+                    menu:updateItems()
+                end
+                self.updated = true
+                UIManager:show(InfoMessage:new{
+                    text = _("Registered to KOReader server."),
+                })
+            else
+                UIManager:show(InfoMessage:new{
+                    text = body and body.message or _("Unknown server error"),
+                })
+            end
+        end)
 end
 
 function KOSync:doLogin(username, password, menu)
-    local KOSyncClient = require("KOSyncClient")
-    local client = KOSyncClient:new{
-        custom_url = self.settings.custom_server,
-        service_spec = self.path .. "/api.json"
-    }
-    Device:setIgnoreInput(true)
-    local userkey = md5(password)
-    local ok, status, body = pcall(client.authorize, client, username, userkey)
-    if not ok then
-        if status then
-            UIManager:show(InfoMessage:new{
-                text = _("An error occurred while logging in:") ..
-                    "\n" .. status,
-            })
-        else
-            UIManager:show(InfoMessage:new{
-                text = _("An unknown error occurred while logging in."),
-            })
-        end
-        Device:setIgnoreInput(false)
-        return
-    elseif status then
-        self.settings.username = username
-        self.settings.userkey = userkey
-        self.updated = true
-        if menu then
-            menu:updateItems()
-        end
-        UIManager:show(InfoMessage:new{
-            text = _("Logged in to KOReader server."),
-        })
-    else
-        UIManager:show(InfoMessage:new{
-            text = body and body.message or _("Unknown server error"),
-        })
-    end
-    Device:setIgnoreInput(false)
+    self:_runAuthInWorker("authorize", username, password, _("Logging in. Please wait…"),
+        function(ok, status, body, userkey)
+            if not ok then
+                if status then
+                    UIManager:show(InfoMessage:new{
+                        text = _("An error occurred while logging in:") ..
+                            "\n" .. status,
+                    })
+                else
+                    UIManager:show(InfoMessage:new{
+                        text = _("An unknown error occurred while logging in."),
+                    })
+                end
+                return
+            elseif status then
+                self.settings.username = username
+                self.settings.userkey = userkey
+                self.updated = true
+                if menu and UIManager:isWidgetShown(menu) then
+                    menu:updateItems()
+                end
+                UIManager:show(InfoMessage:new{
+                    text = _("Logged in to KOReader server."),
+                })
+            else
+                UIManager:show(InfoMessage:new{
+                    text = body and body.message or _("Unknown server error"),
+                })
+            end
+        end)
 end
 
 function KOSync:logout(menu)
@@ -711,6 +757,8 @@ function KOSync:syncToProgress(progress)
     end
 end
 
+local pending_pushes = setmetatable({}, { __mode = "v" })
+
 function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
     if not self.settings.username or not self.settings.userkey then
         if interactive then
@@ -720,21 +768,37 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
     end
 
     local now = UIManager:getElapsedTimeSinceBoot()
-    if not interactive and now - self.push_timestamp <= API_CALL_DEBOUNCE_DELAY then
+    if not on_suspend and not interactive and now - self.push_timestamp <= API_CALL_DEBOUNCE_DELAY then
         logger.dbg("KOSync: We've already pushed progress less than 25s ago!")
         return
     end
 
-    if ensure_networking and NetworkMgr:willRerunWhenOnline(function() self:updateProgress(ensure_networking, interactive, on_suspend) end) then
+    if not on_suspend and ensure_networking and NetworkMgr:willRerunWhenOnline(function() self:updateProgress(ensure_networking, interactive, on_suspend) end) then
         return
     end
 
-    local KOSyncClient = require("KOSyncClient")
-    local client = KOSyncClient:new{
-        custom_url = self.settings.custom_server,
-        service_spec = self.path .. "/api.json"
-    }
+    local ui = self.ui
+    local document = ui.document
+    if not document then return end
+    local filename = document.file
+    local Queue = require("KOSyncQueue")
+    local generation = Queue._generation
     local doc_digest = self:getDocumentDigest()
+    if not doc_digest then
+        if interactive then showSyncError() end
+        return
+    end
+    local request = {}
+    pending_pushes[doc_digest] = request
+    local function data_current()
+        return generation == Queue._generation and pending_pushes[doc_digest] == request
+    end
+    local function view_current()
+        return self.ui == ui and ui.document == document
+    end
+    local function finish_request()
+        if pending_pushes[doc_digest] == request then pending_pushes[doc_digest] = nil end
+    end
     local metadata = self:getMetadata()
     local progress = self:getLastProgress()
     local percentage = self:getLastPercent()
@@ -747,6 +811,57 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         device = chosen_device_name,
         device_id = self.device_id,
     }
+    if on_suspend then
+        -- A worker may outlive suspend or never resume. Persist first and let
+        -- the queue remove only the exact successfully uploaded snapshot.
+        Queue:push(queue_item)
+        finish_request()
+        local sender = { path = self.path, settings = {
+            username = self.settings.username, userkey = self.settings.userkey,
+            custom_server = self.settings.custom_server,
+        } }
+        local started, err = pcall(KOSync.drainQueue, sender, nil, doc_digest)
+        if not started then logger.dbg("KOSync: suspend upload failure:", err) end
+        local widget = UIManager:getTopmostVisibleWidget()
+        if widget and widget.modal and widget.tag == "NetworkMgr" and not widget.dismiss_callback then
+            widget.dismiss_callback = function() UIManager:setDirty(nil, "full") end
+        end
+        -- Device:onPowerEvent already tears Wi-Fi down before broadcasting
+        -- Suspend. Do not repeat a synchronous DHCP release from this callback.
+        self.push_timestamp = now
+        return
+    end
+    local KOSyncClient = require("KOSyncClient")
+    local client = KOSyncClient:new{
+        custom_url = self.settings.custom_server,
+        service_spec = self.path .. "/api.json"
+    }
+    local queued_before = {}
+    for _, entry in ipairs(Queue:load()) do
+        if entry.document == doc_digest then queued_before[math.floor((entry.queued_at or 0) / 86400)] = entry end
+    end
+    local function remove_superseded_snapshots()
+        local kept, changed = {}, false
+        for _, entry in ipairs(Queue:load()) do
+            local day = math.floor((entry.queued_at or 0) / 86400)
+            if entry.document == doc_digest and util.tableEquals(entry, queued_before[day]) then
+                changed = true
+            else
+                kept[#kept + 1] = entry
+            end
+        end
+        if changed then Queue:save(kept) end
+    end
+    local function queue_if_current()
+        if not data_current() then return end
+        for _, entry in ipairs(Queue:load()) do
+            local day = math.floor((entry.queued_at or 0) / 86400)
+            if entry.document == doc_digest and not util.tableEquals(entry, queued_before[day]) then
+                return -- A later snapshot already owns this document's pending update.
+            end
+        end
+        Queue:push(queue_item)
+    end
     local ok, err = pcall(client.update_progress,
         client,
         self.settings.username,
@@ -758,52 +873,32 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         chosen_device_name,
         self.device_id,
         function(ok, status, body)
-            logger.dbg("KOSync: [Push] progress to", percentage * 100, "% =>", progress, "for", self.view.document.file)
-            logger.dbg("KOSync: ok:", ok, "body:", body)
+            if not data_current() then finish_request(); return end
             if ok then
-                if interactive then
+                remove_superseded_snapshots()
+            elseif status ~= 401 then
+                queue_if_current()
+            end
+            finish_request()
+            logger.dbg("KOSync: [Push] progress to", percentage * 100, "% =>", progress, "for", filename)
+            logger.dbg("KOSync: ok:", ok, "body:", body)
+            if interactive and view_current() then
+                if ok then
                     UIManager:show(InfoMessage:new{
                         text = _("Progress has been pushed."),
                         timeout = 3,
                     })
+                else
+                    showSyncError()
                 end
-            else
-                -- Queue for retry unless it's an auth failure
-                if status ~= 401 then
-                    local KOSyncQueue = require("KOSyncQueue")
-                    KOSyncQueue:push(queue_item)
-                end
-                if interactive then showSyncError() end
             end
         end)
     if not ok then
-        if interactive then showSyncError() end
+        if not data_current() then return end
+        queue_if_current()
+        finish_request()
+        if interactive and view_current() then showSyncError() end
         if err then logger.dbg("err:", err) end
-        -- Network unreachable: queue for retry
-        local KOSyncQueue = require("KOSyncQueue")
-        KOSyncQueue:push(queue_item)
-    else
-        -- This is solely for onSuspend's sake, to clear the ghosting left by the "Connected" InfoMessage
-        if on_suspend then
-            -- Our top-level widget should be the "Connected to network" InfoMessage from NetworkMgr's reconnectOrShowNetworkMenu
-            local widget = UIManager:getTopmostVisibleWidget()
-            if widget and widget.modal and widget.tag == "NetworkMgr" and not widget.dismiss_callback then
-                -- We want a full-screen flash on dismiss
-                widget.dismiss_callback = function()
-                    -- Enqueued, because we run before the InfoMessage's close
-                    UIManager:setDirty(nil, "full")
-                end
-            end
-        end
-    end
-
-    if on_suspend then
-        -- NOTE: We want to murder Wi-Fi once we're done in this specific case (i.e., Suspend),
-        --       because some of our hasWifiManager targets will horribly implode when attempting to suspend with the Wi-Fi chip powered on,
-        --       and they'll have attempted to kill Wi-Fi well before *we* run (e.g., in `Device:onPowerEvent`, *before* actually sending the Suspend Event)...
-        if Device:hasWifiManager() then
-            NetworkMgr:disableWifi()
-        end
     end
 
     self.push_timestamp = now
@@ -817,6 +912,11 @@ function KOSync:getProgress(ensure_networking, interactive)
         return
     end
 
+    local ui = self.ui
+    local document = ui.document
+    if not document then return end
+    local KOSyncQueue = require("KOSyncQueue")
+    local generation = KOSyncQueue._generation
     local now = UIManager:getElapsedTimeSinceBoot()
     if not interactive and now - self.pull_timestamp <= API_CALL_DEBOUNCE_DELAY then
         logger.dbg("KOSync: We've already pulled progress less than 25s ago!")
@@ -833,12 +933,31 @@ function KOSync:getProgress(ensure_networking, interactive)
         service_spec = self.path .. "/api.json"
     }
     local doc_digest = self:getDocumentDigest()
+    local function can_apply_progress()
+        if ui.document ~= document or generation ~= KOSyncQueue._generation then return false end
+        if KOSyncQueue:hasPending(doc_digest) then
+            if interactive then
+                UIManager:show(InfoMessage:new{
+                    text = _("Local progress is waiting to be uploaded. Remote progress was not applied."),
+                    timeout = 3,
+                })
+            end
+            return false
+        end
+        return true
+    end
+    local function apply_progress(progress, notify)
+        if not can_apply_progress() then return end
+        self:syncToProgress(progress)
+        if notify then showSyncedMessage() end
+    end
     local ok, err = pcall(client.get_progress,
         client,
         self.settings.username,
         self.settings.userkey,
         doc_digest,
         function(ok, body)
+            if not can_apply_progress() then return end
             logger.dbg("KOSync: [Pull] progress for", self.view.document.file)
             logger.dbg("KOSync: ok:", ok, "body:", body)
             if not ok or not body then
@@ -889,8 +1008,7 @@ function KOSync:getProgress(ensure_networking, interactive)
             if interactive then
                 -- If user actively pulls progress from other devices,
                 -- we always update the progress without further confirmation.
-                self:syncToProgress(body.progress)
-                showSyncedMessage()
+                apply_progress(body.progress, true)
                 return
             end
 
@@ -903,29 +1021,27 @@ function KOSync:getProgress(ensure_networking, interactive)
             end
             if self_older then
                 if self.settings.sync_forward == SYNC_STRATEGY.SILENT then
-                    self:syncToProgress(body.progress)
-                    showSyncedMessage()
+                    apply_progress(body.progress, true)
                 elseif self.settings.sync_forward == SYNC_STRATEGY.PROMPT then
                     UIManager:show(ConfirmBox:new{
                         text = T(_("Sync to latest location %1% from device '%2'?"),
                                  Math.round(body.percentage * 100),
                                  body.device),
                         ok_callback = function()
-                            self:syncToProgress(body.progress)
+                            apply_progress(body.progress)
                         end,
                     })
                 end
             else -- if not self_older then
                 if self.settings.sync_backward == SYNC_STRATEGY.SILENT then
-                    self:syncToProgress(body.progress)
-                    showSyncedMessage()
+                    apply_progress(body.progress, true)
                 elseif self.settings.sync_backward == SYNC_STRATEGY.PROMPT then
                     UIManager:show(ConfirmBox:new{
                         text = T(_("Sync to previous location %1% from device '%2'?"),
                                  Math.round(body.percentage * 100),
                                  body.device),
                         ok_callback = function()
-                            self:syncToProgress(body.progress)
+                            apply_progress(body.progress)
                         end,
                     })
                 end
@@ -945,24 +1061,43 @@ function KOSync:_onCloseDocument()
     --       and we handle those system focus events via... Suspend & Resume events, so we need to neuter those handlers early.
     self.onResume = nil
     self.onSuspend = nil
-    -- If we're already online, push normally.
-    -- Otherwise, queue progress for later instead of blocking with goOnlineToRun.
-    if NetworkMgr:isOnline() then
-        self:updateProgress(false, false)
-    else
-        local doc_digest = self:getDocumentDigest()
-        if doc_digest then
-            local KOSyncQueue = require("KOSyncQueue")
-            KOSyncQueue:push({
-                document = doc_digest,
-                metadata = self:getMetadata(),
-                progress = self:getLastProgress(),
-                percentage = self:getLastPercent(),
-                device = self.settings.kosync_hostname or Device.model,
-                device_id = self.device_id,
-            })
+    if not self.settings.username or not self.settings.userkey then return end
+    local doc_digest = self:getDocumentDigest()
+    if not doc_digest then return end
+    local KOSyncQueue = require("KOSyncQueue")
+    -- Snapshot and persist everything while the document still exists.
+    KOSyncQueue:push({
+        document = doc_digest,
+        metadata = self:getMetadata(),
+        progress = self:getLastProgress(),
+        percentage = self:getLastPercent(),
+        device = self.settings.kosync_hostname or Device.model,
+        device_id = self.device_id,
+    })
+    local generation = KOSyncQueue._generation
+    local sender = {
+        path = self.path,
+        settings = {
+            username = self.settings.username,
+            userkey = self.settings.userkey,
+            custom_server = self.settings.custom_server,
+        },
+    }
+    -- Do not retain the reader/plugin instance in work that can outlive closing.
+    local function drain_when_idle()
+        if generation ~= KOSyncQueue._generation then return end
+        if KOSyncQueue._draining then
+            UIManager:scheduleIn(0.25, drain_when_idle)
+            return
         end
+        KOSync.drainQueue(sender)
     end
+    UIManager:nextTick(function()
+        if generation ~= KOSyncQueue._generation then return end
+        NetworkMgr:checkOnline(function(online)
+            if online then drain_when_idle() end
+        end)
+    end)
 end
 
 function KOSync:schedulePeriodicPush()
@@ -1009,19 +1144,30 @@ function KOSync:_onSuspend()
     self:updateProgress(true, false, true)
 end
 
+function KOSync:_pullIfNoPendingProgress(document)
+    if not self.ui.document then return end
+    if require("KOSyncQueue"):hasPending(document) then return end
+    self:getProgress(false, false)
+end
+
 function KOSync:_onNetworkConnected()
     logger.dbg("KOSync: onNetworkConnected")
     UIManager:scheduleIn(0.5, function()
-        -- Drain any queued progress updates first
-        self:drainQueue()
-        -- Then pull as normal
-        self:getProgress(false, false)
+        if not self.ui.document then return end
+        local document = self:getDocumentDigest()
+        -- Failed or unfinished updates for this book must not be overwritten by a pull.
+        self:drainQueue(function()
+            self:_pullIfNoPendingProgress(document)
+        end, document)
     end)
 end
 
-function KOSync:drainQueue()
+function KOSync:drainQueue(done_func, priority_document)
     local KOSyncQueue = require("KOSyncQueue")
-    if KOSyncQueue:count() == 0 then return end
+    if KOSyncQueue:count() == 0 then
+        if done_func then done_func() end
+        return
+    end
 
     local KOSyncClient = require("KOSyncClient")
     local client = KOSyncClient:new{
@@ -1029,9 +1175,8 @@ function KOSync:drainQueue()
         service_spec = self.path .. "/api.json"
     }
 
-    KOSyncQueue:drain(function(item)
-        local ok = pcall(client.update_progress,
-            client,
+    KOSyncQueue:drain(function(item, callback)
+        client:update_progress(
             self.settings.username,
             self.settings.userkey,
             item.document,
@@ -1040,9 +1185,8 @@ function KOSync:drainQueue()
             item.percentage,
             item.device,
             item.device_id,
-            function() end)
-        return ok
-    end)
+            callback)
+    end, done_func, priority_document)
 end
 
 function KOSync:_onNetworkDisconnecting()

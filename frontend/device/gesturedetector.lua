@@ -112,6 +112,9 @@ function GestureDetector:new(o)
 end
 
 function GestureDetector:init()
+    self.active_contacts = {}
+    self.previous_tap = {}
+    self.contact_count = 0
     -- distance parameters
     self.TWO_FINGER_TAP_REGION = self.screen:scaleByDPI(20)
     self.DOUBLE_TAP_DISTANCE = self.screen:scaleByDPI(50)
