@@ -20,8 +20,8 @@
 | 2026-11-24 | ≥ **36.47%**（+5 pp） | ≥ **33.62%**（+5 pp） | ≥ 85% |
 | 2026-12-22 | ≥ **41.47%**（+10 pp） | ≥ **38.62%**（+10 pp） | ≥ 90% |
 
-- 单元覆盖率目标写在两个仓库的 `.ci/coverage_config.lua` 的 `overall.unit` 中，由 Coverage 检查的 **`unit` 门禁**执行：到期前只报告，**到期当天起阻塞 PR**（upstream 同步 PR 除外，与 owned 门禁同一规则）。引擎自测：`.ci/fork/coverage_test.sh`（每次 Coverage 运行前执行）。
-- 已有门禁不变：diff 覆盖率（单元 ≥ 80%，单元+集成 ≥ 90%）、整体覆盖率 ratchet（阻塞）、单元+集成整体覆盖率的 +5/+10 pp 目标（仅报告）。ratchet 与 PR 所基于的 main 提交（CI 所测 merge 提交的第一个父提交）记录的覆盖率比较，而不是与 main 最新的覆盖率比较；该提交没有记录时取其最近的有记录祖先。因此并行的 PR 不必逐个合入。
+- 单元覆盖率目标写在两个仓库的 `.ci/coverage_config.lua` 的 `overall.unit` 中，由 Coverage 检查的 **`unit` 门禁**执行：到期前只报告，**到期当天起阻塞 PR**（upstream 同步 PR 也执行到期单元目标；其 changed-line 与 ratchet 例外保留）。引擎自测：`.ci/fork/coverage_test.sh`（每次 Coverage 运行前执行）。
+- PR 的阻塞门禁包括单元 diff 覆盖率 ≥ 80%、单元整体 ratchet 和到期单元目标；main push 只测量并记录单元指标。单元+集成 diff ≥ 90%、组合 ratchet 和 owned 目标仅在 Fork release 候选强制；组合整体覆盖率的 +5/+10 pp 目标仍仅报告。ratchet 与 PR 所基于的 main 提交（CI 所测 merge 提交的第一个父提交）记录的覆盖率比较，而不是与 main 最新的覆盖率比较；该提交没有记录时取其最近的有记录祖先。因此并行的 PR 不必逐个合入。
 - 1 pp ≈ 930 行（frontend+plugins）/ 128 行（ffi）。+10 pp 意味着两个月内新增约 9300 行被单元测试执行的代码。
 
 ## 优先级排序
