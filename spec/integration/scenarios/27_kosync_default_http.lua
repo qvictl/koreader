@@ -230,8 +230,8 @@ return {
             T:budget("default_http_cancel_ms", T:now() - cancel_started, 800, "ms")
             T:check(plugin.settings.username == old_username and plugin.settings.userkey == old_key,
                 "cancelling the busy authentication trap does not write credentials")
-            server:release(auth_cancel); server:waitFinished(auth_cancel)
             waitSettled()
+            server:release(auth_cancel); server:waitFinished(auth_cancel)
             T:check(plugin.settings.username == old_username and plugin.settings.userkey == old_key,
                 "cancelled authentication preserves the existing account after its late response")
             authenticate("doLogin", "retried-account")

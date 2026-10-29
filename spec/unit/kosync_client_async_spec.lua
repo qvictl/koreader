@@ -20,6 +20,7 @@ describe("KOSync default HTTP workers", function()
         stub(Trapper, "wrap", function(_, task) workers[#workers + 1] = task end)
         stub(Trapper, "dismissableRunInSubprocess", function(_, task, trap)
             traps[#traps + 1] = trap
+            if mode == "throws" then error("synthetic Trapper failure") end
             if mode == "cancel" then return false end
             if mode == "start_failed" or mode == "read_failed" then return false, nil, mode end
             if mode == "empty" then return true end
@@ -120,6 +121,20 @@ describe("KOSync default HTTP workers", function()
             assert.is_true(deliveries[2][1])
         end)
     end
+    it("releases the worker slot and watchdog when Trapper throws, then runs the pending request", function()
+        mode = "throws"
+        get(client())
+        put(client())
+        workers[1]()
+        assert.is_false(deliveries[1][1])
+        assert.stub(UIManager.unschedule).was_called_with(UIManager, timers[1].callback)
+        assert.are.equal(2, #workers)
+        mode = "success"
+        workers[2]()
+        assert.is_true(deliveries[2][1])
+        assert.is_nil(Client._active_worker)
+        assert.is_nil(Client._pending_worker)
+    end)
     it("bounds concurrency across clients to one worker and one pending request", function()
         get(client())
         put(client())
