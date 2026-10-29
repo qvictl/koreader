@@ -230,6 +230,22 @@ mode_run unit 50 1 '([.gates[] | select(.id == "ratchet" and .enforced and (.ok 
 mode_run diff none 0 '.mode == "diff" and .overall == null and .overall_unit == null and .owned == null and .owned_unit == null and .diff_combined == null and .diff_unit.percent == 80 and ([.gates[] | select(.id != "diff")] | length) == 0' \
     'partial unit stats enforce changed80 only and cannot claim whole metrics'
 cp "${work}/mode.json" "${work}/partial.json"
+# An explicitly verified none selection has no sampled stats, never a synthetic file.
+: >"${work}/empty.diff"
+no_unit() {
+    (cd "${kodir}" && ./luajit -e "package.path='spec/rocks/share/lua/5.1/?.lua;spec/rocks/share/lua/5.1/?/init.lua;'..package.path" \
+        "${tool}" --mode diff --config "${work}/config.lua" --src "${repo}" \
+        --diff "$1" --enforce diff --json "$2" >/dev/null 2>&1)
+}
+code=0
+no_unit "${work}/empty.diff" "${work}/none.json" || code=$?
+check 'none selection with no production diff needs no unit stats' "${code}" 0
+check 'none measurement reports actual0/0 and leaves whole metrics null' \
+    "$(jq -e '.diff_unit.total == 0 and .diff_unit.covered == 0 and .overall == null and .overall_unit == null and .owned == null and .ok' "${work}/none.json")" true
+code=0
+no_unit "${work}/changed.diff" "${work}/invalid-none.json" || code=$?
+check 'no-unit stats cannot claim a production change is covered' "${code}" 1
+check 'invalid no-unit production measurement emits no result' "$(test ! -e "${work}/invalid-none.json" && echo true)" true
 # A fully covered changed diff must not hide a lower full-unit metric at release.
 code=0
 (cd "${kodir}" && ./luajit -e "package.path='spec/rocks/share/lua/5.1/?.lua;spec/rocks/share/lua/5.1/?/init.lua;'..package.path" \

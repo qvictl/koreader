@@ -268,6 +268,9 @@ local function parseDiff(file, include)
 end
 
 local diff_changed, diff_order = parseDiff(args.diff, config.diff_include)
+if partial and #args.unit == 0 then
+    assert(#diff_order == 0, "no-unit measurement requires no scoped production Lua diff")
+end
 local fork_changed, fork_order, fork_added = parseDiff(args.fork_diff, config.owned_include or config.diff_include)
 
 -- }}}
