@@ -84,6 +84,8 @@ jobs:
         with:
           pattern: '{koreader-emulator-x86_64,unit-coverage}'
           path: artifacts
+      - name: Release check unit tests
+        run: python3 .ci/fork/release_check_test.py
       - name: Coverage gates
         id: coverage
         env:

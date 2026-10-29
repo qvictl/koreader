@@ -72,8 +72,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OVERLAY_BASES: ${{ inputs.overlay_bases || 'latest v2026.07.1' }}
           FORCE: ${{ inputs.force }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
           go=true
+          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]] && [[ "${PUBLISH}" != true ]] && [[ "${GITHUB_REF}" != refs/heads/main ]]; then
+            echo '::error::publish=false validation must run from refs/heads/main.'
+            exit 1
+          fi
           if [[ "${GITHUB_REF_TYPE}" == tag ]]; then
             channel=stable tag="${GITHUB_REF_NAME}"
             # Upstream's own tags (mirrored by the upstream sync) are not ours to release.
