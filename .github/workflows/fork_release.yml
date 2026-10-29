@@ -199,7 +199,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Checkout exact base
-        run: git submodule update --init base
+        run: |
+          git submodule update --init base
+          if [[ "$(git -C base rev-parse --is-shallow-repository)" == true ]]; then
+            git -C base fetch --quiet --unshallow origin
+          fi
       - name: Download candidate and real coverage
         uses: actions/download-artifact@v8.0.2
         with:
@@ -336,7 +340,11 @@ jobs:
             .gitmodules
             base
       - name: Checkout base publication tools
-        run: git submodule update --init base
+        run: |
+          git submodule update --init base
+          if [[ "$(git -C base rev-parse --is-shallow-repository)" == true ]]; then
+            git -C base fetch --quiet --unshallow origin
+          fi
       - name: Download validated coverage
         uses: actions/download-artifact@v8.0.2
         with:
