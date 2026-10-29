@@ -146,8 +146,8 @@ function KOSyncClient:_runInSubprocess(task, callback, busy_text)
                     end
                 end
                 -- Cover blocking DNS as well as HTTP, allowing one extra
-                -- second for the existing transport deadline/result collector.
-                UIManager:scheduleIn(PROGRESS_TIMEOUTS[2] + 1, watchdog)
+                -- second for the existing connect/read deadlines/result collector.
+                UIManager:scheduleIn(PROGRESS_TIMEOUTS[1] + PROGRESS_TIMEOUTS[2] + 1, watchdog)
             end
             finish(Trapper:dismissableRunInSubprocess(next_job.task, trap))
         end)

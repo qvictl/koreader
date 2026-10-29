@@ -331,7 +331,7 @@ Notes and limitations:
    resent; if false, the event will not be resent).
 
 @string cmd shell `cmd` to execute and get output from
-@param trap_widget_or_string already shown widget, string, or nil, true or false
+@param trap_widget_or_string shown widget, caller-owned cancellation handle, string, or nil, true or false
 @treturn boolean completed (`true` if not interrupted, `false` if dismissed)
 @treturn string output of command
 @treturn string optional start_failed/read_failed reason; nil on dismissal
@@ -354,8 +354,8 @@ function Trapper:dismissablePopen(cmd, trap_widget_or_string)
     local own_trap_widget = false
     local own_trap_widget_invisible = false
     if type(trap_widget_or_string) == "table" then
-        -- Assume it is a usable already displayed trap'able widget with
-        -- a dismiss_callback (ie: InfoMessage or TrapWidget)
+        -- A displayed trap'able widget (e.g. InfoMessage), or a caller-owned
+        -- non-UI cancellation handle; only dismiss_callback is needed here.
         trap_widget = trap_widget_or_string
     else
         if type(trap_widget_or_string) == "string" then
@@ -511,11 +511,15 @@ Notes and limitations:
    an invisible TrapWidget will be used instead (if nil or true, the event will be
    resent; if false, the event will not be resent).
 
+A caller-owned table may also serve as a cancellation handle without being
+shown as a widget. No input is intercepted in that case. Its dismiss_callback
+can cancel the worker while this function is waiting, and is restored on return.
+
 A failure to start or read the worker returns `false, nil, "start_failed"` or
 `false, nil, "read_failed"`. A user dismissal returns only `false`.
 
 @param task lua function to execute and get return values from
-@param trap_widget_or_string already shown widget, string, or nil, true or false
+@param trap_widget_or_string shown widget, caller-owned cancellation handle, string, or nil, true or false
 @boolean task_returns_simple_string[opt=false] true if task returns a single string
 @treturn boolean completed (`true` if not interrupted, `false` if dismissed)
 @return ... return values of task
@@ -531,8 +535,8 @@ function Trapper:dismissableRunInSubprocess(task, trap_widget_or_string, task_re
     local own_trap_widget = false
     local own_trap_widget_invisible = false
     if type(trap_widget_or_string) == "table" then
-        -- Assume it is a usable already displayed trap'able widget with
-        -- a dismiss_callback (ie: InfoMessage or TrapWidget)
+        -- A displayed trap'able widget (e.g. InfoMessage), or a caller-owned
+        -- non-UI cancellation handle; only dismiss_callback is needed here.
         trap_widget = trap_widget_or_string
     else
         if type(trap_widget_or_string) == "string" then
