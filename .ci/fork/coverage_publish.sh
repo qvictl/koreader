@@ -114,7 +114,8 @@ for attempt in 1 2 3 4 5; do
         cd "${dir}"
         update
     )
-    if git -C "${dir}" push --quiet origin HEAD:refs/heads/coverage; then
+    if git -C "${dir}" -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+        push --quiet origin HEAD:refs/heads/coverage; then
         echo "coverage branch updated with ${commit}: $(tail -n1 "${dir}/history.jsonl")"
         exit 0
     fi
