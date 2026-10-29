@@ -243,6 +243,32 @@ check 'unit-only rerun preserves an existing real combined measurement' \
 check 'new daily history never substitutes unit coverage for combined' \
     "$(jq -e '.overall == null and .unit == 40 and .mode == "unit" and .diff_combined == null' "${work}/new-record.json")" true
 
+# Exercise actual publication into separate local repositories. GitHub's default
+# GITHUB_REPOSITORY remains KOReader; the base publisher uses an explicit override.
+publish_src="${work}/publish-base"
+base_remote="${work}/base.git"
+ko_remote="${work}/ko.git"
+git init --quiet --bare "${base_remote}"
+git init --quiet --bare "${ko_remote}"
+git init --quiet "${publish_src}"
+git -C "${publish_src}" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false commit --quiet --allow-empty -m candidate
+publish_sha="$(git -C "${publish_src}" rev-parse HEAD)"
+git -C "${publish_src}" remote add origin "${base_remote}"
+git -C "${publish_src}" push --quiet origin HEAD:refs/heads/main
+jq --arg c "${publish_sha}" '. + {commit:$c,date:"2026-10-28"}' "${work}/unit-result.json" >"${work}/publish-result.json"
+(
+    cd "${publish_src}"
+    GIT_CONFIG_GLOBAL="${work}/gitconfig" GITHUB_REPOSITORY=qvictl/koreader \
+        COVERAGE_PUBLISH_REPOSITORY=qvictl/koreader-base \
+        "${publisher}" "${work}/publish-result.json" >"${work}/publish.log" 2>&1
+)
+check 'base publication pushes the actual base origin' "$(git --git-dir="${base_remote}" show-ref --verify --quiet refs/heads/coverage && echo true)" true
+check 'base publication never writes the KOReader origin' "$(git --git-dir="${ko_remote}" show-ref --verify --quiet refs/heads/coverage && echo unexpected || echo absent)" absent
+check 'explicit publication repository names base links while the GitHub default remains KOReader' \
+    "$(git --git-dir="${base_remote}" show refs/heads/coverage:HISTORY.md | grep -c 'https://github.com/qvictl/koreader-base/commit/')" 1
+check 'actual daily publication leaves combined metrics unmeasured' \
+    "$(git --git-dir="${base_remote}" show refs/heads/coverage:history.jsonl | jq -e '.overall == null and .unit == 40 and .mode == "unit"')" true
+
 if [[ ${failures} -gt 0 ]]; then
     echo "coverage_test.sh: ${failures} failure(s)" 1>&2
     exit 1
