@@ -22,23 +22,24 @@ The `base` submodule points at [qvictl/koreader-base](https://github.com/qvictl/
    - for every **user-visible feature or fix**, at least one emulator integration scenario in `spec/integration/scenarios/` (see [spec/integration/README.md](spec/integration/README.md)), added or updated. Name it in the PR description.
 
    The required **Tests policy** check fails when code changes come without any `spec/` change. Only a maintainer can waive it, by applying the `no-tests-needed` label, and only for changes to documentation, comments or log message wording.
-2. **Coverage gates** (policy in [`.ci/coverage_config.lua`](.ci/coverage_config.lua), tool in [`.ci/fork/coverage.lua`](.ci/fork/coverage.lua)). PRs and pushes to `main` build native packages and run unit tests. Emulator integration scenarios run only for release candidates, including manual validation with `publish=false`.
+2. **Coverage gates** (policy in [`.ci/coverage_config.lua`](.ci/coverage_config.lua), tool in [`.ci/fork/coverage.lua`](.ci/fork/coverage.lua)). PRs and pushes to `main` keep the native builds and run unit suites selected from the complete change range. Default local/manual commands and release candidates run full unit tests. Emulator integration scenarios run only for release candidates, including manual validation with `publish=false`.
 
    | Gate | PR / main CI | Fork release candidate |
    |---|---|---|
-   | Changed executable Lua lines, unit tests | ≥ **80%** on PRs | ≥ **80%** |
+   | Changed executable Lua lines, unit tests | ≥ **80%** | ≥ **80%** |
    | Changed executable Lua lines, unit + integration | Unmeasured | ≥ **90%** |
-   | Overall coverage ratchet (± 0.1 pp noise allowance) | Unit coverage against the PR base's unit record | Combined coverage against the previous measured combined ancestor |
-   | Fork-owned modules ([`.ci/owned-modules.txt`](.ci/owned-modules.txt)) | Unit-only values reported | Combined tests: each ≥ **80%**, **85%** from 2026-11-24, **90%** from 2026-12-22 |
-   | Dated overall unit targets | ≥ **36.47%** from 2026-11-24, ≥ **41.47%** from 2026-12-22 | Same targets |
+   | Overall coverage ratchet (± 0.1 pp noise allowance) | Unmeasured | Separate full unit and combined coverage against their real measured ancestors |
+   | Fork-owned modules ([`.ci/owned-modules.txt`](.ci/owned-modules.txt)) | Unmeasured | Combined tests: each ≥ **80%**, **85%** from 2026-11-24, **90%** from 2026-12-22 |
+   | Dated overall unit targets | Unmeasured | ≥ **36.47%** from 2026-11-24, ≥ **41.47%** from 2026-12-22 |
 
-   - PR unit ratchets use the first parent of the measured merge ref (or the branch's merge base with `main`), falling back to its nearest ancestor with a real unit measurement. Main pushes report and record unit coverage. Upstream-sync PRs retain their changed-line and ratchet exception; their dated unit target remains enforced. Combined owned-module targets are enforced at release.
+   - CI selects suites through `.ci/fork/select_tests.py`, using the tested PR merge ref's first parent or the main push's `before` commit. Both base/head dependency graphs are used for deletions and renames. Literal `require`, protected require, plugin loads and simple string aliases form conservative reverse dependencies. Shared framework, native/build changes, unknown dynamic loaders or no proven affected suite retain full UT. Invalid Git/parse results fail instead of passing with an empty set. The `unit-selection.json` artifact records exact SHAs, suites and reasons. Base unit tests may be skipped only for a selected change whose base gitlink is unchanged; full fallback and releases run both groups.
+   - Selection can remain broad: on `8e9a159e`, independent `frontend/random.lua` and `frontend/ui/plugin/switch_plugin.lua` changes select 1/142 front suites, while many UI/plugin changes select 139/142 through Device/ReaderUI/PluginLoader dependencies. These are dependency counts, not speed benchmarks. No dependency edge is removed to force a smaller set.
    - A release's combined diff spans **all changes since its previous measured combined ancestor**, excluding the candidate's own previous record for the diff; the overall ratchet also includes any previous real measurement of that same candidate. New daily unit records cannot shorten that interval or supply a combined baseline. KOReader publication fails if no real combined baseline exists. The exact `base` gitlink is checked independently using the candidate emulator's base unit and integration statistics; both artifacts carry the exact base SHA. Its first combined measurement checks the complete fork diff and reports the ratchet as unestablished.
-   - Daily records have `overall: null` and `diff_combined: null`; unit data never stands in for integration coverage. History merges preserve an existing real combined measurement when the same SHA's unit tests rerun. `baseline-unit.json` tracks units; `baseline.json` and the combined badges advance only on real release measurements. The data lives on the [`coverage`](../../tree/coverage) branch.
+   - Ordinary CI uses `mode=diff`: whole unit/combined and module metrics are `null`, including a conservative full-suite fallback. It does not publish coverage history or launch a background full-suite measurement. The publisher rejects diff results before any history write; ancestor lookup also ignores them. Only real full measurements update `baseline-unit.json`, `baseline.json` and badges on the [`coverage`](../../tree/coverage) branch. Existing full-unit backfill commands remain available.
    - Fork-owned modules retain their `fork`, `func:` and `file` scopes. New modules are included automatically. The dated unit targets and per-file plan remain in [doc/coverage-plan.md](doc/coverage-plan.md).
 3. **All CI checks green** (required by the branch protection of `main`):
    - **Lint**: upstream's lint;
-   - **Build and unit tests**: emulator build, base & front unit tests, Kindle HF / PW2 builds;
+   - **Build and unit tests**: emulator build, selected front suites (base & front full on fallback), Kindle HF / PW2 builds;
    - **Coverage**: unit coverage gates, and **Tests policy**.
 
    The review gate reads the required contexts from branch protection. Integration tests are a release gate, so merging code does not wait for them.
@@ -77,7 +78,7 @@ Changes made here are **not** submitted upstream. Upstream is merged weekly into
 
 ## Releases
 
-- Push a tag `vYYYY.MM.qN` (e.g. `v2026.10.q1`; no `-`: `tools/describe.sh` and the version parsing expect `vYYYY.MM[.P]` before any `-`) on a commit of `main`: the *Fork release* workflow builds the Kindle packages (kindlehf, kindlepw2), the x86_64 emulator and the Lua overlays for upstream stable releases, runs the real integration budgets and coverage pass, enforces KOReader and exact-base combined coverage, and publishes a GitHub release.
+- Push a tag `vYYYY.MM.qN` (e.g. `v2026.10.q1`; no `-`: `tools/describe.sh` and the version parsing expect `vYYYY.MM[.P]` before any `-`) on a commit of `main`: the *Fork release* workflow builds the Kindle packages (kindlehf, kindlepw2), the x86_64 emulator and the Lua overlays for upstream stable releases, runs the real integration budgets and coverage pass, enforces KOReader and exact-base full unit/combined coverage, and publishes a GitHub release.
 - The rolling `nightly` prerelease is rebuilt from `main` daily when it changed (or manually: run *Fork release* on `main`). Its assets have stable names, e.g. `koreader-emulator-x86_64-latest.tar.xz`.
 
 Release publication requires the emulator, Kindle builds, real integration tests and both coverage gates to succeed. `workflow_dispatch` with `force=true` and `publish=false` validates the current `main` candidate without moving tags, publishing assets, or writing either repository's coverage history. It retains the main ancestry restriction. Formal publication first records exact-base coverage using `SYNC_TOKEN`, scoped to that publication step; missing credentials or a failed history write stop publication before release assets or tags change. Lua overlays remain best effort across upstream versions: each overlay must pass its own real stable-runtime integration suite before its artifact is uploaded; a failed overlay is omitted and reported in the release notes.

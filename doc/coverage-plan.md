@@ -20,8 +20,9 @@
 | 2026-11-24 | ≥ **36.47%**（+5 pp） | ≥ **33.62%**（+5 pp） | ≥ 85% |
 | 2026-12-22 | ≥ **41.47%**（+10 pp） | ≥ **38.62%**（+10 pp） | ≥ 90% |
 
-- 单元覆盖率目标写在两个仓库的 `.ci/coverage_config.lua` 的 `overall.unit` 中，由 Coverage 检查的 **`unit` 门禁**执行：到期前只报告，**到期当天起阻塞 PR**（upstream 同步 PR 也执行到期单元目标；其 changed-line 与 ratchet 例外保留）。引擎自测：`.ci/fork/coverage_test.sh`（每次 Coverage 运行前执行）。
-- PR 的阻塞门禁包括单元 diff 覆盖率 ≥ 80%、单元整体 ratchet 和到期单元目标；main push 只测量并记录单元指标。单元+集成 diff ≥ 90%、组合 ratchet 和 owned 目标仅在 Fork release 候选强制；组合整体覆盖率的 +5/+10 pp 目标仍仅报告。ratchet 与 PR 所基于的 main 提交（CI 所测 merge 提交的第一个父提交）记录的覆盖率比较，而不是与 main 最新的覆盖率比较；该提交没有记录时取其最近的有记录祖先。因此并行的 PR 不必逐个合入。
+- 单元覆盖率目标写在两个仓库的 `.ci/coverage_config.lua` 的 `overall.unit` 中，由 Coverage 检查的 **`unit` 门禁**执行：到期前只报告，**到期当天起阻塞发版**（发版执行全量 UT/IT；PR 只使用选择性 UT 的改动行指标）。引擎自测：`.ci/fork/coverage_test.sh`（每次 Coverage 运行前执行）。
+- PR/main 按完整改动范围选择受影响 suite，阻塞门禁为单元 diff 覆盖率 ≥ 80%；公共框架、原生、未知动态加载和无法归属时全量回退。选择性统计不产生整体指标或整体历史。Fork release 使用全量 UT/IT，分别执行整体 unit/combined 的真实祖先棘轮、到期单元目标和 owned 目标；组合整体覆盖率的 +5/+10 pp 目标仍仅报告。两个棘轮各找最近的真实全量祖先，可包含同候选此前的全量记录；日常 diff 记录不可充当基线。
+
 - 1 pp ≈ 930 行（frontend+plugins）/ 128 行（ffi）。+10 pp 意味着两个月内新增约 9300 行被单元测试执行的代码。
 
 ## 优先级排序

@@ -9,8 +9,8 @@
 # `integration-coverage*/` (emulator integration tests).
 #
 # Environment: EVENT_NAME, PR_NUMBER, PR_BASE, PUSH_BEFORE, GH_TOKEN, GITHUB_REPOSITORY.
-# Pull requests: changed-line units, unit ratchet and dated unit targets are enforced.
-# Upstream sync PRs enforce the dated unit target; pushes only report unit metrics.
+# Ordinary CI explicitly uses COVERAGE_MODE=diff: changed-unit80 only, no whole metrics/history.
+# Default unit mode remains a full-unit measurement for manual/backfill callers.
 # Release candidates enforce the combined gates too (COVERAGE_MODE=combined,
 # EVENT_NAME=release, RELEASE_BASE=previous measured combined ancestor).
 # The ratchet compares with the coverage recorded for the main commit the change is based on
@@ -24,9 +24,10 @@ artifacts="$(cd "$1" && pwd)"
 tmp="${RUNNER_TEMP:-/tmp}"
 src="${PWD}"
 mode="${COVERAGE_MODE:-unit}"
-[[ "${mode}" == unit || "${mode}" == combined ]] || exit 2
+[[ "${mode}" == unit || "${mode}" == combined || "${mode}" == diff ]] || exit 2
 
 enforce=diff,ratchet,unit
+[[ "${mode}" != diff ]] || enforce='diff'
 note=''
 case "${EVENT_NAME}" in
     release)
@@ -57,9 +58,11 @@ case "${EVENT_NAME}" in
         note='(Push to main: reported, not enforced; this becomes the new baseline.)'
         ;;
 esac
-git fetch --quiet origin '+refs/heads/upstream:refs/remotes/origin/upstream' || true
-git fetch --quiet origin '+refs/heads/coverage:refs/remotes/origin/coverage' 2>/dev/null || true
-git fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null || true
+if [[ "${mode}" != diff ]]; then
+    git fetch --quiet origin '+refs/heads/upstream:refs/remotes/origin/upstream' || true
+    git fetch --quiet origin '+refs/heads/coverage:refs/remotes/origin/coverage'
+    git fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null || true
+fi
 base="$(git merge-base "${base}" HEAD)"
 # The ratchet's base: the main commit the change is based on.
 case "${EVENT_NAME}" in
@@ -67,7 +70,7 @@ case "${EVENT_NAME}" in
     workflow_dispatch) ratchet_base="$("${src}/.ci/fork/coverage_baseline.sh" base workflow_dispatch)" || ratchet_base="${base}" ;;
     *) ratchet_base="${base}" ;;
 esac
-if [[ "${EVENT_NAME}" != release ]] && [[ -n "${enforce}" ]] && git rev-parse -q --verify origin/upstream >/dev/null; then
+if [[ "${mode}" != diff ]] && [[ "${EVENT_NAME}" != release ]] && [[ -n "${enforce}" ]] && git rev-parse -q --verify origin/upstream >/dev/null; then
     all="$(git rev-list --count "${base}..HEAD")"
     own="$(git rev-list --count "${base}..HEAD" --not origin/upstream)"
     if [[ "${own}" != "${all}" ]]; then
@@ -77,30 +80,60 @@ if [[ "${EVENT_NAME}" != release ]] && [[ -n "${enforce}" ]] && git rev-parse -q
 fi
 echo "base: ${base}, ratchet base: ${ratchet_base}, head: $(git rev-parse HEAD), enforce: ${enforce:-none}"
 
+selection="${artifacts}/unit-coverage/unit-selection.json"
+if [[ "${mode}" == diff || "${EVENT_NAME}" == release || -f "${selection}" ]]; then
+    jq -e --arg head "$(git rev-parse HEAD)" --arg base "${base}" --arg mode "${mode}" '
+        .schema_version == 1 and .head_sha == $head and
+        (.mode == "full" or .mode == "selected") and
+        (.tests | type == "array" and length > 0) and
+        (if $mode != "diff" then .mode == "full" and (.tests | length) == .total_tests
+         else (.base_sha == null or .base_sha == $base) end)
+    ' "${selection}" >/dev/null || {
+        echo 'missing/stale/incomplete unit selection proof' >&2
+        exit 2
+    }
+fi
+
 git diff -U0 "${base}" HEAD -- '*.lua' >"${tmp}/change.diff"
-if git rev-parse -q --verify origin/upstream >/dev/null; then
+if [[ "${mode}" != diff ]] && git rev-parse -q --verify origin/upstream >/dev/null; then
     git diff -U0 "$(git merge-base HEAD origin/upstream)" HEAD -- '*.lua' >"${tmp}/fork.diff"
 else
     : >"${tmp}/fork.diff"
 fi
-git show origin/coverage:history.jsonl >"${tmp}/coverage-history.jsonl" 2>/dev/null || : >"${tmp}/coverage-history.jsonl"
-if read -r bsha bpct bkind < <("${src}/.ci/fork/coverage_baseline.sh" lookup "${ratchet_base}" "${tmp}/coverage-history.jsonl" "${mode}"); then
-    if [[ "${EVENT_NAME}" == release ]]; then
-        label="main@${bsha:0:8} (previous actual combined measurement)"
-    elif [[ "${bkind}" == exact ]]; then
-        label="main@${bsha:0:8} (this change's base)"
+baseline=()
+if [[ "${mode}" != diff ]]; then
+    git show origin/coverage:history.jsonl >"${tmp}/coverage-history.jsonl" 2>/dev/null || : >"${tmp}/coverage-history.jsonl"
+    if read -r bsha bpct bkind < <("${src}/.ci/fork/coverage_baseline.sh" lookup "${ratchet_base}" "${tmp}/coverage-history.jsonl" "${mode}"); then
+        if [[ "${EVENT_NAME}" == release ]]; then
+            label="main@${bsha:0:8} (previous actual combined measurement)"
+        elif [[ "${bkind}" == exact ]]; then
+            label="main@${bsha:0:8} (this change's base)"
+        else
+            label="main@${bsha:0:8} (nearest ancestor with coverage of base ${ratchet_base:0:8})"
+        fi
+        baseline=(--baseline-overall "${bpct}" --baseline-label "${label}")
     else
-        label="main@${bsha:0:8} (nearest ancestor with coverage of base ${ratchet_base:0:8})"
+        [[ "${EVENT_NAME}" != release ]] || {
+            echo "no measured combined baseline" >&2
+            exit 1
+        }
+        baseline=(--baseline-label "no coverage recorded for base ${ratchet_base:0:8} or its ancestors")
     fi
-    baseline=(--baseline-overall "${bpct}" --baseline-label "${label}")
-else
-    [[ "${EVENT_NAME}" != release ]] || {
-        echo "no measured combined baseline" >&2
-        exit 1
-    }
-    baseline=(--baseline-label "no coverage recorded for base ${ratchet_base:0:8} or its ancestors")
+    if [[ "${mode}" == combined ]]; then
+        if read -r usha upct _ < <("${src}/.ci/fork/coverage_baseline.sh" lookup "${ratchet_base}" "${tmp}/coverage-history.jsonl" unit); then
+            baseline+=(--baseline-unit "${upct}" --baseline-unit-label "main@${usha:0:8} (previous actual full unit measurement)")
+            enforce+=,unit_ratchet
+        else
+            echo 'no previous real full-unit coverage baseline' >&2
+            exit 1
+        fi
+    fi
 fi
 echo "ratchet baseline: ${baseline[*]}"
+if [[ "${mode}" == diff ]]; then
+    enforce='diff'
+    note='Changed-line unit coverage only; full unit/combined metrics and targets are checked at release.'
+fi
 
 # luajit & luacov.
 emu="${tmp}/coverage-luajit"

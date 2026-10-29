@@ -2,7 +2,7 @@
 -- Dated targets tighten automatically: edit only to change the policy.
 return {
     gates = {
-        -- Unit gates block PRs; combined gates block release candidates.
+        -- Changed-unit gates block PRs; full unit/combined gates block release candidates.
         diff_unit_min = 80,         -- % of the changed executable Lua lines run by the unit tests
         diff_combined_min = 90,     -- % run by the unit + emulator integration tests
         ratchet_tolerance_pp = 0.1, -- the selected metric may not drop below its measured ancestor by more than this
@@ -22,7 +22,7 @@ return {
             { from = "2026-12-22", delta_pp = 10 },
         },
         -- The same paths, covered by the unit tests alone (spec/unit). Unlike the targets
-        -- above, these are blocking (the "unit" gate) from their date. Plan: doc/coverage-plan.md.
+        -- above, these block full release measurements (the "unit" gate) from their date. Plan: doc/coverage-plan.md.
         unit = {
             baseline = { date = "2026-10-27", percent = 31.47 }, -- main @ 76b8c107f (unit stats only)
             targets = {
