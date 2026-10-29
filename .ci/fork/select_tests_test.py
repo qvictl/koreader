@@ -21,7 +21,7 @@ class GitFixture:
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name)
-        self.git("init", "--quiet")
+        self.git("init", "--quiet", "--initial-branch=fixture-base")
         self.git("config", "user.name", "test")
         self.git("config", "user.email", "test@example.invalid")
         self.git("config", "commit.gpgsign", "false")
@@ -196,10 +196,10 @@ class SelectionTests(GitFixture, unittest.TestCase):
             with self.subTest(path=path):
                 self.write(path, "changed")
                 result = self.choose()
+                self.base = self.git("rev-parse", "HEAD")
                 self.assertEqual(result["mode"], "full")
                 self.assertEqual(result["changed_files"], [path])
                 self.assertEqual(result["reasons"], ["shared or unclassified change: " + path])
-                self.base = self.git("rev-parse", "HEAD")
 
     def test_no_proven_suite_never_succeeds_with_empty_selection(self):
         self.write("frontend/unmapped.lua", "return {}\n")
@@ -401,6 +401,14 @@ class CoveragePrefixTests(GitFixture, unittest.TestCase):
                 diff = (work / "change.diff").read_text()
                 for path in ("frontend/leaf.lua", "frontend/mid.lua", "frontend/other.lua"):
                     self.assertIn("+++ b/" + path, diff)
+
+    def test_upstream_sync_still_enforces_the_requested_diff_gate(self):
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        head = self.commit()
+        self.git("update-ref", "refs/remotes/origin/upstream", head)
+        result, _ = self.run_prefix(self.base, manifest_base=self.base)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MODE=diff ENFORCE=diff", result.stdout)
 
     def test_invalid_before_or_unproven_null_base_is_rejected(self):
         for before in ("invalid-ref", self.base):

@@ -26,7 +26,7 @@ The `base` submodule points at [qvictl/koreader-base](https://github.com/qvictl/
 
    | Gate | PR / main CI | Fork release candidate |
    |---|---|---|
-   | Changed executable Lua lines, unit tests | ≥ **80%** | ≥ **80%** |
+   | Changed executable Lua lines, unit tests | ≥ **80%**, including upstream sync | ≥ **80%** |
    | Changed executable Lua lines, unit + integration | Unmeasured | ≥ **90%** |
    | Overall coverage ratchet (± 0.1 pp noise allowance) | Unmeasured | Separate full unit and combined coverage against their real measured ancestors |
    | Fork-owned modules ([`.ci/owned-modules.txt`](.ci/owned-modules.txt)) | Unmeasured | Combined tests: each ≥ **80%**, **85%** from 2026-11-24, **90%** from 2026-12-22 |
