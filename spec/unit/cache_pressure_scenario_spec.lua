@@ -2,6 +2,7 @@ describe("Cache pressure scenario failure cleanup", function()
     local DocCache, DocumentRegistry, KoptInterface, ffi, ffiutil, time, util, scenario
     local active, mode, closes, creates, destroys
     local original_load, original_wait, original_mem, original_open
+    local open_stub
 
     setup(function()
         require("commonrequire")
@@ -15,13 +16,15 @@ describe("Cache pressure scenario failure cleanup", function()
 
     before_each(function()
         active, closes, creates, destroys = nil, 0, 0, 0
+        open_stub = nil
         original_load, original_wait = ffi.load, KoptInterface.waitForContext
         original_mem, original_open = util.calcFreeMem, io.open
     end)
 
     after_each(function()
         ffi.load, KoptInterface.waitForContext = original_load, original_wait
-        util.calcFreeMem, io.open = original_mem, original_open
+        util.calcFreeMem = original_mem
+        if open_stub then open_stub:revert() end
         if active then active.document:close(); active = nil end
         DocCache:clear()
         os.remove(os.getenv("KO_HOME") .. "/cache-pressure.pdf")
@@ -64,12 +67,12 @@ describe("Cache pressure scenario failure cleanup", function()
 
     it("restores hooks when writing the PDF fails during setup", function()
         mode = "write"
-        io.open = function(path, flags, ...)
+        open_stub = stub(io, "open", function(path, flags, ...)
             if path:match("/cache%-pressure%.pdf$") and flags == "wb" then
                 return nil, "injected write failure"
             end
             return original_open(path, flags, ...)
-        end
+        end)
         runFailure()
         assert.are.equal(original_load, ffi.load)
         assert.are.equal(0, closes)
