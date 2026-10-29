@@ -21,11 +21,11 @@ describe("KOSync asynchronous authentication", function()
             for _, method in ipairs{ "register", "authorize" } do
                 c[method] = function(_, username, key)
                     calls[#calls + 1] = { method = method, username = username, key = key }
-                    if raises then error("synthetic authentication failure") end
+                    if raises then error(type(raises) == "string" and raises or "synthetic authentication failure") end
                     return accepted, response
                 end
             end
-            return c
+            return setmetatable(c, { __index = Client })
         end)
     end)
     after_each(function()
@@ -137,5 +137,38 @@ describe("KOSync asynchronous authentication", function()
             assert.is_truthy(shown[1].text:find("unknown error", 1, true))
         end)
     end
+
+    it("returns only the bounded authentication message from the child", function()
+        local sync = plugin()
+        response = { message = "synthetic", extra = string.rep("x", 1024 * 1024) }
+        sync:doLogin("synthetic", "secret")
+        local result = table.pack(jobs[1].task())
+        assert.are.same({ message = "synthetic" }, result[3])
+        assert.is_nil(sync.settings.userkey)
+        jobs[1].done(true, unpack(result, 1, result.n))
+        assert.are.equal("synthetic", sync.settings.username)
+    end)
+    for _, invalid in ipairs{ {}, string.rep("x", 4097) } do
+        it("does not serialize a nested or oversized authentication message", function()
+            local sync = plugin()
+            response = { message = invalid }
+            sync:doLogin("synthetic", "secret")
+            local result = table.pack(jobs[1].task())
+            assert.is_false(result[1])
+            assert.is_true(#result[2] <= 4096)
+            jobs[1].done(true, unpack(result, 1, result.n))
+            assert.is_nil(sync.settings.userkey)
+        end)
+    end
+    it("bounds unexpected exception text before sending it to the UI", function()
+        local sync = plugin()
+        raises = string.rep("synthetic failure", 1000)
+        sync:doLogin("synthetic", "secret")
+        local result = table.pack(jobs[1].task())
+        assert.is_false(result[1])
+        assert.is_true(#result[2] <= 4096)
+        jobs[1].done(true, unpack(result, 1, result.n))
+        assert.is_nil(sync.settings.userkey)
+    end)
 
 end)

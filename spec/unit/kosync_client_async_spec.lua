@@ -10,15 +10,16 @@ local socketutil = require("socketutil")
 local ffiUtil = require("ffi/util")
 
 describe("KOSync default HTTP workers", function()
-    local workers, requests, deliveries, middleware, mode, status, body, throws, saved_looper
+    local workers, requests, deliveries, middleware, mode, status, body, throws, saved_looper, timers, traps
     before_each(function()
         Queue:clear()
         Client._active_worker, Client._pending_worker = nil, nil
-        workers, requests, deliveries, middleware = {}, {}, {}, {}
+        workers, requests, deliveries, middleware, timers, traps = {}, {}, {}, {}, {}, {}
         mode, status, body, throws = "success", 200, { progress = "12", percentage = 0.5 }, false
         saved_looper, UIManager.looper = UIManager.looper, nil
         stub(Trapper, "wrap", function(_, task) workers[#workers + 1] = task end)
-        stub(Trapper, "dismissableRunInSubprocess", function(_, task)
+        stub(Trapper, "dismissableRunInSubprocess", function(_, task, trap)
+            traps[#traps + 1] = trap
             if mode == "cancel" then return false end
             if mode == "start_failed" or mode == "read_failed" then return false, nil, mode end
             if mode == "empty" then return true end
@@ -27,6 +28,8 @@ describe("KOSync default HTTP workers", function()
         stub(socketutil, "set_timeout")
         stub(socketutil, "reset_timeout")
         stub(UIManager, "setInputTimeout")
+        stub(UIManager, "scheduleIn", function(_, delay, callback) timers[#timers + 1] = { delay = delay, callback = callback } end)
+        stub(UIManager, "unschedule")
     end)
     after_each(function()
         Client._active_worker, Client._pending_worker = nil, nil
@@ -35,6 +38,8 @@ describe("KOSync default HTTP workers", function()
         socketutil.set_timeout:revert()
         socketutil.reset_timeout:revert()
         UIManager.setInputTimeout:revert()
+        UIManager.scheduleIn:revert()
+        UIManager.unschedule:revert()
         UIManager.looper = saved_looper
         Queue:clear()
     end)
@@ -189,6 +194,73 @@ describe("KOSync default HTTP workers", function()
         assert.is_false(deliveries[1][1])
         assert.is_nil(deliveries[1][2])
         assert.is_nil(deliveries[1][3])
+    end)
+    it("does not add an input-catching widget for background synchronization", function()
+        get(client())
+        workers[1]()
+        assert.are.same({}, traps[1])
+        assert.are.equal(6, timers[1].delay)
+        assert.stub(UIManager.unschedule).was_called_with(UIManager, timers[1].callback)
+    end)
+    it("retains the visible cancellable authentication trap", function()
+        client():_runInSubprocess(function() return true end, delivered, "Login")
+        workers[1]()
+        assert.are.equal("Login", traps[1])
+        assert.are.equal(0, #timers)
+    end)
+    it("expires a stalled worker, advances pending work and ignores its obsolete timer", function()
+        Trapper.dismissableRunInSubprocess:revert()
+        stub(Trapper, "dismissableRunInSubprocess", function(_, _, trap)
+            local co = coroutine.running()
+            trap.dismiss_callback = function() coroutine.resume(co, false) end
+            coroutine.yield()
+            trap.dismiss_callback = nil
+            return false
+        end)
+        get(client())
+        put(client())
+        local co = coroutine.create(workers[1])
+        assert.is_true(coroutine.resume(co))
+        assert.are.equal("suspended", coroutine.status(co))
+        local expired = timers[1].callback
+        expired()
+        assert.are.equal("dead", coroutine.status(co))
+        assert.is_false(deliveries[1][1])
+        assert.are.equal(2, #workers)
+        expired()
+        assert.are.equal(1, #deliveries)
+        Trapper.dismissableRunInSubprocess:revert()
+        stub(Trapper, "dismissableRunInSubprocess", function(_, task) return true, task() end)
+        workers[2]()
+        assert.is_true(deliveries[2][1])
+        assert.is_nil(Client._active_worker)
+    end)
+    it("only returns protocol fields from an otherwise huge response", function()
+        body = { progress = "12", percentage = 0.5, extra = string.rep("x", 1024 * 1024) }
+        get(client())
+        workers[1]()
+        assert.is_true(deliveries[1][1])
+        assert.are.same({ progress = "12", percentage = 0.5 }, deliveries[1][2])
+    end)
+    for _, malformed in ipairs{
+        { progress = {} }, { percentage = "0.5" }, { timestamp = math.huge }, { percentage = 0/0 },
+        { device = string.rep("x", 1025) }, { device_id = {} }, { message = string.rep("x", 4097) },
+        { progress = string.rep("x", 65537) }, { progress = string.rep("x", 65536), device = "x" },
+    } do
+        it("rejects malformed or oversized protocol fields before returning them to the parent", function()
+            body = malformed
+            get(client())
+            workers[1]()
+            assert.is_false(deliveries[1][1])
+            assert.is_nil(deliveries[1][2])
+        end)
+    end
+    it("keeps finite numeric progress and normal timestamp/device fields", function()
+        body = { progress = 12, percentage = 0.5, timestamp = 100, device = "reader", device_id = "id" }
+        get(client())
+        workers[1]()
+        assert.is_true(deliveries[1][1])
+        assert.are.same(body, deliveries[1][2])
     end)
     it("preserves the existing Turbo transport path", function()
         UIManager.looper = {}
