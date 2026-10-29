@@ -84,14 +84,27 @@ selection="${artifacts}/unit-coverage/unit-selection.json"
 if [[ "${mode}" == diff || "${EVENT_NAME}" == release || -f "${selection}" ]]; then
     jq -e --arg head "$(git rev-parse HEAD)" --arg base "${base}" --arg mode "${mode}" '
         .schema_version == 1 and .head_sha == $head and
-        (.mode == "full" or .mode == "selected") and
-        (.tests | type == "array" and length > 0) and
+        (.mode == "full" or .mode == "selected" or ($mode == "diff" and .mode == "none")) and
+        (.tests | type == "array") and
+        (if .mode == "none" then (.tests | length) == 0 else (.tests | length) > 0 end) and
         (if $mode != "diff" then .mode == "full" and (.tests | length) == .total_tests
          else (.base_sha == null or .base_sha == $base) end)
     ' "${selection}" >/dev/null || {
         echo 'missing/stale/incomplete unit selection proof' >&2
         exit 2
     }
+fi
+selection_none=false
+if [[ "${mode}" == diff && "$(jq -r .mode "${selection}")" == none ]]; then
+    python3 - "${selection}" "${src}" <<'PYTHON'
+import json
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(sys.argv[2]) / ".ci/fork"))
+from select_tests import validate_none
+validate_none(Path(sys.argv[2]), json.loads(Path(sys.argv[1]).read_text()))
+PYTHON
+    selection_none=true
 fi
 
 git diff -U0 "${base}" HEAD -- '*.lua' >"${tmp}/change.diff"
@@ -158,10 +171,17 @@ for ((i = 0; i < ${#stats[@]}; i += 2)); do
     }
     if [[ "${stats[i]}" == --unit ]]; then unit_count=$((unit_count + 1)); else integration_count=$((integration_count + 1)); fi
 done
-[[ ${unit_count} -gt 0 ]] || {
-    echo "missing unit coverage" >&2
-    exit 1
-}
+if [[ "${selection_none}" == true ]]; then
+    [[ ${unit_count} -eq 0 && ${integration_count} -eq 0 ]] || {
+        echo 'none selection unexpectedly has coverage stats' >&2
+        exit 2
+    }
+else
+    [[ ${unit_count} -gt 0 ]] || {
+        echo 'missing unit coverage' >&2
+        exit 1
+    }
+fi
 if [[ "${mode}" == combined ]]; then
     [[ ${integration_count} -gt 0 ]] || {
         echo "missing integration coverage" >&2

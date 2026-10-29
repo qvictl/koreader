@@ -201,6 +201,22 @@ def graph(files):
     return edges, sorted(set(unknown))
 
 
+def unrelated(path):
+    return (path.startswith(("doc/", "spec/integration/"))
+            or path == "tools/run_integration_tests.sh"
+            or (path.endswith((".md", ".rst")) and ("/" not in path or path.startswith(".github/"))))
+
+
+def validate_none(repo, manifest):
+    base, head = manifest.get("base_sha"), manifest.get("head_sha")
+    if (manifest.get("mode") != "none" or manifest.get("tests") != [] or not isinstance(base, str)
+            or head != revision(repo, "HEAD") or git(repo, "merge-base", base, head).decode().strip() != base):
+        raise SelectionError("invalid empty selection")
+    changed = sorted(p.decode() for p in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).split(b"\0") if p)
+    if manifest.get("changed_files") != changed or not all(unrelated(p) for p in changed):
+        raise SelectionError("empty selection contains production/unit/framework changes")
+
+
 def select(repo, base=None, head=None):
     if bool(base) != bool(head):
         raise SelectionError("both base and head are required")
@@ -219,8 +235,12 @@ def select(repo, base=None, head=None):
     result["base_sha"] = old
     changed = {p.decode() for p in git(repo, "diff", "--name-only", "--no-renames", "-z", old, actual).split(b"\0") if p}
     result["changed_files"] = sorted(changed)
+    if all(unrelated(path) for path in changed):
+        result.update(mode="none", tests=[], reasons=["no production, unit or framework changes"],
+                      base_unit_tests="unchanged_skipped")
+        return result
     for path in sorted(changed):
-        if path.startswith("doc/") or (path.endswith((".md", ".rst")) and ("/" not in path or path.startswith(".github/"))):
+        if unrelated(path):
             continue
         if path in SHARED or not path.endswith(".lua") or not path.startswith(("frontend/", "plugins/", "spec/unit/")):
             result["reasons"] = ["shared or unclassified change: " + path]

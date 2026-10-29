@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 
-from select_tests import SelectionError, git, revision, tree
+from select_tests import SelectionError, git, revision, tree, validate_none
 
 
 def command(repo, selection, junit):
@@ -19,12 +19,15 @@ def command(repo, selection, junit):
         all_tests = sorted(p for p in tree(repo, "HEAD") if p.startswith("spec/unit/") and p.endswith("_spec.lua"))
         tests = manifest.get("tests")
         if (manifest.get("schema_version") != 1 or manifest.get("head_sha") != revision(repo, "HEAD")
-                or manifest.get("mode") not in {"full", "selected"} or not isinstance(tests, list)
-                or not tests or tests != sorted(set(tests)) or not set(tests) <= set(all_tests)
+                or manifest.get("mode") not in {"full", "selected", "none"} or not isinstance(tests, list)
+                or (not tests and manifest.get("mode") != "none") or tests != sorted(set(tests)) or not set(tests) <= set(all_tests)
                 or manifest.get("total_tests") != len(all_tests)
                 or any(not isinstance(p, str) for p in tests)
                 or (manifest.get("mode") == "selected" and any(not re.fullmatch(r"spec/unit/[A-Za-z0-9_]+_spec\.lua", p) for p in tests))):
             raise SelectionError("invalid or stale selection manifest")
+        if manifest["mode"] == "none":
+            validate_none(repo, manifest)
+            return None
         if manifest["mode"] == "full" and (tests != all_tests or manifest.get("base_unit_tests") != "full"):
             raise SelectionError("full selection omitted suites")
         if manifest["mode"] == "selected":
@@ -45,7 +48,8 @@ def main():
     parser.add_argument("--junit", type=Path, required=True)
     args = parser.parse_args()
     try:
-        return subprocess.call(command(Path.cwd(), args.selection, args.junit))
+        cmd = command(Path.cwd(), args.selection, args.junit)
+        return subprocess.call(cmd) if cmd is not None else 0
     except (SelectionError, ValueError, TypeError, KeyError, OSError, subprocess.CalledProcessError) as error:
         print("unit runner failed: " + type(error).__name__, file=sys.stderr)
         return 2

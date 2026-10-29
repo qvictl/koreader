@@ -55,6 +55,14 @@ class SelectionTests(GitFixture, unittest.TestCase):
         with self.assertRaises(selector.SelectionError):
             selector.select(self.repo, self.base)
 
+    def test_docs_and_integration_only_are_explicit_none(self):
+        self.write("README.md", "documentation")
+        self.write("spec/integration/scenarios/example.lua", "return {}")
+        result = self.choose()
+        self.assertEqual(result["mode"], "none")
+        self.assertEqual(result["tests"], [])
+        selector.validate_none(self.repo, result)
+
     def test_reverse_dependencies_select_transitive_suite(self):
         self.write("frontend/leaf.lua", "return { changed = true }\n")
         result = self.choose()
@@ -169,6 +177,19 @@ class RunnerTests(GitFixture, unittest.TestCase):
         with mock.patch.object(runner.shutil, "which", return_value=None), self.assertRaises(selector.SelectionError):
             runner.command(self.repo, path, self.repo / "junit.xml")
 
+    def test_none_skips_make_and_cannot_hide_production_changes(self):
+        self.write("README.md", "documentation")
+        manifest = self.choose()
+        path = self.repo / "selection.json"
+        path.write_text(json.dumps(manifest))
+        self.assertIsNone(runner.command(self.repo, path, self.repo / "junit.xml"))
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        head = self.commit()
+        manifest.update(head_sha=head, changed_files=["README.md", "frontend/leaf.lua"])
+        path.write_text(json.dumps(manifest))
+        with self.assertRaises(selector.SelectionError):
+            runner.command(self.repo, path, self.repo / "junit.xml")
+
     def test_stale_empty_and_incomplete_full_manifest_fail(self):
         valid = selector.select(self.repo)
         path = self.repo / "selection.json"
@@ -223,6 +244,16 @@ class WorkflowTests(GitFixture, unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(manifest["tests"], ["spec/unit/a_spec.lua"])
         self.assertEqual(manifest["base_unit_tests"], "unchanged_skipped")
+
+    def test_integration_only_workflow_selects_none_without_fake_stats(self):
+        self.write("spec/integration/scenarios/example.lua", "return {}")
+        self.commit()
+        code, manifest = self.run_step(self.base)
+        self.assertEqual(code, 0)
+        self.assertEqual(manifest["mode"], "none")
+        self.assertEqual(manifest["tests"], [])
+        self.assertFalse((self.repo / "coverage/unit.stats.out").exists())
+        self.assertTrue((self.repo / "coverage/unit-selection.json").exists())
 
     def test_unknown_base_fails_before_any_manifest(self):
         code, manifest = self.run_step("missing-ref")

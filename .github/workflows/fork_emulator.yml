@@ -226,6 +226,11 @@ jobs:
             python3 .ci/fork/select_tests.py --output unit-selection.json
           fi
           cat unit-selection.json
+          rm -rf coverage
+          mkdir -p coverage
+          cp unit-selection.json coverage/unit-selection.json
+          git rev-parse HEAD >coverage/koreader-sha.txt
+          echo "front_units=$(python3 -c 'import json; print(json.load(open("unit-selection.json"))["mode"])')" >>"${GITHUB_OUTPUT}"
           echo "base_units=$(python3 -c 'import json; print(json.load(open("unit-selection.json"))["base_unit_tests"])')" >>"${GITHUB_OUTPUT}"
 
       - name: Base unit tests
@@ -251,7 +256,7 @@ jobs:
           git -C base rev-parse HEAD >base-coverage/base-sha.txt
 
       - name: Front unit tests (with coverage)
-        if: inputs.unit_tests
+        if: inputs.unit_tests && steps.selection.outputs.front_units != 'none'
         run: |
           ./base/utils/fake_tty.py python3 .ci/fork/run_unit_tests.py --selection unit-selection.json --junit "${PWD}/junit-front.xml"
           mkdir -p coverage
