@@ -22,13 +22,13 @@ Integration scenario(s): <!-- e.g. 05_dictionary_progressive -->
 
 <!-- How did you run them, and what was the result? e.g.
      - `make testfront`: N successes / 0 failures
-     - `./tools/run_integration_tests.sh`: all scenarios passed (paste the summary table)
+     - `./tools/run_integration_tests.sh`: optional local evidence; the full suite is required at release
      - device testing (model, firmware), before/after numbers for performance or memory changes -->
 
 ### Checklist
 
 - [ ] Tests added or updated for every code change (or the reason why not is explained above)
-- [ ] `./tools/run_integration_tests.sh` passes locally (or I rely on CI and checked its results)
+- [ ] Integration scenario changes are ready for the release candidate suite (optional local results noted above)
 - [ ] An emulator integration scenario covers the user-visible change (named above)
-- [ ] Coverage check green: changed lines ≥ 80% by unit tests and ≥ 90% by unit + integration tests, no overall drop, owned modules on target
+- [ ] Coverage check green: changed lines ≥ 80% by unit tests, no unit overall drop, owned modules on target; combined ≥ 90% is enforced at release
 - [ ] Every AI review comment flagged as a potential issue / bug is fixed or answered with a justification before resolving it ([REVIEW_POLICY.md](../blob/main/REVIEW_POLICY.md))

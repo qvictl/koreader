@@ -16,7 +16,7 @@ stats of the unit tests and of the emulator integration tests:
 Usage:
   luajit coverage.lua --config CONFIG.lua --src DIR [--diff FILE] [--fork-diff FILE]
       [--unit STATS]... [--integration STATS]... [--baseline-overall PCT] [--baseline-label TEXT]
-      [--enforce diff,ratchet,owned,unit] [--today YYYY-MM-DD] [--title TEXT] [--note TEXT]
+      [--mode unit|combined] [--enforce diff,ratchet,owned,unit] [--today YYYY-MM-DD] [--title TEXT] [--note TEXT]
       [--md FILE] [--json FILE]
 
   --diff       unified diff (-U0) of the change being checked (PR), for gates 1 & 2

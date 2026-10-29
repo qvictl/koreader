@@ -57,7 +57,7 @@ The `T` API (see `driver.lua`): `T:run(fn)` (UI action, main context), `T:wait(s
 `T:fixture(path)`, `T.startup_ms`, `T.screen_w`, `T.screen_h`. `dicthelper.lua` has helpers for dictionary lookups.
 
 With `--coverage`, subprocesses started with `util.runInSubProcess` save their own luacov stats too
-(`driver.lua`), so the code that only runs in children is measured. The CI merges the unit and integration
+(`driver.lua`), so the code that only runs in children is measured. The release candidate workflow merges the unit and integration
 stats for the coverage gates (see CONTRIBUTING.md).
 
 Budgets are deliberately generous (CI runners are slow and noisy): they catch regressions by an order of magnitude,

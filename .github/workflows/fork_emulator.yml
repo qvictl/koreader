@@ -24,6 +24,10 @@ on:
         description: 'Run the unit tests'
         default: true
         type: boolean
+      base_coverage:
+        description: 'Collect base unit coverage for a product release candidate'
+        default: false
+        type: boolean
       # For qvictl/koreader-base's CI: build qvictl/koreader with the base under test.
       koreader_repository:
         description: 'KOReader repository to build (default: this one)'
@@ -195,8 +199,24 @@ jobs:
         run: make --assume-old=base all
 
       - name: Base unit tests
-        if: inputs.unit_tests
+        if: inputs.unit_tests && !inputs.base_coverage
         run: ./base/utils/fake_tty.py make --assume-old=all testbase T="-o ${PWD}/junit-base.xml"
+
+      - name: Base unit tests (with coverage)
+        if: inputs.unit_tests && inputs.base_coverage
+        run: |
+          # Collect base coverage from this exact product build, before front tests reset it.
+          make --assume-old=all "${{ env.EMU_DIR }}/koreader/.luacov"
+          ./base/utils/fake_tty.py make --assume-old=all testbase T="--coverage -j 1 -o ${PWD}/junit-base.xml"
+          mkdir -p base-coverage
+          n=0
+          while IFS= read -r f; do
+            [[ -s "${f}" ]] || continue
+            n=$((n + 1))
+            cp "${f}" "base-coverage/unit-${n}.stats.out"
+          done < <(find "${{ env.EMU_DIR }}/koreader" -name 'luacov.stats.out*' -type f)
+          [[ ${n} -gt 0 ]] || { echo 'missing base unit coverage' >&2; exit 1; }
+          git -C base rev-parse HEAD >base-coverage/base-sha.txt
 
       - name: Front unit tests (with coverage)
         if: inputs.unit_tests
@@ -204,6 +224,7 @@ jobs:
           ./base/utils/fake_tty.py make --assume-old=all coverage-run T="-o ${PWD}/junit-front.xml"
           mkdir -p coverage
           cp "${{ env.EMU_DIR }}/koreader/luacov.stats.out" coverage/unit.stats.out
+          git rev-parse HEAD >coverage/koreader-sha.txt
           tail -n +"$(( $(grep -nm1 -e '^Summary$' "${{ env.EMU_DIR }}/koreader/luacov.report.out" | cut -d: -f1) - 1 ))" \
             "${{ env.EMU_DIR }}/koreader/luacov.report.out" | tail -n 3
 
@@ -212,6 +233,8 @@ jobs:
           make --assume-old=all skeleton
           # Dereference the symlinks into the source tree, leave the unit tests (and their data)
           # & coverage out, but keep the test rocks (luacov, used by the integration tests).
+          git -C base rev-parse HEAD >"${{ env.EMU_DIR }}/koreader/base-sha.txt"
+          git rev-parse HEAD >"${{ env.EMU_DIR }}/koreader/koreader-sha.txt"
           tar -C "${{ env.EMU_DIR }}" --dereference \
             --exclude='koreader/spec/front' --exclude='koreader/spec/base' --exclude='koreader/spec/run' \
             --exclude='koreader/luacov.*' --exclude='koreader/.luacov' \
@@ -227,6 +250,15 @@ jobs:
             koreader-emulator-x86_64.tar.xz
             emulator-version.txt
           compression-level: 0
+          retention-days: 14
+
+      - name: Upload base unit coverage
+        if: inputs.unit_tests && inputs.base_coverage && !cancelled()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: base-unit-coverage
+          path: base-coverage/
+          if-no-files-found: error
           retention-days: 14
 
       - name: Upload unit coverage

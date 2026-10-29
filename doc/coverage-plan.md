@@ -113,7 +113,7 @@
 
 ## 批次
 
-每个 PR 只做一个领域、只加测试（不改产品代码），必须通过 Lint / Build and unit tests / Integration tests / Coverage / Tests policy 后合并。测试要断言行为和边界，重点是曾导致卡死的失败路径。发现真实 bug：另开小 PR（先失败的测试 + 最小修复）。
+每个 PR 只做一个领域、只加测试（不改产品代码），必须通过 Lint / Build and unit tests / Coverage / Tests policy 后合并。测试要断言行为和边界，重点是曾导致卡死的失败路径。发现真实 bug：另开小 PR（先失败的测试 + 最小修复）。
 
 | 批次 | 时间 | 领域（PR） | 预期新增覆盖行 |
 |---|---|---|---:|
@@ -127,7 +127,7 @@
 
 CI 的计算方式：`fork_emulator.yml` 在 `koreader/kobase` 镜像里构建模拟器并以 luacov 运行前端单元测试（`make coverage-run`，每个 spec 一个进程），产出 `unit.stats.out`；`.ci/fork/coverage.sh` 用模拟器自带的 luajit + luacov 运行 `coverage.lua` 计算各门禁。本地无需重新构建：
 
-1. 下载 `main` 最近一次 CI 的 `koreader-emulator-x86_64`、`unit-coverage`、`integration-coverage` 产物（`gh run download <run> -n <name>`）。
+1. 下载 `main` 最近一次 CI 的 `koreader-emulator-x86_64`、`unit-coverage`；仅发版候选流程还提供 `integration-coverage` 产物（`gh run download <run> -n <name>`）。
 2. 解包模拟器，把 `frontend/`、`plugins/`、顶层 `*.lua`、`.luacov` 换成指向工作树的符号链接，`spec/front` → 工作树的 `spec/`，`spec/front/unit/data` → `test` 子模块；需要 `libSDL3.so.0`（放进 `libs/`）。
 3. 每个 spec 单独进程运行：`KO_HOME=spec/run/<name> ./luajit -e 'require "busted.runner" {standalone = false}' /dev/null --config-file=spec/config.lua --helper=spec/helper.lua --run=front --coverage spec/front/unit/<name>_spec.lua`（`LUA_PATH`/`LUA_CPATH` 同 `spec/runtests`），再用 `tools/merge_luacov_stats.lua` 合并。
 4. 用 `coverage.lua`（`--unit`/`--integration`）计算门禁，或逐文件统计。本地结果与 CI 相差 < 0.05 pp。
