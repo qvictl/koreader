@@ -29,8 +29,7 @@ def tree(repo, ref):
         metadata, name = entry.split(b"\t", 1)
         kind, oid = metadata.decode().split()[1:]
         path = name.decode()
-        if kind == "blob" and path.endswith(".lua") and (
-                path.startswith(("frontend/", "plugins/", "spec/unit/")) or "/" not in path):
+        if kind == "blob" and path.endswith(".lua"):
             entries.append((path, oid))
     data = subprocess.check_output(["git", "-C", str(repo), "cat-file", "--batch"],
                                    input="".join(oid + "\n" for _, oid in entries).encode())
@@ -102,7 +101,8 @@ def tokens(source):
     return result
 
 
-# Existing sandbox/data loaders read generated settings/exports, not tracked modules.
+# Known framework/data-loader files always require full UT when changed.
+# Their unchanged indirect imports remain opaque and retain their consumers.
 DATA_LOADERS = {"frontend/luadata.lua", "frontend/persist.lua", "frontend/ui/data/onetime_migration.lua",
                 "spec/unit/readerannotation_spec.lua", "spec/unit/docsettings_locations_spec.lua",
                 "frontend/apps/reader/modules/readerdictionary.lua", "frontend/device/input.lua",
@@ -113,18 +113,21 @@ DATA_LOADERS = {"frontend/luadata.lua", "frontend/persist.lua", "frontend/ui/dat
 SHARED = {"reader.lua", "setupkoenv.lua", "defaults.lua", "datastorage.lua", "spec/unit/commonrequire.lua",
           "frontend/device.lua", "frontend/pluginloader.lua", "frontend/ui/uimanager.lua", "frontend/ui/time.lua",
           "frontend/util.lua", "frontend/luasettings.lua", "frontend/luadefaults.lua", "frontend/logger.lua"}
-PREFIX_LOADERS = {
-    ("frontend/ui/menusorter.lua", "dofile"): "frontend/ui/elements/",
-    ("frontend/ui/elements/menu_keyboard_layout.lua", "require"): "frontend/ui/data/keyboardlayouts/",
-    ("frontend/ui/widget/virtualkeyboard.lua", "require"): "frontend/ui/data/keyboardlayouts/",
-    ("frontend/ui/network/manager.lua", "require"): "frontend/ui/network/",
-    ("plugins/externalkeyboard.koplugin/main.lua", "loadfile"): "plugins/externalkeyboard.koplugin/",
-    ("plugins/externalkeyboard.koplugin/keyboard_layout.lua", "loadfile"): "plugins/externalkeyboard.koplugin/",
-    ("plugins/cloudstorage.koplugin/main.lua", "dofile"): "plugins/cloudstorage.koplugin/providers/",
+DYNAMIC_FRAMEWORK = {
+    "frontend/ui/menusorter.lua", "frontend/ui/elements/menu_keyboard_layout.lua",
+    "frontend/ui/widget/virtualkeyboard.lua", "frontend/ui/network/manager.lua",
+    "plugins/externalkeyboard.koplugin/main.lua", "plugins/externalkeyboard.koplugin/keyboard_layout.lua",
+    "plugins/cloudstorage.koplugin/main.lua",
 }
-# A change to a classified dynamic loader requires full UT; its old data/directory
-# scope must never silently authorize a newly edited loader.
-SHARED |= DATA_LOADERS | {path for path, _ in PREFIX_LOADERS}
+SHARED |= DATA_LOADERS | DYNAMIC_FRAMEWORK
+
+
+
+# Only LuaJIT builtins and identified native modules may end outside the Git graph.
+# Third-party Lua wrappers may themselves import repository modules, so are opaque.
+NATIVE_MODULES = {"bit", "ffi", "coroutine", "debug", "io", "jit", "jit.util", "jit.opt",
+                  "math", "os", "package", "string", "string.buffer", "table", "lfs", "lpeg",
+                  "socket.core", "mime.core", "ssl.core"}
 
 
 def graph(files):
@@ -144,6 +147,29 @@ def graph(files):
                     aliases[ts[i][1]].add(ts[i + 2][1])
                 else:
                     opaque.add(ts[i][1])
+        for i, (kind, value) in enumerate(ts):
+            following = [token[1] for token in ts[i + 1:i + 4]]
+            previous = ts[i - 1][1] if i else None
+            if kind == "name" and value in {"getfenv", "setfenv", "load", "loadstring"} and previous not in {".", ":"}:
+                unknown.append(path + ": dynamic environment/code loader")
+            if kind == "name" and value == "_G" and path != "spec/unit/commonrequire.lua":
+                unknown.append(path + ": global environment access")
+            if kind == "string" and value in {"require", "dofile", "loadfile"} and previous == "[":
+                unknown.append(path + ": computed loader field")
+            if kind == "name" and value == "package":
+                if not following or following[0] != "." or (len(following) > 1 and following[1] in {"loaders", "searchers", "loadlib", "preload", "searchpath"}):
+                    unknown.append(path + ": dynamic package access")
+                elif following[:2] == [".", "loaded"] and len(following) > 2 and following[2] == "[":
+                    argument = ts[i + 4] if i + 4 < len(ts) else ("symbol", "")
+                    if argument[0] == "string" and i + 5 < len(ts) and ts[i + 5][1] == "]":
+                        targets = modules(argument[1])
+                        edges[path].update(targets)
+                        if not targets and argument[1] not in NATIVE_MODULES:
+                            unknown.append(path + ": opaque package.loaded target")
+                    elif path != "spec/unit/commonrequire.lua":
+                        unknown.append(path + ": computed package.loaded access")
+                elif following[:2] == [".", "loaded"]:
+                    unknown.append(path + ": indirect package.loaded reference")
         for i, (kind, loader) in enumerate(ts):
             if kind != "name":
                 continue
@@ -158,6 +184,9 @@ def graph(files):
             elif loader not in {"require", "dofile", "loadfile", "load_plugin"}:
                 continue
             elif i and ts[i - 1][1] in {"function", ".", ":"}:
+                if path == "spec/unit/commonrequire.lua" and loader == "load_plugin" and ts[i - 1][1] == "function":
+                    continue
+                unknown.append(path + ": field/overridden loader")
                 continue
             elif ts[j:j + 1] != [("symbol", "(")] and (j >= len(ts) or ts[j][0] != "string"):
                 if i and ts[i - 1][1] == "(" and i >= 2 and ts[i - 2][1] == "pcall":
@@ -176,21 +205,16 @@ def graph(files):
                 if path == "spec/unit/commonrequire.lua" and loader in {"require", "load_plugin"}:
                     # The helper's package.reload/load_plugin calls are resolved at each caller.
                     continue
-                if path == "frontend/pluginloader.lua" and loader == "dofile":
-                    edges[path].update(p for p in files if p.startswith("plugins/"))
-                    continue
-                if path in DATA_LOADERS and loader in {"dofile", "loadfile"}:
-                    continue
-                if (path, loader) in PREFIX_LOADERS:
-                    edges[path].update(p for p in files if p.startswith(PREFIX_LOADERS[path, loader]))
-                    continue
                 unknown.append(path + ": dynamic " + loader)
                 continue
             for value in values:
                 if "\\" in value:
                     unknown.append(path + ": escaped loader path")
                 elif loader == "require":
-                    edges[path].update(modules(value))
+                    targets = modules(value)
+                    edges[path].update(targets)
+                    if not targets and value not in NATIVE_MODULES:
+                        unknown.append(path + ": unknown external Lua require " + value)
                 elif loader == "load_plugin":
                     root = "plugins/" + value.removesuffix(".koplugin") + ".koplugin/"
                     edges[path].update(p for p in files if p.startswith(root))
@@ -198,6 +222,12 @@ def graph(files):
                     edges[path].add(value)
                 elif not value.startswith(("spec/", "test/")):
                     unknown.append(path + ": unresolved " + loader)
+    # Unknown loaders may import any project module. Add their consumers rather
+    # than globally forcing unrelated suites to run. Test helpers are handled as
+    # shared changes; suite files themselves are not runtime import candidates.
+    project_modules = {p for p in files if not p.startswith(("spec/", ".ci/"))}
+    for consumer in {reason.split(": ", 1)[0] for reason in unknown}:
+        edges[consumer].update(project_modules)
     return edges, sorted(set(unknown))
 
 
@@ -239,16 +269,25 @@ def select(repo, base=None, head=None):
         result.update(mode="none", tests=[], reasons=["no production, unit or framework changes"],
                       base_unit_tests="unchanged_skipped")
         return result
+    changed_specs = sorted(p for p in changed if p in suites)
+    if (changed_specs and all(re.fullmatch(r"spec/unit/[A-Za-z0-9_]+_spec\.lua", p) for p in changed_specs)
+            and all(unrelated(p) or (p.startswith("spec/unit/") and p.endswith("_spec.lua")) for p in changed)):
+        result.update(mode="selected", tests=changed_specs, reasons=["only isolated unit suites changed"],
+                      base_unit_tests="unchanged_skipped")
+        return result
     for path in sorted(changed):
         if unrelated(path):
             continue
-        if path in SHARED or not path.endswith(".lua") or not path.startswith(("frontend/", "plugins/", "spec/unit/")):
+        if (path in SHARED or (path.startswith("spec/unit/") and not path.endswith("_spec.lua"))
+                or not path.endswith(".lua") or not path.startswith(("frontend/", "plugins/", "spec/unit/"))):
             result["reasons"] = ["shared or unclassified change: " + path]
             return result
-    before, old_unknown = graph(tree(repo, old))
+    old_files = tree(repo, old)
+    before, old_unknown = graph(old_files)
     after, new_unknown = graph(current)
-    if old_unknown or new_unknown:
-        result["reasons"] = ["unclassified loader: " + (old_unknown + new_unknown)[0]]
+    introduced_unknown = [reason for reason in new_unknown if reason.split(": ", 1)[0] in changed]
+    if introduced_unknown:
+        result["reasons"] = ["changed opaque loader: " + introduced_unknown[0]]
         return result
     reverse = defaultdict(set)
     for edges in (before, after):
@@ -270,6 +309,8 @@ def select(repo, base=None, head=None):
         return result
     result.update(mode="selected", reasons=["changed modules and reverse dependencies in base and head"], tests=selected,
                   base_unit_tests="unchanged_skipped")
+    if old_unknown or new_unknown:
+        result["reasons"].append("opaque consumers retain conservative dependencies on every project module")
     return result
 
 

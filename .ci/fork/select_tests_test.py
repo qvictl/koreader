@@ -102,7 +102,7 @@ class SelectionTests(GitFixture, unittest.TestCase):
         self.write("spec/unit/b_spec.lua", 'local MOD = "other"; MOD = compute(); require(MOD)\n')
         self.base = self.commit()
         self.write("frontend/leaf.lua", "return { changed = true }\n")
-        self.assertEqual(self.choose()["mode"], "full")
+        self.assertEqual(self.choose()["tests"], ["spec/unit/a_spec.lua", "spec/unit/b_spec.lua"])
 
     def test_plugin_dofile_and_ambiguous_package_path_union(self):
         for name in ("one", "two"):
@@ -120,10 +120,68 @@ class SelectionTests(GitFixture, unittest.TestCase):
         self.write("frontend/leaf.lua", "return { changed = true }\n")
         self.assertEqual(self.choose()["tests"], ["spec/unit/a_spec.lua"])
 
-    def test_unknown_dynamic_loader_and_indirect_loader_fall_back(self):
+    def test_only_changed_spec_runs_despite_its_dynamic_loader(self):
         for source in ('require(dynamic_name)', 'local loader = require; loader(dynamic_name)'):
             self.write("spec/unit/b_spec.lua", source)
-            self.assertEqual(self.choose()["mode"], "full")
+            self.assertEqual(self.choose()["tests"], ["spec/unit/b_spec.lua"])
+
+    def test_indirect_loaders_keep_both_existing_consumers(self):
+        sources = [
+            '_G.require("leaf")', '_G["require"]("leaf")',
+            'local key = "require"; _G[key]("leaf")', 'getfenv().require("leaf")',
+            'local env = getfenv(); env["require"]("leaf")',
+            'local loader = require; loader("leaf")',
+            'local key = "loadlib"; package[key]("leaf")',
+            'package.loaders[1]("leaf")', 'package.searchers[1]("leaf")',
+            'loadstring([[return require("leaf")]])()',
+            'rawget(_G, "require")("leaf")', 'local env = _G; env.require("leaf")',
+            'local key = "leaf"; package.loaded[key]()',
+            'local key = "loader"; package.preload[key]("leaf")',
+            'local loaded = package.loaded; loaded["leaf"]()', 'package.loaded.leaf()',
+        ]
+        for index, source in enumerate(sources):
+            with self.subTest(source=source):
+                self.write("spec/unit/b_spec.lua", source)
+                self.base = self.commit()
+                self.write("frontend/leaf.lua", "return { changed = %d }" % index)
+                result = self.choose()
+                self.assertEqual(result["tests"], ["spec/unit/a_spec.lua", "spec/unit/b_spec.lua"])
+
+    def test_changed_runtime_unknown_loader_forces_full(self):
+        self.write("frontend/mid.lua", '_G.require("leaf")')
+        self.assertEqual(self.choose()["mode"], "full")
+
+    def test_unknown_external_lua_cannot_hide_an_indirect_consumer(self):
+        self.write("spec/unit/b_spec.lua", 'require("unknown_external")')
+        self.base = self.commit()
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        self.assertEqual(self.choose()["tests"], ["spec/unit/a_spec.lua", "spec/unit/b_spec.lua"])
+
+    def test_generated_data_dofile_may_still_import_target(self):
+        self.write("frontend/luasettings.lua", 'local ok, data = pcall(dofile, settings_path); return data')
+        self.write("spec/unit/b_spec.lua", 'require("luasettings")')
+        self.base = self.commit()
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        self.assertEqual(self.choose()["tests"], ["spec/unit/a_spec.lua", "spec/unit/b_spec.lua"])
+
+    def test_spec_only_does_not_expand_unrelated_opaque_consumers(self):
+        self.write("spec/unit/b_spec.lua", '_G.require("leaf")')
+        self.base = self.commit()
+        self.write("spec/unit/a_spec.lua", 'require("mid") -- test changed')
+        self.assertEqual(self.choose()["tests"], ["spec/unit/a_spec.lua"])
+
+    def test_unreachable_opaque_module_does_not_expand_suites(self):
+        self.write("vendor/unreachable.lua", '_G.require("leaf")')
+        self.base = self.commit()
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        self.assertEqual(self.choose()["tests"], ["spec/unit/a_spec.lua"])
+
+    def test_internal_git_lua_outside_frontend_is_a_real_dependency(self):
+        self.write("vendor/wrapper.lua", 'return require("leaf")')
+        self.write("spec/unit/b_spec.lua", 'require("vendor/wrapper")')
+        self.base = self.commit()
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        self.assertEqual(self.choose()["tests"], ["spec/unit/a_spec.lua", "spec/unit/b_spec.lua"])
 
     def test_shared_native_and_unknown_file_fall_back(self):
         for path in ("spec/unit/commonrequire.lua", "frontend/ui/uimanager.lua", "base", "Makefile", "test/sample.epub"):
