@@ -1,9 +1,10 @@
 # Coverage history of `main` (qvictl/koreader)
 
-Unit + emulator integration tests (luacov). Updated by CI on every push to main; a PR's ratchet compares with the record of its base commit (`history.jsonl`).
+Unit coverage is recorded on main pushes; combined coverage only on validated release candidates. Unmeasured values are shown as –.
 
 | Date | Commit | Overall | Unit tests only | Fork-owned modules | Owned target |
 |---|---|---:|---:|---:|---:|
+| 2026-10-29 | [8e9a159e16](https://github.com/qvictl/koreader/commit/8e9a159e16f39541a9c3c406e548f5cac65e1bc3) | – | 48.48% | – | –% |
 | 2026-10-29 | [938e5d52d9](https://github.com/qvictl/koreader/commit/938e5d52d900c6dd7d07b98529cd26937d0154e0) | 53.09% | 48.47% | 98.46% | 80% |
 | 2026-10-29 | [f6e4ef2132](https://github.com/qvictl/koreader/commit/f6e4ef21322738a109eafd1cf4f726dd698a5bc3) | 53.08% | 48.47% | 98.32% | 80% |
 | 2026-10-29 | [740f021c55](https://github.com/qvictl/koreader/commit/740f021c55734c0d32294dd7e19700ce1c11eb3c) | 53.08% | 48.46% | 98.17% | 80% |
