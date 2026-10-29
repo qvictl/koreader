@@ -263,6 +263,68 @@ return {
             dismissDialogs()
 
             Queue:clear()
+            plugin = configure(reader, "superseded-pending")
+            do
+                local document = plugin:getDocumentDigest()
+                Queue:push{ document = document, progress = "obsolete-A", percentage = 0.1,
+                    device = "Synthetic", device_id = "synthetic-device" }
+                Queue:push{ document = "other-pending-book", progress = "other-position", percentage = 0.2,
+                    device = "Synthetic", device_id = "synthetic-device" }
+                local published = plugin:getLastProgress()
+                local success = server:plan(200, { message = "accepted B" })
+                T:run(function() plugin:updateProgress(false, true) end)
+                local request = server:waitReceived(success)
+                T:check(request.payload.progress == published and request.payload.progress ~= "obsolete-A",
+                    "the real successful push sends the new position rather than queued A")
+                server:release(success); server:waitFinished(success)
+                waitSettled()
+                T:check(Queue:count() == 1 and Queue:load()[1].document == "other-pending-book",
+                    "successful B removes obsolete same-book A and preserves another book")
+                dismissDialogs()
+                local drain = server:plan(200, { message = "other accepted" })
+                local drained
+                local before = #workers
+                T:run(function() plugin:drainQueue(function() drained = true end) end)
+                request = server:waitReceived(drain)
+                T:eq(request.payload.document, "other-pending-book", "a later real drain cannot resend obsolete A")
+                server:release(drain); server:waitFinished(drain)
+                T:waitUntil(function() return drained end, 5, "remaining other-book progress drains")
+                waitSettled()
+                T:check(Queue:count() == 0 and #workers == before + 1,
+                    "only the other-book HTTP request was needed to empty the queue")
+            end
+
+            Queue:clear()
+            plugin = configure(reader, "close-during-success", true)
+            do
+                local document = plugin:getDocumentDigest()
+                Queue:push{ document = document, progress = "obsolete-A", percentage = 0.1,
+                    device = "Synthetic", device_id = "synthetic-device" }
+                Queue:push{ document = "other-close-book", progress = "other-position", percentage = 0.2,
+                    device = "Synthetic", device_id = "synthetic-device" }
+                local published = plugin:getLastProgress()
+                local success = server:plan(200, { message = "accepted B before close C" })
+                T:run(function() plugin:updateProgress(false, true) end)
+                T:eq(server:waitReceived(success).payload.progress, published, "B is in flight before the later close")
+                T:run(function() reader:handleEvent(require("ui/event"):new("GotoPage", reader:getCurrentPage() + 1)) end)
+                local closing = plugin:getLastProgress()
+                T:check(closing ~= published, "real page movement creates a distinct close position C")
+                T:closeBook()
+                plugin.ui, plugin.view = nil, nil
+                server:release(success); server:waitFinished(success)
+                waitSettled()
+                local same_book, other_book
+                for _, item in ipairs(Queue:load()) do
+                    if item.document == document then same_book = item.progress end
+                    if item.document == "other-close-book" then other_book = item.progress end
+                end
+                T:check(Queue:count() == 2 and same_book == closing and other_book == "other-position",
+                    "successful B preserves the newer real close C and another book's pending entry")
+                T:check(T:reader() == nil and T:topWidget() == T:fileManager(),
+                    "late success after close does not repaint or reopen the old reader")
+            end
+            Queue:clear()
+            reader = T:openBook(T:fixture("books/en.epub"))
             plugin = configure(reader, "old-account")
             local logout = server:plan(202, { message = "old-account failure" })
             T:run(function() plugin:updateProgress(false, true) end)
@@ -333,7 +395,11 @@ return {
             local suspend = server:plan(200, { message = "accepted old snapshot" })
             T:run(function()
                 Device.hasWifiManager = function() return false end
-                local called, failure = pcall(plugin.updateProgress, plugin, false, true, true)
+                local online_gate = NetworkMgr.willRerunWhenOnline
+                NetworkMgr.willRerunWhenOnline = function() error("suspend must persist without an online gate") end
+                plugin.push_timestamp = UI:getElapsedTimeSinceBoot()
+                local called, failure = pcall(plugin._onSuspend, plugin)
+                NetworkMgr.willRerunWhenOnline = online_gate
                 Device.hasWifiManager = original_wifi
                 if not called then error(failure, 0) end
             end)
