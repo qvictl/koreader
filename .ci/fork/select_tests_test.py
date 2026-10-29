@@ -214,6 +214,9 @@ class WorkflowTests(GitFixture, unittest.TestCase):
                           + shlex.quote(sys.executable) + " " + shlex.quote(str(root / ".ci/fork/select_tests.py"))
                           + ' "$@"; fi\nexec ' + shlex.quote(sys.executable) + ' "$@"\n')
         python.chmod(0o755)
+        kodev = self.repo / "kodev"
+        kodev.write_text("#!/bin/sh\necho true\n")
+        kodev.chmod(0o755)
         meson = bindir / "meson"
         meson.write_text("#!/bin/sh\nexit 0\n")
         meson.chmod(0o755)
@@ -224,6 +227,13 @@ class WorkflowTests(GitFixture, unittest.TestCase):
                                 env=env, capture_output=True, text=True)
         path = self.repo / "unit-selection.json"
         return result.returncode, json.loads(path.read_text()) if path.exists() else None
+
+    def test_selection_runs_on_host_to_receive_ci_inputs_and_outputs(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/fork_emulator.yml").read_text()
+        step = workflow.split("      - name: Select affected front unit suites\n", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("        shell: bash\n", step)
+        self.assertIn("./kodev docker kontainer exec", step)
 
     def test_release_forces_full_even_if_change_inputs_exist(self):
         code, manifest = self.run_step("invalid-ref", full="true")

@@ -209,13 +209,15 @@ jobs:
       - name: Select affected front unit suites
         if: inputs.unit_tests
         id: selection
+        shell: bash
         env:
           CHANGE_BASE: ${{ inputs.unit_test_base }}
           CHANGE_EVENT: ${{ inputs.unit_test_event }}
           FULL_RELEASE_UNITS: ${{ inputs.base_coverage }}
         run: |
           python3 .ci/fork/select_tests_test.py
-          if [[ "${FULL_RELEASE_UNITS}" != true && -n "${CHANGE_BASE}" ]] && command -v meson >/dev/null; then
+          MESON_AVAILABLE="$(./kodev docker kontainer exec sh -c 'if command -v meson >/dev/null; then echo true; else echo false; fi')"
+          if [[ "${FULL_RELEASE_UNITS}" != true && -n "${CHANGE_BASE}" && "${MESON_AVAILABLE}" == true ]]; then
             if [[ "${CHANGE_EVENT}" == pull_request ]] && git rev-parse -q --verify HEAD^2 >/dev/null; then
               CHANGE_BASE="$(git rev-parse HEAD^1)"
             else
