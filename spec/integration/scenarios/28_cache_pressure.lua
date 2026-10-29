@@ -64,7 +64,10 @@ local function threadBarrier()
                 error("pthread_create failed: " .. status)
             end
         end,
-        restore = function() ffi.load = original_load end,
+        restore = function()
+            hold_next = false
+            ffi.load = original_load
+        end,
     }
 end
 
