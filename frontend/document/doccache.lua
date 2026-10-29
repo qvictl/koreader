@@ -62,6 +62,19 @@ local DocCache = Cache:new{
     cache_path = DataStorage:getDataDir() .. "/cache/",
 }
 
+function DocCache:memoryPressureCheck()
+    local force_slot_chop = false
+    for _, item in self.cache:pairs() do
+        if item.kctx and item.kctx:isPreCache() == 1 then
+            -- Keep the old eviction scope while reflow is busy: byte-based eviction
+            -- could reach another context whose onFree would wait on the UI thread.
+            force_slot_chop = true
+            break
+        end
+    end
+    Cache.memoryPressureCheck(self, force_slot_chop)
+end
+
 function DocCache:serialize(doc_path)
     if not self.disk_cache then
         return
