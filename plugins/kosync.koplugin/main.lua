@@ -826,7 +826,8 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         if widget and widget.modal and widget.tag == "NetworkMgr" and not widget.dismiss_callback then
             widget.dismiss_callback = function() UIManager:setDirty(nil, "full") end
         end
-        if Device:hasWifiManager() then NetworkMgr:disableWifi() end
+        -- Device:onPowerEvent already tears Wi-Fi down before broadcasting
+        -- Suspend. Do not repeat a synchronous DHCP release from this callback.
         self.push_timestamp = now
         return
     end
