@@ -2,10 +2,10 @@
 -- Dated targets tighten automatically: edit only to change the policy.
 return {
     gates = {
-        -- Blocking on every PR to main.
+        -- Unit gates block PRs; combined gates block release candidates.
         diff_unit_min = 80,         -- % of the changed executable Lua lines run by the unit tests
         diff_combined_min = 90,     -- % run by the unit + emulator integration tests
-        ratchet_tolerance_pp = 0.1, -- overall coverage may not drop below main's (at the PR's base commit) by more than this
+        ratchet_tolerance_pp = 0.1, -- the selected metric may not drop below its measured ancestor by more than this
     },
     -- Changed files the diff gates look at.
     diff_include = { "^frontend/", "^plugins/", "^[^/]+%.lua$" },

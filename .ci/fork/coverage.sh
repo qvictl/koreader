@@ -9,9 +9,10 @@
 # `integration-coverage*/` (emulator integration tests).
 #
 # Environment: EVENT_NAME, PR_NUMBER, PR_BASE, PUSH_BEFORE, GH_TOKEN, GITHUB_REPOSITORY.
-# Pull requests: all gates are enforced (diff, ratchet, owned modules, dated unit-test
-# coverage target); upstream sync PRs
-# (bringing upstream commits): only the owned modules gate. Pushes: report only.
+# Pull requests: changed-line units, unit ratchet and dated unit targets are enforced.
+# Upstream sync PRs enforce the dated unit target; pushes only report unit metrics.
+# Release candidates enforce the combined gates too (COVERAGE_MODE=combined,
+# EVENT_NAME=release, RELEASE_BASE=previous measured combined ancestor).
 # The ratchet compares with the coverage recorded for the main commit the change is based on
 # (or its nearest recorded ancestor), not with main's latest: see coverage_baseline.sh.
 # Outputs (GITHUB_OUTPUT): ok=true|false; writes coverage-result.json (for the history).
@@ -22,10 +23,19 @@ artifacts="$(cd "$1" && pwd)"
 : "${GITHUB_OUTPUT:=/dev/stdout}" "${GITHUB_STEP_SUMMARY:=/dev/stdout}"
 tmp="${RUNNER_TEMP:-/tmp}"
 src="${PWD}"
+mode="${COVERAGE_MODE:-unit}"
+[[ "${mode}" == unit || "${mode}" == combined ]] || exit 2
 
-enforce=diff,ratchet,owned,unit
+enforce=diff,ratchet,unit
 note=''
 case "${EVENT_NAME}" in
+    release)
+        [[ "${mode}" == combined ]] || exit 2
+        enforce=diff,ratchet,owned,unit
+        base="${RELEASE_BASE:?release coverage needs a measured combined baseline}"
+        git merge-base --is-ancestor "${base}" HEAD
+        note='(Release candidate: the entire change since the last measured combined ancestor is enforced.)'
+        ;;
     pull_request)
         # The merge ref's first parent (pull_request.base.sha may be older).
         base="$("${src}/.ci/fork/coverage_baseline.sh" base pull_request)" || base="${PR_BASE}"
@@ -53,15 +63,16 @@ git fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null
 base="$(git merge-base "${base}" HEAD)"
 # The ratchet's base: the main commit the change is based on.
 case "${EVENT_NAME}" in
+    release) ratchet_base="$(git rev-parse HEAD)" ;;
     workflow_dispatch) ratchet_base="$("${src}/.ci/fork/coverage_baseline.sh" base workflow_dispatch)" || ratchet_base="${base}" ;;
     *) ratchet_base="${base}" ;;
 esac
-if [[ -n "${enforce}" ]] && git rev-parse -q --verify origin/upstream >/dev/null; then
+if [[ "${EVENT_NAME}" != release ]] && [[ -n "${enforce}" ]] && git rev-parse -q --verify origin/upstream >/dev/null; then
     all="$(git rev-list --count "${base}..HEAD")"
     own="$(git rev-list --count "${base}..HEAD" --not origin/upstream)"
     if [[ "${own}" != "${all}" ]]; then
-        enforce=owned
-        note="This change brings $((all - own)) upstream commit(s) (upstream sync): only the owned modules gate is enforced."
+        enforce=unit
+        note="This change brings $((all - own)) upstream commit(s) (upstream sync): only the dated unit target is enforced; combined owned coverage is checked at release."
     fi
 fi
 echo "base: ${base}, ratchet base: ${ratchet_base}, head: $(git rev-parse HEAD), enforce: ${enforce:-none}"
@@ -73,14 +84,20 @@ else
     : >"${tmp}/fork.diff"
 fi
 git show origin/coverage:history.jsonl >"${tmp}/coverage-history.jsonl" 2>/dev/null || : >"${tmp}/coverage-history.jsonl"
-if read -r bsha bpct bkind < <("${src}/.ci/fork/coverage_baseline.sh" lookup "${ratchet_base}" "${tmp}/coverage-history.jsonl"); then
-    if [[ "${bkind}" == exact ]]; then
+if read -r bsha bpct bkind < <("${src}/.ci/fork/coverage_baseline.sh" lookup "${ratchet_base}" "${tmp}/coverage-history.jsonl" "${mode}"); then
+    if [[ "${EVENT_NAME}" == release ]]; then
+        label="main@${bsha:0:8} (previous actual combined measurement)"
+    elif [[ "${bkind}" == exact ]]; then
         label="main@${bsha:0:8} (this change's base)"
     else
         label="main@${bsha:0:8} (nearest ancestor with coverage of base ${ratchet_base:0:8})"
     fi
     baseline=(--baseline-overall "${bpct}" --baseline-label "${label}")
 else
+    [[ "${EVENT_NAME}" != release ]] || {
+        echo "no measured combined baseline" >&2
+        exit 1
+    }
     baseline=(--baseline-label "no coverage recorded for base ${ratchet_base:0:8} or its ancestors")
 fi
 echo "ratchet baseline: ${baseline[*]}"
@@ -89,7 +106,7 @@ echo "ratchet baseline: ${baseline[*]}"
 emu="${tmp}/coverage-luajit"
 rm -rf "${emu}"
 mkdir -p "${emu}"
-tarball="$(find "${artifacts}" -name 'koreader-emulator-x86_64.tar.xz' -o -name 'base-luajit.tar.xz' | head -n1)"
+tarball="$(find -L "${artifacts}" -name 'koreader-emulator-x86_64.tar.xz' -o -name 'base-luajit.tar.xz' | head -n1)"
 tar -C "${emu}" -xJf "${tarball}" koreader/luajit koreader/spec/rocks 2>/dev/null || tar -C "${emu}" -xJf "${tarball}"
 # Self-test of the gates' tool.
 "${src}/.ci/fork/coverage_test.sh" "${emu}/koreader" || exit 2
@@ -99,7 +116,30 @@ while read -r f; do
         */integration-coverage*) stats+=(--integration "${f}") ;;
         *) stats+=(--unit "${f}") ;;
     esac
-done < <(find "${artifacts}" -name '*.stats.out' | sort)
+done < <(find -L "${artifacts}" -name '*.stats.out' | sort)
+unit_count=0 integration_count=0
+for ((i = 0; i < ${#stats[@]}; i += 2)); do
+    [[ -s "${stats[i + 1]}" ]] || {
+        echo "empty coverage stats" >&2
+        exit 1
+    }
+    if [[ "${stats[i]}" == --unit ]]; then unit_count=$((unit_count + 1)); else integration_count=$((integration_count + 1)); fi
+done
+[[ ${unit_count} -gt 0 ]] || {
+    echo "missing unit coverage" >&2
+    exit 1
+}
+if [[ "${mode}" == combined ]]; then
+    [[ ${integration_count} -gt 0 ]] || {
+        echo "missing integration coverage" >&2
+        exit 1
+    }
+else
+    [[ ${integration_count} -eq 0 ]] || {
+        echo "unit mode cannot consume integration stats" >&2
+        exit 1
+    }
+fi
 echo "stats: ${stats[*]}"
 
 md="${tmp}/coverage.md"
@@ -107,7 +147,7 @@ code=0
 (
     cd "${emu}/koreader"
     ./luajit -e "package.path='spec/rocks/share/lua/5.1/?.lua;spec/rocks/share/lua/5.1/?/init.lua;'..package.path" \
-        "${src}/.ci/fork/coverage.lua" --config "${src}/.ci/coverage_config.lua" --src "${src}" \
+        "${src}/.ci/fork/coverage.lua" --mode "${mode}" --config "${src}/.ci/coverage_config.lua" --src "${src}" \
         --diff "${tmp}/change.diff" --fork-diff "${tmp}/fork.diff" "${stats[@]}" "${baseline[@]}" \
         --enforce "${enforce:-none}" --note "${note}" --md "${md}" --json "${src}/coverage-result.json"
 ) || code=$?
@@ -116,7 +156,7 @@ if [[ ${code} -gt 1 ]]; then
     exit "${code}"
 fi
 cat "${md}" >>"${GITHUB_STEP_SUMMARY}"
-jq --arg commit "$(git rev-parse HEAD)" --arg event "${EVENT_NAME}" '. + {commit: $commit, event: $event}' \
+jq --arg commit "$(git rev-parse HEAD)" --arg event "${EVENT_NAME}" --arg diff_base "${base}" --arg ratchet_base "${bsha:-}" ' . + {commit: $commit, event: $event, diff_base: $diff_base, ratchet_base: (if $ratchet_base == "" then null else $ratchet_base end)}' \
     coverage-result.json >coverage-result.json.tmp && mv coverage-result.json.tmp coverage-result.json
 echo "ok=$([[ ${code} -eq 0 ]] && echo true || echo false)" >>"${GITHUB_OUTPUT}"
 

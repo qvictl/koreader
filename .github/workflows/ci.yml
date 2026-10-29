@@ -4,16 +4,12 @@
 #   - Lint                 : upstream's lint (shellcheck, luacheck, unscaled sizes, gettext…)
 #   - Build and unit tests : emulator build + base & front unit tests (busted, front with luacov),
 #                            Kindle HF & PW2 builds (upstream build machinery)
-#   - Integration tests    : emulator integration scenarios (spec/integration), with budgets,
-#                            then again with luacov
-#   - Coverage             : coverage gates (see CONTRIBUTING.md, .ci/coverage_config.lua):
-#                            diff coverage (unit >= 80%, unit + integration >= 90%), overall
-#                            coverage ratchet vs main at the PR's base commit (the merge ref's
-#                            first parent: PRs in flight do not have to merge one by one),
-#                            fork-owned modules' dated targets
+#   - Coverage             : changed-line unit coverage >= 80%, unit overall ratchet,
+#                            dated unit targets (owned-unit coverage is reported).
+# Emulator integration and combined coverage run only in Fork release.
 # The "Tests policy" check lives in tests_policy.yml (it must re-run when labels change).
 #
-# The jobs named exactly "Lint", "Build and unit tests", "Integration tests" and
+# The jobs named exactly "Lint", "Build and unit tests" and
 # "Coverage" are the ones required by the branch protection of `main`.
 
 name: CI
@@ -63,73 +59,9 @@ jobs:
     with:
       jobs: 'kindlehf kindlepw2'
 
-  integration:
-    name: Emulator integration tests
-    needs: emulator
-    runs-on: ubuntu-26.04
-    timeout-minutes: 60
-    # Same image as the build (the emulator uses the system's SDL3).
-    container:
-      image: koreader/kobase:5.0.0-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-        with:
-          clean: false
-          fetch-depth: 1
-          show-progress: false
-      - name: Download emulator
-        uses: actions/download-artifact@v8.0.2
-        with:
-          name: koreader-emulator-x86_64
-      - name: Extract emulator
-        run: |
-          mkdir -p emu
-          tar -C emu -xJf koreader-emulator-x86_64.tar.xz
-          cat emu/koreader/git-rev
-      - name: Integration tests
-        id: tests
-        run: ./tools/run_integration_tests.sh --kodir emu/koreader --output it-results
-      - name: Integration tests (coverage)
-        id: coverage
-        if: ${{ !cancelled() }}
-        run: ./tools/run_integration_tests.sh --coverage --kodir emu/koreader --output it-coverage
-      - name: Summary
-        if: ${{ !cancelled() }}
-        run: |
-          cat it-results/summary.md >>"${GITHUB_STEP_SUMMARY}" || true
-          if [[ -r it-coverage/summary.md ]]; then
-            echo '<details><summary>Coverage run</summary>' >>"${GITHUB_STEP_SUMMARY}"
-            echo >>"${GITHUB_STEP_SUMMARY}"
-            cat it-coverage/summary.md >>"${GITHUB_STEP_SUMMARY}"
-            echo '</details>' >>"${GITHUB_STEP_SUMMARY}"
-          fi
-      - name: Upload results
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: integration-results
-          path: |
-            it-results/summary.md
-            it-results/junit.xml
-            it-results/timings.json
-            it-results/results/
-            it-results/logs/
-            it-coverage/summary.md
-            it-coverage/logs/
-          retention-days: 14
-      - name: Upload coverage
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: integration-coverage
-          path: it-coverage/integration.stats.out
-          if-no-files-found: ignore
-          retention-days: 14
-
   coverage-report:
     name: Coverage report
-    needs: [emulator, integration]
+    needs: emulator
     if: ${{ !cancelled() && needs.emulator.result == 'success' }}
     runs-on: ubuntu-26.04
     permissions:
@@ -150,12 +82,15 @@ jobs:
       - name: Download emulator & coverage
         uses: actions/download-artifact@v8.0.2
         with:
-          pattern: '{koreader-emulator-x86_64,unit-coverage,integration-coverage}'
+          pattern: '{koreader-emulator-x86_64,unit-coverage}'
           path: artifacts
+      - name: Release check unit tests
+        run: python3 .ci/fork/release_check_test.py
       - name: Coverage gates
         id: coverage
         env:
           GH_TOKEN: ${{ github.token }}
+          COVERAGE_MODE: unit
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -194,6 +129,8 @@ jobs:
         with:
           name: coverage-result
       - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: ./.ci/fork/coverage_publish.sh coverage-result.json
 
   # }}}
@@ -217,14 +154,6 @@ jobs:
       - run: |
           echo "emulator: ${{ needs.emulator.result }}, kindle: ${{ needs.kindle.result }}"
           [[ "${{ needs.emulator.result }}" == success ]] && [[ "${{ needs.kindle.result }}" == success ]]
-
-  integration-gate:
-    name: Integration tests
-    needs: integration
-    if: ${{ always() }}
-    runs-on: ubuntu-26.04
-    steps:
-      - run: '[[ "${{ needs.integration.result }}" == success ]]'
 
   coverage:
     name: Coverage

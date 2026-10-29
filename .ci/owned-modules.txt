@@ -1,6 +1,6 @@
 # Fork-owned modules: their coverage (unit + emulator integration tests) must reach the
 # dated targets of .ci/coverage_config.lua (owned.targets): 80% from 2026-10-27, 85% from
-# 2026-11-24, 90% from 2026-12-22. Checked by the "Diff coverage" CI check (gate 4).
+# 2026-11-24, 90% from 2026-12-22. Checked by the release coverage gate (gate 4); daily unit-only values are reported.
 #
 # Format: <path> <scope>
 #   file              the whole file (modules added by the fork)

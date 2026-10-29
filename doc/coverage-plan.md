@@ -20,8 +20,8 @@
 | 2026-11-24 | ≥ **36.47%**（+5 pp） | ≥ **33.62%**（+5 pp） | ≥ 85% |
 | 2026-12-22 | ≥ **41.47%**（+10 pp） | ≥ **38.62%**（+10 pp） | ≥ 90% |
 
-- 单元覆盖率目标写在两个仓库的 `.ci/coverage_config.lua` 的 `overall.unit` 中，由 Coverage 检查的 **`unit` 门禁**执行：到期前只报告，**到期当天起阻塞 PR**（upstream 同步 PR 除外，与 owned 门禁同一规则）。引擎自测：`.ci/fork/coverage_test.sh`（每次 Coverage 运行前执行）。
-- 已有门禁不变：diff 覆盖率（单元 ≥ 80%，单元+集成 ≥ 90%）、整体覆盖率 ratchet（阻塞）、单元+集成整体覆盖率的 +5/+10 pp 目标（仅报告）。ratchet 与 PR 所基于的 main 提交（CI 所测 merge 提交的第一个父提交）记录的覆盖率比较，而不是与 main 最新的覆盖率比较；该提交没有记录时取其最近的有记录祖先。因此并行的 PR 不必逐个合入。
+- 单元覆盖率目标写在两个仓库的 `.ci/coverage_config.lua` 的 `overall.unit` 中，由 Coverage 检查的 **`unit` 门禁**执行：到期前只报告，**到期当天起阻塞 PR**（upstream 同步 PR 也执行到期单元目标；其 changed-line 与 ratchet 例外保留）。引擎自测：`.ci/fork/coverage_test.sh`（每次 Coverage 运行前执行）。
+- PR 的阻塞门禁包括单元 diff 覆盖率 ≥ 80%、单元整体 ratchet 和到期单元目标；main push 只测量并记录单元指标。单元+集成 diff ≥ 90%、组合 ratchet 和 owned 目标仅在 Fork release 候选强制；组合整体覆盖率的 +5/+10 pp 目标仍仅报告。ratchet 与 PR 所基于的 main 提交（CI 所测 merge 提交的第一个父提交）记录的覆盖率比较，而不是与 main 最新的覆盖率比较；该提交没有记录时取其最近的有记录祖先。因此并行的 PR 不必逐个合入。
 - 1 pp ≈ 930 行（frontend+plugins）/ 128 行（ffi）。+10 pp 意味着两个月内新增约 9300 行被单元测试执行的代码。
 
 ## 优先级排序
@@ -113,7 +113,7 @@
 
 ## 批次
 
-每个 PR 只做一个领域、只加测试（不改产品代码），必须通过 Lint / Build and unit tests / Integration tests / Coverage / Tests policy 后合并。测试要断言行为和边界，重点是曾导致卡死的失败路径。发现真实 bug：另开小 PR（先失败的测试 + 最小修复）。
+每个 PR 只做一个领域、只加测试（不改产品代码），必须通过 Lint / Build and unit tests / Coverage / Tests policy 后合并。测试要断言行为和边界，重点是曾导致卡死的失败路径。发现真实 bug：另开小 PR（先失败的测试 + 最小修复）。
 
 | 批次 | 时间 | 领域（PR） | 预期新增覆盖行 |
 |---|---|---|---:|
@@ -127,7 +127,7 @@
 
 CI 的计算方式：`fork_emulator.yml` 在 `koreader/kobase` 镜像里构建模拟器并以 luacov 运行前端单元测试（`make coverage-run`，每个 spec 一个进程），产出 `unit.stats.out`；`.ci/fork/coverage.sh` 用模拟器自带的 luajit + luacov 运行 `coverage.lua` 计算各门禁。本地无需重新构建：
 
-1. 下载 `main` 最近一次 CI 的 `koreader-emulator-x86_64`、`unit-coverage`、`integration-coverage` 产物（`gh run download <run> -n <name>`）。
+1. 下载 `main` 最近一次 CI 的 `koreader-emulator-x86_64`、`unit-coverage`；仅发版候选流程还提供 `integration-coverage` 产物（`gh run download <run> -n <name>`）。
 2. 解包模拟器，把 `frontend/`、`plugins/`、顶层 `*.lua`、`.luacov` 换成指向工作树的符号链接，`spec/front` → 工作树的 `spec/`，`spec/front/unit/data` → `test` 子模块；需要 `libSDL3.so.0`（放进 `libs/`）。
 3. 每个 spec 单独进程运行：`KO_HOME=spec/run/<name> ./luajit -e 'require "busted.runner" {standalone = false}' /dev/null --config-file=spec/config.lua --helper=spec/helper.lua --run=front --coverage spec/front/unit/<name>_spec.lua`（`LUA_PATH`/`LUA_CPATH` 同 `spec/runtests`），再用 `tools/merge_luacov_stats.lua` 合并。
 4. 用 `coverage.lua`（`--unit`/`--integration`）计算门禁，或逐文件统计。本地结果与 CI 相差 < 0.05 pp。
