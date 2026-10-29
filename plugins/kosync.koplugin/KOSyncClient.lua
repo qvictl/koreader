@@ -113,7 +113,9 @@ function KOSyncClient:_runInSubprocess(task, callback, busy_text)
     local start
     start = function(next_job)
         KOSyncClient._active_worker = next_job
+        local watchdog
         local function finish(...)
+            if watchdog then UIManager:unschedule(watchdog) end
             -- Keep the slot occupied during callbacks: a queue drain may
             -- synchronously request its next upload from this callback.
             local ok, err = pcall(next_job.callback, ...)
@@ -134,7 +136,20 @@ function KOSyncClient:_runInSubprocess(task, callback, busy_text)
         end
         local Trapper = require("ui/trapper")
         Trapper:wrap(function()
-            finish(Trapper:dismissableRunInSubprocess(next_job.task, next_job.text))
+            local trap = next_job.text
+            if trap == nil then
+                -- Background synchronization must not intercept normal input.
+                trap = {}
+                watchdog = function()
+                    if KOSyncClient._active_worker == next_job and trap.dismiss_callback then
+                        trap.dismiss_callback()
+                    end
+                end
+                -- Cover blocking DNS as well as HTTP, allowing one extra
+                -- second for the existing transport deadline/result collector.
+                UIManager:scheduleIn(PROGRESS_TIMEOUTS[2] + 1, watchdog)
+            end
+            finish(Trapper:dismissableRunInSubprocess(next_job.task, trap))
         end)
     end
     if KOSyncClient._active_worker then
@@ -150,6 +165,32 @@ function KOSyncClient:_runInSubprocess(task, callback, busy_text)
     start(job)
 end
 
+-- Only protocol scalars cross the worker pipe. Unknown response fields stay
+-- in the child; reject oversized/nested values in the fields the UI consumes.
+function KOSyncClient:_workerBody(body, auth_only)
+    if type(body) ~= "table" then return nil, true end
+    local fields = auth_only and { "message" } or {
+        "progress", "percentage", "device", "device_id", "timestamp", "message",
+    }
+    local limits = { progress = 65536, device = 1024, device_id = 1024, message = 4096 }
+    local remaining, result = 65536, {}
+    for _, key in ipairs(fields) do
+        local value = body[key]
+        if value ~= nil then
+            if type(value) == "string" and limits[key] then
+                if #value > limits[key] or #value > remaining then return nil, false end
+                remaining = remaining - #value
+            elseif type(value) == "number" and (key == "progress" or key == "percentage" or key == "timestamp") then
+                if value ~= value or value == math.huge or value == -math.huge then return nil, false end
+            else
+                return nil, false
+            end
+            result[key] = value
+        end
+    end
+    return result, true
+end
+
 function KOSyncClient:_syncProgress(method, username, password, params)
     self.client:reset_middlewares()
     self.client:enable("Format.JSON")
@@ -162,7 +203,9 @@ function KOSyncClient:_syncProgress(method, username, password, params)
         logger.dbg("KOSyncClient: progress request failure:", res)
         return false, nil, nil
     end
-    return res.status == 200, res.status, res.body
+    local body, valid = self:_workerBody(res.body)
+    if not valid then return false, nil, nil end
+    return res.status == 200, res.status, body
 end
 
 function KOSyncClient:update_progress(

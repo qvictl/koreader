@@ -593,7 +593,14 @@ function KOSync:_runAuthInWorker(method, username, password, busy_text, callback
     local document = ui and ui.document
     local userkey = md5(password)
     client:_runInSubprocess(function()
-        return pcall(client[method], client, username, userkey)
+        local ok, status, body = pcall(client[method], client, username, userkey)
+        if not ok then
+            local message, valid = client:_workerBody({ message = tostring(status) }, true)
+            return false, valid and message.message or _("Invalid server response.")
+        end
+        local bounded, valid = client:_workerBody(body, true)
+        if not valid then return false, _("Invalid server response.") end
+        return true, status == true, bounded
     end, function(completed, ok, status, body)
         if generation ~= Queue._generation or self.ui ~= ui or (ui and ui.document ~= document) then return end
         if not completed then
