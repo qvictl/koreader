@@ -103,6 +103,68 @@ function KOSyncClient:authorize(username, password)
     end
 end
 
+-- Default KOReader has no Turbo looper. A coroutine alone does not make
+-- Spore's synchronous transport nonblocking. Bound workers across client
+-- instances and retain at most one pending progress request.
+function KOSyncClient:_runInSubprocess(task, callback, busy_text)
+    local Queue = require("KOSyncQueue")
+    local generation = Queue._generation
+    local job = { task = task, callback = callback, text = busy_text, generation = generation }
+    local start
+    start = function(next_job)
+        KOSyncClient._active_worker = next_job
+        local function finish(...)
+            -- Keep the slot occupied during callbacks: a queue drain may
+            -- synchronously request its next upload from this callback.
+            local ok, err = pcall(next_job.callback, ...)
+            KOSyncClient._active_worker = nil
+            local pending = KOSyncClient._pending_worker
+            KOSyncClient._pending_worker = nil
+            if pending then start(pending) end
+            if not ok then logger.warn("KOSyncClient: worker callback failed:", err) end
+        end
+        if next_job.generation ~= Queue._generation then
+            finish(false, nil, "stale")
+            return
+        end
+        local ffiUtil = require("ffi/util")
+        if type(ffiUtil.runInSubProcess) ~= "function" then
+            finish(false, nil, "start_failed")
+            return
+        end
+        local Trapper = require("ui/trapper")
+        Trapper:wrap(function()
+            finish(Trapper:dismissableRunInSubprocess(next_job.task, next_job.text))
+        end)
+    end
+    if KOSyncClient._active_worker then
+        -- Auth stays user driven: refuse a busy request rather than retain
+        -- additional credentials or start another worker.
+        if busy_text or KOSyncClient._pending_worker then
+            callback(false, nil, "busy")
+        else
+            KOSyncClient._pending_worker = job
+        end
+        return
+    end
+    start(job)
+end
+
+function KOSyncClient:_syncProgress(method, username, password, params)
+    self.client:reset_middlewares()
+    self.client:enable("Format.JSON")
+    self.client:enable("GinClient")
+    self.client:enable("KOSyncAuth", { username = username, userkey = password })
+    socketutil:set_timeout(PROGRESS_TIMEOUTS[1], PROGRESS_TIMEOUTS[2])
+    local ok, res = pcall(self.client[method], self.client, params)
+    socketutil:reset_timeout()
+    if not ok then
+        logger.dbg("KOSyncClient: progress request failure:", res)
+        return false, nil, nil
+    end
+    return res.status == 200, res.status, res.body
+end
+
 function KOSyncClient:update_progress(
         username,
         password,
@@ -113,6 +175,17 @@ function KOSyncClient:update_progress(
         device,
         device_id,
         callback)
+    if not UIManager.looper then
+        self:_runInSubprocess(function()
+            return self:_syncProgress("update_progress", username, password, {
+                document = document, metadata = metadata, progress = tostring(progress),
+                percentage = percentage, device = device, device_id = device_id,
+            })
+        end, function(completed, ok, status, body)
+            if completed then callback(ok == true, status, body) else callback(false, nil, nil) end
+        end)
+        return
+    end
     self.client:reset_middlewares()
     self.client:enable("Format.JSON")
     self.client:enable("GinClient")
@@ -151,6 +224,14 @@ function KOSyncClient:get_progress(
         password,
         document,
         callback)
+    if not UIManager.looper then
+        self:_runInSubprocess(function()
+            return self:_syncProgress("get_progress", username, password, { document = document })
+        end, function(completed, ok, _, body)
+            if completed then callback(ok == true, body) else callback(false, nil) end
+        end)
+        return
+    end
     self.client:reset_middlewares()
     self.client:enable("Format.JSON")
     self.client:enable("GinClient")

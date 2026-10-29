@@ -321,6 +321,9 @@ describe("KOSyncQueue module", function()
                 update_progress = function() error("503 not expected") end,
             },
         }
+        -- Isolate queue failure handling from the worker lifecycle, covered
+        -- separately by kosync_client_async_spec.
+        client._runInSubprocess = function(_, task, callback) callback(true, task()) end
         client_stub = stub(KOSyncClient, "new", function() return client end)
         local sync = setmetatable({ settings = {}, path = "plugins/kosync.koplugin" }, { __index = KOSync })
         KOSyncQueue:push({ document = "a", progress = "1" })
