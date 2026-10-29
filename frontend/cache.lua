@@ -163,7 +163,15 @@ function Cache:memoryPressureCheck()
                                   free_fraction * 100,
                                   memfree / (1024 * 1024),
                                   memtotal / (1024 * 1024)))
-        self.cache:chop()
+        local byte_limit = self.cache:total_size()
+        if byte_limit then
+            -- Mixed metadata and page tiles can have very different sizes: halve live bytes,
+            -- then restore the configured ceiling so later insertions can use it again.
+            self.cache:resize_bytes(math.max(1, math.floor(self.cache:used_size() / 2)))
+            self.cache:resize_bytes(byte_limit)
+        else
+            self.cache:chop()
+        end
 
         -- And finish by forcing a GC sweep now...
         collectgarbage()
