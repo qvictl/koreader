@@ -839,6 +839,18 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
     for _, entry in ipairs(Queue:load()) do
         if entry.document == doc_digest then queued_before[math.floor((entry.queued_at or 0) / 86400)] = entry end
     end
+    local function remove_superseded_snapshots()
+        local kept, changed = {}, false
+        for _, entry in ipairs(Queue:load()) do
+            local day = math.floor((entry.queued_at or 0) / 86400)
+            if entry.document == doc_digest and util.tableEquals(entry, queued_before[day]) then
+                changed = true
+            else
+                kept[#kept + 1] = entry
+            end
+        end
+        if changed then Queue:save(kept) end
+    end
     local function queue_if_current()
         if not data_current() then return end
         for _, entry in ipairs(Queue:load()) do
@@ -861,7 +873,11 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
         self.device_id,
         function(ok, status, body)
             if not data_current() then finish_request(); return end
-            if not ok and status ~= 401 then queue_if_current() end
+            if ok then
+                remove_superseded_snapshots()
+            elseif status ~= 401 then
+                queue_if_current()
+            end
             finish_request()
             logger.dbg("KOSync: [Push] progress to", percentage * 100, "% =>", progress, "for", filename)
             logger.dbg("KOSync: ok:", ok, "body:", body)

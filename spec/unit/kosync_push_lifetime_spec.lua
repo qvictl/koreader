@@ -169,6 +169,35 @@ describe("KOSync push response lifetime", function()
         assert.are.equal("latest-reader-page", Queue:load()[1].progress)
         assert.are.equal(0, #shown)
     end)
+    it("removes unchanged older snapshots across days after a newer successful push", function()
+        Queue:save{
+            { document = "current-book", progress = "yesterday", queued_at = os.time() - 86400 },
+            { document = "current-book", progress = "today", queued_at = os.time() },
+            { document = "other-book", progress = "keep", queued_at = os.time() },
+        }
+        plugin(nil, "new-progress"):updateProgress(false, true)
+        reply(1, true, 200)
+        assert.are.equal(1, Queue:count())
+        assert.are.equal("other-book", Queue:load()[1].document)
+    end)
+    it("preserves a snapshot changed while a newer direct push succeeds", function()
+        Queue:push{ document = "current-book", progress = "old-progress" }
+        plugin(nil, "new-progress"):updateProgress(false, true)
+        Queue:push{ document = "current-book", progress = "latest-close" }
+        reply(1, true, 200)
+        assert.are.equal(1, Queue:count())
+        assert.are.equal("latest-close", Queue:load()[1].progress)
+    end)
+    it("does not remove the new account's snapshot on stale push success", function()
+        local sync = plugin()
+        Queue:push{ document = "current-book", progress = "old-account-progress" }
+        sync:updateProgress(false, true)
+        sync:logout()
+        Queue:push{ document = "current-book", progress = "new-account-progress" }
+        reply(1, true, 200)
+        assert.are.equal(1, Queue:count())
+        assert.are.equal("new-account-progress", Queue:load()[1].progress)
+    end)
     it("persists the actual suspend callback without a cancellable online gate", function()
         local network = stub(NetworkMgr, "willRerunWhenOnline", function() return true end)
         finally(function() network:revert() end)
