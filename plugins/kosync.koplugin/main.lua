@@ -768,12 +768,12 @@ function KOSync:updateProgress(ensure_networking, interactive, on_suspend)
     end
 
     local now = UIManager:getElapsedTimeSinceBoot()
-    if not interactive and now - self.push_timestamp <= API_CALL_DEBOUNCE_DELAY then
+    if not on_suspend and not interactive and now - self.push_timestamp <= API_CALL_DEBOUNCE_DELAY then
         logger.dbg("KOSync: We've already pushed progress less than 25s ago!")
         return
     end
 
-    if ensure_networking and NetworkMgr:willRerunWhenOnline(function() self:updateProgress(ensure_networking, interactive, on_suspend) end) then
+    if not on_suspend and ensure_networking and NetworkMgr:willRerunWhenOnline(function() self:updateProgress(ensure_networking, interactive, on_suspend) end) then
         return
     end
 
