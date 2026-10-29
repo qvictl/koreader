@@ -8,10 +8,10 @@ package.path = saved_path
 local UIManager = require("ui/uimanager")
 local Device = require("device")
 describe("KOSync asynchronous authentication", function()
-    local jobs, shown, calls, raises
+    local jobs, shown, calls, raises, accepted, response
     before_each(function()
         Queue:clear()
-        jobs, shown, calls, raises = {}, {}, {}, false
+        jobs, shown, calls, raises, accepted, response = {}, {}, {}, false, true, { message = "synthetic" }
         stub(UIManager, "show", function(_, widget) shown[#shown + 1] = widget end)
         stub(UIManager, "isWidgetShown", function(_, widget) return widget.alive end)
         stub(Device, "setIgnoreInput")
@@ -22,7 +22,7 @@ describe("KOSync asynchronous authentication", function()
                 c[method] = function(_, username, key)
                     calls[#calls + 1] = { method = method, username = username, key = key }
                     if raises then error("synthetic authentication failure") end
-                    return true, { message = "synthetic" }
+                    return accepted, response
                 end
             end
             return c
@@ -76,7 +76,7 @@ describe("KOSync asynchronous authentication", function()
         it("updates an authentication menu only when shown: " .. tostring(alive), function()
             local sync, updates = plugin(), 0
             local menu = { alive = alive, updateItems = function() updates = updates + 1 end }
-            sync:doLogin("synthetic", "secret", menu)
+            sync[alive and "doRegister" or "doLogin"](sync, "synthetic", "secret", menu)
             finish(jobs[1])
             assert.are.equal(alive and 1 or 0, updates)
             assert.are.equal("synthetic", sync.settings.username)
@@ -109,4 +109,33 @@ describe("KOSync asynchronous authentication", function()
         assert.is_nil(sync.settings.userkey)
         assert.is_truthy(shown[1].text:find("synthetic authentication failure", 1, true))
     end)
+    it("reports a registration exception", function()
+        local sync = plugin()
+        raises = true
+        sync:doRegister("synthetic", "secret")
+        finish(jobs[1])
+        assert.is_nil(sync.settings.userkey)
+        assert.is_truthy(shown[1].text:find("synthetic authentication failure", 1, true))
+    end)
+    for _, method in ipairs{ "doLogin", "doRegister" } do
+        for _, has_body in ipairs{ false, true } do
+            it("reports " .. method .. " rejection with response body: " .. tostring(has_body), function()
+                local sync = plugin()
+                accepted, response = false, has_body and { message = "synthetic rejection" } or nil
+                sync[method](sync, "synthetic", "secret")
+                finish(jobs[1])
+                assert.is_nil(sync.settings.userkey)
+                assert.are.equal(1, #shown)
+                if has_body then assert.are.equal("synthetic rejection", shown[1].text) end
+            end)
+        end
+        it("reports " .. method .. " without a returned exception message", function()
+            local sync = plugin()
+            sync[method](sync, "synthetic", "secret")
+            jobs[1].done(true, false, nil)
+            assert.is_nil(sync.settings.userkey)
+            assert.is_truthy(shown[1].text:find("unknown error", 1, true))
+        end)
+    end
+
 end)
