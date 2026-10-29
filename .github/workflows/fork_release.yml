@@ -344,7 +344,7 @@ jobs:
       - name: Record exact base coverage
         env:
           GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository_owner }}/koreader-base
+          COVERAGE_PUBLISH_REPOSITORY: ${{ github.repository_owner }}/koreader-base
         run: |
           [[ -n "${GH_TOKEN}" ]] || { echo 'SYNC_TOKEN is required to record base release coverage' >&2; exit 1; }
           expected="$(git -C base rev-parse HEAD)"
