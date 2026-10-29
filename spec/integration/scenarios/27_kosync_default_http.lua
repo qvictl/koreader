@@ -88,6 +88,22 @@ return {
             responsive("default_http_get_heartbeat_ms")
 
             done, result = false, nil
+            local extra = server:plan(200, { progress = "bounded", percentage = 0.75,
+                extra = string.rep("x", 128 * 1024) })
+            T:run(function()
+                client():get_progress("synthetic", "synthetic-key", "extra", function(success, body)
+                    result, done = { success = success, body = body }, true
+                end)
+            end)
+            server:waitReceived(extra)
+            server:release(extra); server:waitFinished(extra)
+            T:waitUntil(function() return done end, 5, "GET with an unknown large response field")
+            T:check(result.success and result.body.progress == "bounded" and result.body.percentage == 0.75,
+                "known progress fields survive a large unknown HTTP field")
+            T:eq(result.body.extra, nil, "unknown HTTP response data does not cross the worker boundary")
+            waitSettled()
+
+            done, result = false, nil
             local put = server:plan(200, { message = "accepted" }, 1)
             reset()
             started = T:now()
@@ -184,22 +200,24 @@ return {
             waitSettled()
             server:waitFinished(first); server:waitFinished(second)
 
-            local cancel = server:plan(200, { progress = "cancelled" })
-            local cancelled, cancel_ok
+            local background = server:plan(200, { progress = "after-page-turn" })
+            local background_done, background_ok, background_body
             T:run(function()
-                client():get_progress("synthetic", "key", "cancel", function(success)
-                    cancelled, cancel_ok = true, success
+                client():get_progress("synthetic", "key", "background", function(success, body)
+                    background_done, background_ok, background_body = true, success, body
                 end)
             end)
-            server:waitReceived(cancel)
+            server:waitReceived(background)
             local page = reader:getCurrentPage()
-            local cancel_started = T:now()
+            T:check(T:topWidget() == reader, "background progress does not cover the reader with a trap")
             T:tap(math.floor(T.screen_w * 0.9), math.floor(T.screen_h * 0.5))
-            T:waitUntil(function() return cancelled end, 3, "real tap cancels HTTP")
-            T:check(cancel_ok == false, "cancelled HTTP cannot report success")
-            T:budget("default_http_cancel_ms", T:now() - cancel_started, 800, "ms")
-            T:waitUntil(function() return reader:getCurrentPage() ~= page end, 5, "the dismissing progress tap is forwarded")
-            server:release(cancel); server:waitFinished(cancel)
+            T:waitUntil(function() return reader:getCurrentPage() ~= page end, 5, "ordinary tap turns the page during HTTP")
+            T:check(not background_done and Client._active_worker ~= nil,
+                "ordinary page input leaves the held background HTTP request pending")
+            server:release(background); server:waitFinished(background)
+            T:waitUntil(function() return background_done end, 5, "background HTTP completes after page input")
+            T:check(background_ok and background_body.progress == "after-page-turn",
+                "page input cannot cancel the successful progress callback")
             waitSettled()
 
             local auth_cancel = server:plan(200, { message = "must not apply" })
@@ -207,11 +225,16 @@ return {
             T:run(function() plugin:doLogin("cancelled-account", "synthetic-password") end)
             server:waitReceived(auth_cancel)
             T:repaint()
+            local cancel_started = T:now()
             T:tapWidget(T:topWidget(), "cancel authentication")
+            T:budget("default_http_cancel_ms", T:now() - cancel_started, 800, "ms")
+            T:check(plugin.settings.username == old_username and plugin.settings.userkey == old_key,
+                "cancelling the busy authentication trap does not write credentials")
             server:release(auth_cancel); server:waitFinished(auth_cancel)
             waitSettled()
             T:check(plugin.settings.username == old_username and plugin.settings.userkey == old_key,
-                "cancelled authentication preserves the existing account")
+                "cancelled authentication preserves the existing account after its late response")
+            authenticate("doLogin", "retried-account")
 
             local tracked_run = ffiUtil.runInSubProcess
             local failed, failed_ok
