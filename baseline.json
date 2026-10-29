@@ -1,35 +1,35 @@
 {
   "date": "2026-10-29",
   "overall": {
-    "covered": 52715,
+    "covered": 52718,
     "total": 99306,
-    "percent": 53.083,
+    "percent": 53.086,
     "files": 491
   },
   "overall_unit": {
-    "covered": 47805,
+    "covered": 47807,
     "total": 98624,
-    "percent": 48.472,
+    "percent": 48.474,
     "min": null
   },
   "diff_unit": {
-    "covered": 13,
-    "total": 13,
+    "covered": 0,
+    "total": 0,
     "percent": 100.000
   },
   "diff_combined": {
-    "covered": 13,
-    "total": 13,
+    "covered": 0,
+    "total": 0,
     "percent": 100.000
   },
   "ratchet": {
-    "baseline": 53.075,
-    "label": "main@740f021c (this change's base)"
+    "baseline": 53.083,
+    "label": "main@f6e4ef21 (this change's base)"
   },
   "owned": {
-    "covered": 700,
+    "covered": 701,
     "total": 712,
-    "percent": 98.315,
+    "percent": 98.455,
     "min": 80,
     "ok": true,
     "modules": {
@@ -53,9 +53,9 @@
       },
       "frontend/ui/trapper.lua": {
         "scope": "fork",
-        "covered": 83,
+        "covered": 84,
         "total": 84,
-        "percent": 98.810
+        "percent": 100.000
       },
       "frontend/ui/uimanager.lua": {
         "scope": "func:UIManager:widgetInvert",
@@ -158,7 +158,7 @@
     }
   ],
   "ok": true,
-  "commit": "f6e4ef21322738a109eafd1cf4f726dd698a5bc3",
+  "commit": "938e5d52d900c6dd7d07b98529cd26937d0154e0",
   "event": "push",
-  "updated": "2026-10-29T02:20:38Z"
+  "updated": "2026-10-29T03:14:05Z"
 }
