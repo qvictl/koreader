@@ -149,7 +149,13 @@ function KOSyncClient:_runInSubprocess(task, callback, busy_text)
                 -- second for the existing connect/read deadlines/result collector.
                 UIManager:scheduleIn(PROGRESS_TIMEOUTS[1] + PROGRESS_TIMEOUTS[2] + 1, watchdog)
             end
-            finish(Trapper:dismissableRunInSubprocess(next_job.task, trap))
+            local result = table.pack(pcall(Trapper.dismissableRunInSubprocess, Trapper, next_job.task, trap))
+            if result[1] then
+                finish(unpack(result, 2, result.n))
+            else
+                logger.warn("KOSyncClient: worker failed:", result[2])
+                finish(false, nil, "start_failed")
+            end
         end)
     end
     if KOSyncClient._active_worker then
