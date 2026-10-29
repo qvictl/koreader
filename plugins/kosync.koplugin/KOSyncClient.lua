@@ -204,7 +204,7 @@ function KOSyncClient:_syncProgress(method, username, password, params)
         return false, nil, nil
     end
     local body, valid = self:_workerBody(res.body)
-    if not valid then return false, nil, nil end
+    if not valid then return false, res.status, nil end
     return res.status == 200, res.status, body
 end
 
