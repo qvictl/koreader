@@ -29,6 +29,7 @@ mode="${COVERAGE_MODE:-unit}"
 enforce=diff,ratchet,unit
 [[ "${mode}" != diff ]] || enforce='diff'
 note=''
+initial_push=false
 case "${EVENT_NAME}" in
     release)
         [[ "${mode}" == combined ]] || exit 2
@@ -52,10 +53,22 @@ case "${EVENT_NAME}" in
     *)
         enforce=''
         base="${PUSH_BEFORE}"
-        if [[ -z "${base}" ]] || [[ "${base}" =~ ^0+$ ]] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+        if [[ "${mode}" == diff ]]; then
+            enforce='diff'
+            if [[ "${EVENT_NAME}" == push && (-z "${base}" || "${base}" =~ ^0+$) ]]; then
+                initial_push=true
+                base="$(git hash-object -t tree /dev/null)"
+            else
+                git cat-file -e "${base}^{commit}" 2>/dev/null || {
+                    echo 'invalid push change base' >&2
+                    exit 2
+                }
+            fi
+        elif [[ -z "${base}" ]] || [[ "${base}" =~ ^0+$ ]] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
             base="$(git rev-parse HEAD~1)"
         fi
-        note='(Push to main: reported, not enforced; this becomes the new baseline.)'
+        note='(Push: changed-line unit measurement only; no whole coverage record.)'
+
         ;;
 esac
 if [[ "${mode}" != diff ]]; then
@@ -63,7 +76,9 @@ if [[ "${mode}" != diff ]]; then
     git fetch --quiet origin '+refs/heads/coverage:refs/remotes/origin/coverage'
     git fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null || true
 fi
-base="$(git merge-base "${base}" HEAD)"
+if [[ "${initial_push}" != true ]]; then
+    base="$(git merge-base "${base}" HEAD)"
+fi
 # The ratchet's base: the main commit the change is based on.
 case "${EVENT_NAME}" in
     release) ratchet_base="$(git rev-parse HEAD)" ;;
@@ -82,13 +97,15 @@ echo "base: ${base}, ratchet base: ${ratchet_base}, head: $(git rev-parse HEAD),
 
 selection="${artifacts}/unit-coverage/unit-selection.json"
 if [[ "${mode}" == diff || "${EVENT_NAME}" == release || -f "${selection}" ]]; then
-    jq -e --arg head "$(git rev-parse HEAD)" --arg base "${base}" --arg mode "${mode}" '
+    allow_null_base="${initial_push}"
+    [[ "${EVENT_NAME}" != workflow_dispatch ]] || allow_null_base=true
+    jq -e --arg head "$(git rev-parse HEAD)" --arg base "${base}" --arg mode "${mode}" --argjson allow_null "${allow_null_base}" '
         .schema_version == 1 and .head_sha == $head and
         (.mode == "full" or .mode == "selected" or ($mode == "diff" and .mode == "none")) and
         (.tests | type == "array") and
         (if .mode == "none" then (.tests | length) == 0 else (.tests | length) > 0 end) and
         (if $mode != "diff" then .mode == "full" and (.tests | length) == .total_tests
-         else (.base_sha == null or .base_sha == $base) end)
+         else (.base_sha == $base or ($allow_null and .mode == "full" and .base_sha == null and (.tests | length) == .total_tests)) end)
     ' "${selection}" >/dev/null || {
         echo 'missing/stale/incomplete unit selection proof' >&2
         exit 2

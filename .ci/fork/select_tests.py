@@ -247,7 +247,7 @@ def validate_none(repo, manifest):
         raise SelectionError("empty selection contains production/unit/framework changes")
 
 
-def select(repo, base=None, head=None):
+def select(repo, base=None, head=None, force_full=False):
     if bool(base) != bool(head):
         raise SelectionError("both base and head are required")
     actual = revision(repo, head or "HEAD")
@@ -265,6 +265,9 @@ def select(repo, base=None, head=None):
     result["base_sha"] = old
     changed = {p.decode() for p in git(repo, "diff", "--name-only", "--no-renames", "-z", old, actual).split(b"\0") if p}
     result["changed_files"] = sorted(changed)
+    if force_full:
+        result["reasons"] = ["runner requires full unit tests; explicit change provenance retained"]
+        return result
     if all(unrelated(path) for path in changed):
         result.update(mode="none", tests=[], reasons=["no production, unit or framework changes"],
                       base_unit_tests="unchanged_skipped")
@@ -319,10 +322,11 @@ def main():
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--base")
     parser.add_argument("--head")
+    parser.add_argument("--full", action="store_true", help="retain full UT with explicit change provenance")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     try:
-        text = json.dumps(select(args.repo, args.base, args.head), indent=2) + "\n"
+        text = json.dumps(select(args.repo, args.base, args.head, args.full), indent=2) + "\n"
         if args.output:
             args.output.write_text(text)
         else:

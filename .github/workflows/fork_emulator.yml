@@ -217,13 +217,15 @@ jobs:
         run: |
           python3 .ci/fork/select_tests_test.py
           MESON_AVAILABLE="$(./kodev docker kontainer exec sh -c 'if command -v meson >/dev/null; then echo true; else echo false; fi')"
-          if [[ "${FULL_RELEASE_UNITS}" != true && -n "${CHANGE_BASE}" && "${MESON_AVAILABLE}" == true ]]; then
+          if [[ "${FULL_RELEASE_UNITS}" != true && -n "${CHANGE_BASE}" && ! "${CHANGE_BASE}" =~ ^0+$ ]]; then
             if [[ "${CHANGE_EVENT}" == pull_request ]] && git rev-parse -q --verify HEAD^2 >/dev/null; then
               CHANGE_BASE="$(git rev-parse HEAD^1)"
             else
               CHANGE_BASE="$(git merge-base "${CHANGE_BASE}" HEAD)"
             fi
-            python3 .ci/fork/select_tests.py --base "${CHANGE_BASE}" --head "$(git rev-parse HEAD)" --output unit-selection.json
+            selection_args=(--base "${CHANGE_BASE}" --head "$(git rev-parse HEAD)")
+            [[ "${MESON_AVAILABLE}" == true ]] || selection_args+=(--full)
+            python3 .ci/fork/select_tests.py "${selection_args[@]}" --output unit-selection.json
           else
             python3 .ci/fork/select_tests.py --output unit-selection.json
           fi

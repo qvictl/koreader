@@ -63,6 +63,14 @@ class SelectionTests(GitFixture, unittest.TestCase):
         self.assertEqual(result["tests"], [])
         selector.validate_none(self.repo, result)
 
+    def test_forced_full_keeps_explicit_change_provenance(self):
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        head = self.commit()
+        result = selector.select(self.repo, self.base, head, force_full=True)
+        self.assertEqual(result["mode"], "full")
+        self.assertEqual(result["base_sha"], self.base)
+        self.assertIn("frontend/leaf.lua", result["changed_files"])
+
     def test_reverse_dependencies_select_transitive_suite(self):
         self.write("frontend/leaf.lua", "return { changed = true }\n")
         result = self.choose()
@@ -258,7 +266,7 @@ class RunnerTests(GitFixture, unittest.TestCase):
 
 
 class WorkflowTests(GitFixture, unittest.TestCase):
-    def run_step(self, base="", event="push", full="false"):
+    def run_step(self, base="", event="push", full="false", meson_available=True):
         root = Path(__file__).resolve().parents[2]
         workflow = (root / ".github/workflows/fork_emulator.yml").read_text()
         block = workflow.split("      - name: Select affected front unit suites\n", 1)[1]
@@ -273,7 +281,7 @@ class WorkflowTests(GitFixture, unittest.TestCase):
                           + ' "$@"; fi\nexec ' + shlex.quote(sys.executable) + ' "$@"\n')
         python.chmod(0o755)
         kodev = self.repo / "kodev"
-        kodev.write_text("#!/bin/sh\necho true\n")
+        kodev.write_text("#!/bin/sh\necho " + ("true" if meson_available else "false") + "\n")
         kodev.chmod(0o755)
         meson = bindir / "meson"
         meson.write_text("#!/bin/sh\nexit 0\n")
@@ -323,6 +331,24 @@ class WorkflowTests(GitFixture, unittest.TestCase):
         self.assertFalse((self.repo / "coverage/unit.stats.out").exists())
         self.assertTrue((self.repo / "coverage/unit-selection.json").exists())
 
+    def test_initial_push_empty_or_zero_before_runs_full_with_null_base(self):
+        for before in ("", "0" * 40):
+            with self.subTest(before=before):
+                code, manifest = self.run_step(before)
+                self.assertEqual(code, 0)
+                self.assertEqual(manifest["mode"], "full")
+                self.assertIsNone(manifest["base_sha"])
+                self.assertEqual(manifest["base_unit_tests"], "full")
+
+    def test_missing_meson_runs_full_but_keeps_the_real_base(self):
+        self.write("frontend/leaf.lua", "return { changed = true }")
+        self.commit()
+        code, manifest = self.run_step(self.base, meson_available=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(manifest["mode"], "full")
+        self.assertEqual(manifest["base_sha"], self.base)
+        self.assertEqual(manifest["base_unit_tests"], "full")
+
     def test_unknown_base_fails_before_any_manifest(self):
         code, manifest = self.run_step("missing-ref")
         self.assertNotEqual(code, 0)
@@ -340,6 +366,42 @@ class WorkflowTests(GitFixture, unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(manifest["base_sha"], main)
         self.assertEqual(manifest["tests"], ["spec/unit/a_spec.lua"])
+
+
+class CoveragePrefixTests(GitFixture, unittest.TestCase):
+    def run_prefix(self, before, manifest_base=None):
+        root = Path(__file__).resolve().parents[2]
+        script = (root / ".ci/fork/coverage.sh").read_text().split("# luajit & luacov.", 1)[0]
+        script += '\nprintf "MODE=%s ENFORCE=%s BASE=%s\\n" "$mode" "$enforce" "$base"\n'
+        work = self.repo / "reporter-work"
+        work.mkdir(exist_ok=True)
+        artifacts = work / "artifacts"
+        (artifacts / "unit-coverage").mkdir(parents=True, exist_ok=True)
+        manifest = selector.select(self.repo)
+        manifest["base_sha"] = manifest_base
+        (artifacts / "unit-coverage/unit-selection.json").write_text(json.dumps(manifest))
+        env = dict(os.environ, EVENT_NAME="push", COVERAGE_MODE="diff", PUSH_BEFORE=before,
+                   PR_NUMBER="", PR_BASE="", RUNNER_TEMP=str(work),
+                   GITHUB_OUTPUT=str(work / "output"), GITHUB_STEP_SUMMARY=str(work / "summary"))
+        result = subprocess.run(["bash", "-eo", "pipefail", "-c", script, "coverage-prefix", str(artifacts)],
+                                cwd=self.repo, env=env, capture_output=True, text=True)
+        return result, work
+
+    def test_initial_push_uses_empty_tree_and_checks_all_source(self):
+        for before in ("", "0" * 40):
+            with self.subTest(before=before):
+                result, work = self.run_prefix(before)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("MODE=diff ENFORCE=diff", result.stdout)
+                diff = (work / "change.diff").read_text()
+                for path in ("frontend/leaf.lua", "frontend/mid.lua", "frontend/other.lua"):
+                    self.assertIn("+++ b/" + path, diff)
+
+    def test_invalid_before_or_unproven_null_base_is_rejected(self):
+        for before in ("invalid-ref", self.base):
+            with self.subTest(before=before):
+                result, _ = self.run_prefix(before)
+                self.assertEqual(result.returncode, 2)
 
 
 if __name__ == "__main__":
