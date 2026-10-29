@@ -1,35 +1,44 @@
 {
   "date": "2026-10-29",
-  "mode": "unit",
-  "overall": null,
+  "mode": "combined",
+  "overall": {
+    "covered": 52717,
+    "total": 99306,
+    "percent": 53.085,
+    "files": 491
+  },
   "overall_unit": {
-    "covered": 47808,
+    "covered": 47806,
     "total": 98624,
-    "percent": 48.475,
+    "percent": 48.473,
     "min": null
   },
   "diff_unit": {
     "covered": 0,
     "total": 0,
-    "percent": 100.000
+    "percent": 100
   },
-  "diff_combined": null,
+  "diff_combined": {
+    "covered": 0,
+    "total": 0,
+    "percent": 100
+  },
   "ratchet": {
-    "baseline": 48.474,
-    "label": "main@938e5d52 (this change's base)"
+    "baseline": 53.086,
+    "label": "main@938e5d52 (previous actual combined measurement)"
   },
-  "owned_unit": {
-    "covered": 623,
-    "total": 711,
-    "percent": 87.623,
+  "owned": {
+    "covered": 700,
+    "total": 712,
+    "percent": 98.315,
     "min": 80,
-    "ok": false,
+    "ok": true,
     "modules": {
       "frontend/memorytuning.lua": {
         "scope": "file",
         "covered": 49,
         "total": 49,
-        "percent": 100.000
+        "percent": 100
       },
       "frontend/apps/reader/modules/readerdictionary.lua": {
         "scope": "fork",
@@ -41,113 +50,118 @@
         "scope": "fork",
         "covered": 43,
         "total": 43,
-        "percent": 100.000
+        "percent": 100
       },
       "frontend/ui/trapper.lua": {
         "scope": "fork",
-        "covered": 84,
+        "covered": 83,
         "total": 84,
-        "percent": 100.000
+        "percent": 98.81
       },
       "frontend/ui/uimanager.lua": {
         "scope": "func:UIManager:widgetInvert",
-        "covered": 1,
+        "covered": 17,
         "total": 17,
-        "percent": 5.882
+        "percent": 100
       },
       "frontend/ui/widget/button.lua": {
         "scope": "fork",
-        "covered": 0,
+        "covered": 3,
         "total": 3,
-        "percent": 0.000
+        "percent": 100
       },
       "frontend/ui/widget/iconbutton.lua": {
         "scope": "fork",
-        "covered": 1,
+        "covered": 4,
         "total": 4,
-        "percent": 25.000
+        "percent": 100
       },
       "frontend/document/credocument.lua": {
         "scope": "fork",
         "covered": 2,
         "total": 2,
-        "percent": 100.000
+        "percent": 100
       },
       "frontend/document/doccache.lua": {
         "scope": "fork",
         "covered": 4,
         "total": 4,
-        "percent": 100.000
+        "percent": 100
       },
       "frontend/apps/reader/readerui.lua": {
         "scope": "fork",
         "covered": 5,
         "total": 5,
-        "percent": 100.000
+        "percent": 100
       },
       "frontend/device/generic/device.lua": {
         "scope": "fork",
         "covered": 1,
         "total": 1,
-        "percent": 100.000
+        "percent": 100
       },
       "frontend/ui/font.lua": {
         "scope": "fork",
         "covered": 3,
         "total": 3,
-        "percent": 100.000
+        "percent": 100
       },
       "frontend/apps/reader/modules/readerfont.lua": {
         "scope": "fork",
-        "covered": 0,
+        "covered": 3,
         "total": 3,
-        "percent": 0.000
+        "percent": 100
       },
       "plugins/japanese.koplugin/main.lua": {
         "scope": "fork",
-        "covered": 7,
-        "total": 20,
-        "percent": 35.000
+        "covered": 21,
+        "total": 21,
+        "percent": 100
       },
       "base/ffi/util.lua": {
         "scope": "func:util.runInSubProcess,util.isSubProcessDone,util.terminateSubProcess,util.readAllFromFD",
-        "covered": 48,
+        "covered": 87,
         "total": 92,
-        "percent": 52.174
+        "percent": 94.565
       }
     }
   },
-  "owned": null,
   "gates": [
     {
       "id": "diff",
       "name": "Diff coverage, unit tests",
       "ok": true,
-      "enforced": false
+      "enforced": true
+    },
+    {
+      "id": "diff",
+      "name": "Diff coverage, unit + integration",
+      "ok": true,
+      "enforced": true
     },
     {
       "id": "ratchet",
       "name": "Overall coverage (ratchet)",
       "ok": true,
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "owned",
-      "name": "Fork-owned modules, unit tests",
-      "ok": false,
-      "enforced": false
+      "name": "Fork-owned modules",
+      "ok": true,
+      "enforced": true
     },
     {
       "id": "unit",
       "name": "Overall coverage, unit tests",
       "ok": true,
-      "enforced": false
+      "enforced": true
     }
   ],
   "ok": true,
   "commit": "8e9a159e16f39541a9c3c406e548f5cac65e1bc3",
-  "event": "push",
+  "event": "release",
   "diff_base": "938e5d52d900c6dd7d07b98529cd26937d0154e0",
   "ratchet_base": "938e5d52d900c6dd7d07b98529cd26937d0154e0",
-  "updated": "2026-10-29T06:48:41Z"
+  "updated": "2026-10-29T10:32:50Z"
 }
