@@ -82,8 +82,8 @@ return {
         local util = require("util")
         local original_mem, original_wait = util.calcFreeMem, KoptInterface.waitForContext
         local waits, busy_waits, wait_ms, max_wait_ms = 0, 0, 0, 0
-        local barrier = threadBarrier()
-        KoptInterface.waitForContext = function(self, kc)
+        local barrier, reader
+        local function waitForContext(self, kc)
             if barrier.isHeld() then error("pressure attempted wait on held worker") end
             local busy, start = kc:isPreCache() == 1, T:now()
             local result = original_wait(self, kc)
@@ -94,9 +94,6 @@ return {
             waits = waits + 1
             return result
         end
-        local path = os.getenv("KO_HOME") .. "/cache-pressure.pdf"
-        writePDF(path)
-        local reader = T:openBook(path)
         local limit = DocCache.cache:total_size()
         local function hint()
             DocCache:clear()
@@ -132,6 +129,11 @@ return {
         end
         local context
         local ok, err = pcall(function()
+            barrier = threadBarrier()
+            KoptInterface.waitForContext = waitForContext
+            local path = os.getenv("KO_HOME") .. "/cache-pressure.pdf"
+            writePDF(path)
+            reader = T:openBook(path)
             T:run(function()
                 hint()
                 context = cachedContext()
@@ -153,20 +155,33 @@ return {
             -- Closing abandons the pending hint while DocCache retains its context.
             -- A later pressure check must remain safe after the native document closes.
             T:closeBook()
+            reader = nil
             T:run(barrier.release)
             T:waitUntil(function() return context:isPreCache() == 0 end, 20, "native reflow after reader closure")
             T:run(function() pressure(true) end)
             T:run(function() DocCache:clear(); DocCache:clear() end)
         end)
-        util.calcFreeMem = original_mem
-        -- Release before draining even on an assertion failure; never change the
-        -- real native busy flag to let cleanup proceed.
-        local cleaned, cleanup_err = pcall(function()
-            T:run(function() barrier.release(); DocCache:clear() end)
+        -- Release before closing or draining, even on a setup/assertion failure.
+        local released, release_err = pcall(function()
+            T:run(function() if barrier then barrier.release() end end)
         end)
-        barrier.restore()
+        local closed, close_err = pcall(function()
+            if reader or T:reader() then
+                T:closeBook()
+                reader = nil
+            end
+        end)
+        -- A failed close must not prevent native cleanup. Never change the real
+        -- native busy flag to let it proceed.
+        local cleaned, cleanup_err = pcall(function()
+            T:run(function() DocCache:clear() end)
+        end)
+        if barrier then barrier.restore() end
         KoptInterface.waitForContext = original_wait
+        util.calcFreeMem = original_mem
         if not ok then error(err) end
+        if not released then error(release_err) end
+        if not closed then error(close_err) end
         if not cleaned then error(cleanup_err) end
         T:metric("context_wait_callbacks", waits, "count")
         T:metric("contexts_busy_before_wait", busy_waits, "count")
