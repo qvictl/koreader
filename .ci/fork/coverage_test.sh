@@ -294,6 +294,17 @@ check 'explicit publication repository names base links while the GitHub default
 check 'actual daily publication leaves combined metrics unmeasured' \
     "$(git --git-dir="${base_remote}" show refs/heads/coverage:history.jsonl | jq -e '.overall == null and .unit == 40 and .mode == "unit"')" true
 
+# Exercise the actual publisher entrypoint against the real local bare remote.
+# A partial run must refuse before credential setup or any coverage-ref mutation.
+old_coverage="$(git --git-dir="${base_remote}" rev-parse refs/heads/coverage)"
+jq --arg c "${publish_sha}" '. + {commit:$c}' "${work}/partial.json" >"${work}/publish-partial.json"
+code=0
+(cd "${publish_src}" && GIT_CONFIG_GLOBAL="${work}/gitconfig" GITHUB_REPOSITORY=qvictl/koreader-base \
+    "${publisher}" "${work}/publish-partial.json" >"${work}/partial-publish.log" 2>&1) || code=$?
+check 'actual publisher rejects partial results' "${code}" 2
+check 'partial publication leaves the coverage branch byte-for-byte unchanged' \
+    "$(git --git-dir="${base_remote}" rev-parse refs/heads/coverage)" "${old_coverage}"
+
 if [[ ${failures} -gt 0 ]]; then
     echo "coverage_test.sh: ${failures} failure(s)" 1>&2
     exit 1
