@@ -2,7 +2,7 @@ describe("KOPT background context boundaries", function()
     local ffi, KoptInterface, KoptThread, DocCache, KOPTContext, Persist
     local CanvasContext, thread_methods, cpu_stub, old_bg, old_cache
     local create_stub, start_stub, free_stub
-    local admission_stub, accept_stub, old_size, old_context_size
+    local admission_stub, accept_stub, old_size, old_context_size, old_insert
     local state, kc, doc, reflow_stub, hash_stub, insert_stub, table_stub, persist_stub
     local context_types = 0
 
@@ -23,6 +23,8 @@ describe("KOPT background context boundaries", function()
         local current = state
         old_bg, old_cache = KoptInterface.bg_thread, DocCache.cache
         old_size, old_context_size = DocCache.size, KoptInterface.last_context_size
+        old_insert = DocCache.insert
+        KoptInterface.last_context_size = 1024
         local process_ffi = setmetatable({ C = { getpid = function() return current.pid end } }, { __index = ffi })
         local loader = assert(loadfile(assert(package.searchpath("document/koptthread", package.path))))
         setfenv(loader, setmetatable({ require = function(name)
@@ -85,6 +87,7 @@ describe("KOPT background context boundaries", function()
         if cpu_stub then cpu_stub:revert(); cpu_stub = nil end
         KoptInterface.bg_thread, DocCache.cache = old_bg, old_cache
         DocCache.size, KoptInterface.last_context_size = old_size, old_context_size
+        DocCache.insert = old_insert
         for name, method in pairs(thread_methods) do KoptThread[name] = method end
     end)
 
@@ -249,6 +252,7 @@ describe("KOPT background context boundaries", function()
         admission_stub = stub(KoptThread, "canStart", function() return false end)
         cpu_stub = stub(CanvasContext, "enableCPUCores", function() end)
         KoptInterface:hintReflowedPage(doc, 1, 1, 0, true)
+        assert.stub(admission_stub).was.called(1)
         checkSkippedHint()
         assert.are.equal(0, state.joins)
     end)
@@ -259,8 +263,10 @@ describe("KOPT background context boundaries", function()
         collectgarbage("collect")
         collectgarbage("collect")
         assert.are.equal(0, state.frees)
+        admission_stub = spy.on(KoptThread, "canStart")
         cpu_stub = stub(CanvasContext, "enableCPUCores", function() end)
         KoptInterface:hintReflowedPage(doc, 1, 1, 0, true)
+        assert.spy(admission_stub).was.called(1)
         checkSkippedHint()
         assert.are.equal(0, state.frees)
     end)
@@ -276,13 +282,28 @@ describe("KOPT background context boundaries", function()
     end)
 
     it("admits a slot-only cache without calling its byte-budget predicate", function()
-        DocCache.size = nil
+        local slots = require("cache"):new{ slots = 2, enable_eviction_cb = true }
+        DocCache.cache, DocCache.size, DocCache.insert = slots.cache, nil, slots.insert
         accept_stub = stub(DocCache, "willAccept", function() error("slot-only cache has no byte budget") end)
-        -- Cache:init uses a direct slot insertion method in this configuration.
-        insert_stub = stub(DocCache, "insert", function() end)
         KoptInterface:hintReflowedPage(doc, 1, 1, 0, false)
         assert.stub(accept_stub).was_not.called()
         assert.stub(reflow_stub).was.called(1)
-        assert.stub(insert_stub).was.called(1)
+        assert.are.equal(kc, DocCache:check("kctx").kctx)
+    end)
+
+    it("reaps a recovered owner even when the next hint exceeds the byte budget", function()
+        state.join_error = 3
+        kc = nil
+        collectgarbage("collect")
+        collectgarbage("collect")
+        assert.are.equal(0, state.frees)
+        state.join_error = nil
+        KoptInterface.last_context_size = DocCache.size
+        admission_stub = spy.on(KoptThread, "canStart")
+        cpu_stub = stub(CanvasContext, "enableCPUCores", function() end)
+        KoptInterface:hintReflowedPage(doc, 1, 1, 0, true)
+        assert.spy(admission_stub).was.called(1)
+        assert.are.equal(1, state.frees)
+        checkSkippedHint()
     end)
 end)
