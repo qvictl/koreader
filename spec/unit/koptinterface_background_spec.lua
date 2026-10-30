@@ -23,7 +23,7 @@ describe("KOPT background context boundaries", function()
         local current = state
         old_bg, old_cache = KoptInterface.bg_thread, DocCache.cache
         old_size, old_context_size = DocCache.size, KoptInterface.last_context_size
-        old_insert = DocCache.insert
+        old_insert = rawget(DocCache, "insert")
         KoptInterface.last_context_size = 1024
         local process_ffi = setmetatable({ C = { getpid = function() return current.pid end } }, { __index = ffi })
         local loader = assert(loadfile(assert(package.searchpath("document/koptthread", package.path))))
