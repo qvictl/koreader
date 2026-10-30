@@ -783,6 +783,26 @@ describe("ReaderDictionary settings", function()
             local second_dir = dict_dir .. "/" .. name .. "-" .. md5(second.url)
             local legacy_dir = dict_dir .. "/" .. name
             local legacy_ifo = legacy_dir .. "/delta.ifo"
+            local original_disabled = util.tableDeepCopy(rd.dicts_disabled)
+            local original_order = util.tableDeepCopy(rd.dicts_order)
+            finally(function()
+                ffiUtil.purgeDir(legacy_dir)
+                ffiUtil.purgeDir(first_dir)
+                ffiUtil.purgeDir(second_dir)
+                G_reader_settings:saveSetting("dicts_disabled", original_disabled)
+                G_reader_settings:saveSetting("dicts_order", original_order)
+                local index = 1
+                while true do
+                    local key = debug.getupvalue(ReaderDictionary.init, index)
+                    if not key then break end
+                    if key == "available_ifos" then
+                        debug.setupvalue(ReaderDictionary.init, index, false)
+                        break
+                    end
+                    index = index + 1
+                end
+                rd:init()
+            end)
             StarDict.write(legacy_dir, "delta", "Legacy unknown", { harbor = "legacy harbor" })
             rd.dicts_disabled[legacy_ifo] = true
             rd.dicts_order[legacy_ifo] = 7
@@ -822,29 +842,23 @@ describe("ReaderDictionary settings", function()
             local queries = rd:getProgressiveQueries({ first_name, second_name })
             assert.same({ first_name }, queries[1].dict_names)
             assert.same({ second_name }, queries[2].dict_names)
-            local results, done
-            require("ui/trapper"):wrap(function()
-                local cancelled
-                cancelled, results = rd:rawSdcv({ "harbor" }, rd.enabled_dict_names, false, false)
-                assert.is_false(cancelled)
-                done = true
+            local run = stub(rd, "runSdcv", function(_, args)
+                local selected = {}
+                for i = 1, #args - 1 do
+                    if args[i] == "-u" then selected[#selected + 1] = args[i + 1] end
+                end
+                assert.same({ second_name }, selected)
+                return true, require("rapidjson").encode({
+                    { dict = second_name, word = "harbor", definition = "second harbor" },
+                })
             end)
-            for _ = 1, 200 do
-                if done then break end
-                fastforward_ui_events()
-                socket.sleep(0.005)
-            end
-            assert.is_true(done)
+            finally(function() run:revert() end)
+            local cancelled, results = rd:rawSdcv({ "harbor" }, rd.enabled_dict_names, false, false)
+            assert.is_false(cancelled)
             assert.are.equal(1, #results[1])
             assert.are.equal(second_name, results[1][1].dict)
             rd:loadPreset({ enabled_dict_names = { [first_name] = true } }, true)
             assert.same({ first_name }, rd.enabled_dict_names)
-            rd.dicts_disabled[legacy_ifo] = nil
-            rd.dicts_order[legacy_ifo] = nil
-            ffiUtil.purgeDir(legacy_dir)
-            ffiUtil.purgeDir(first_dir)
-            ffiUtil.purgeDir(second_dir)
-            rd:init()
         end)
 
         it("preserves valid metadata when an identity update fails", function()
@@ -852,9 +866,10 @@ describe("ReaderDictionary settings", function()
             StarDict.write(dir, "unchanged", "Unchanged", { harbor = "unchanged" })
             local ifo = dir .. "/unchanged.ifo"
             local original = readFile(ifo)
+            finally(function() ffiUtil.purgeDir(dir) end)
             local rename = stub(os, "rename", function() return nil, "synthetic rename failure" end)
+            finally(function() rename:revert() end)
             local ok, err = rd:setDownloadDictionaryIdentity(dir, "synthetic-id")
-            rename:revert()
             assert.is_false(ok)
             assert.are.equal("synthetic rename failure", err)
             assert.are.equal(original, readFile(ifo))
@@ -868,12 +883,15 @@ describe("ReaderDictionary settings", function()
                     if path == ifo .. ".tmp" then
                         if failure == "open" then return nil, "synthetic open failure" end
                         if failure == "write" or failure == "close" then
+                            local real = assert(open(path, mode))
                             return {
                                 write = function(self)
+                                    real:write("partial")
                                     if failure == "write" then return nil, "synthetic write failure" end
                                     return self
                                 end,
                                 close = function()
+                                    real:close()
                                     if failure == "close" then return nil, "synthetic close failure" end
                                     return true
                                 end,
@@ -891,6 +909,27 @@ describe("ReaderDictionary settings", function()
                 assert.is_nil(lfs.attributes(ifo .. ".tmp"))
             end
             ffiUtil.purgeDir(dir)
+        end)
+
+        it("removes an incomplete install after the identity update fails", function()
+            local entry = { name = "German-English dictionary", url = "https://example.com/identity-failure.tar.gz" }
+            http_responses = {
+                { method = "HEAD", code = 200, headers = { ["content-length"] = "2048" } },
+                { method = "GET", code = 200, headers = {}, body = readFile(archive) },
+            }
+            local original_rename = os.rename
+            local rename = stub(os, "rename", function(source, destination)
+                if source:match("%.ifo%.tmp$") then return nil, "synthetic identity rename failure" end
+                return original_rename(source, destination)
+            end)
+            finally(function() rename:revert() end)
+            local count_before = rd:getNumberOfDictionaries()
+            rd:downloadDictionary(entry)
+            topWidget().ok_callback()
+            assert.matches("Extraction failed", topWidget().text)
+            local target = dict_dir .. "/" .. entry.name .. "-" .. require("ffi/sha2").md5(entry.url)
+            assert.is_nil(lfs.attributes(target))
+            assert.are.equal(count_before, rd:getNumberOfDictionaries())
         end)
 
         it("should tell about failed requests", function()

@@ -2438,6 +2438,9 @@ function ReaderDictionary:downloadDictionary(dict)
     if download_id then
         ok, err = self:setDownloadDictionaryIdentity(dict_dir, download_id)
         if not ok then
+            ffiUtil.purgeDir(dict_dir)
+            available_ifos = false
+            self:init()
             show_info(T(_("Extraction failed:\n\n%1"), BD.ltr(err)))
             return
         end
