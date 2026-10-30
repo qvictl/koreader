@@ -1,5 +1,5 @@
 describe("Background KOPT context ownership", function()
-    local ffi, KoptThread, state, pthread, context_type
+    local ffi, KoptThread, state, pthread, context_type, process_ffi
     local context_types = 0
 
     setup(function()
@@ -10,7 +10,7 @@ describe("Background KOPT context ownership", function()
     before_each(function()
         state = { joins = 0, frees = 0, creates = 0, destroys = 0, fallbacks = 0, pid = 1 }
         local current = state
-        local process_ffi = setmetatable({ C = { getpid = function() return current.pid end } }, { __index = ffi })
+        process_ffi = setmetatable({ C = { getpid = function() return current.pid end } }, { __index = ffi })
         local loader = assert(loadfile(assert(package.searchpath("document/koptthread", package.path))))
         setfenv(loader, setmetatable({ require = function(name)
             if name == "ffi" then return process_ffi end
@@ -240,5 +240,16 @@ describe("Background KOPT context ownership", function()
         KoptThread.reap()
         assert.are.equal(1, state.joins)
         assert.are.equal(0, state.frees)
+    end)
+
+    it("uses the Windows CRT process identifier without resolving POSIX getpid", function()
+        process_ffi.os = "Windows"
+        process_ffi.C.getpid = function() error("unexpected POSIX process API") end
+        process_ffi.C._getpid = function() return state.pid end
+        local kc = start()
+        KoptThread.wait(kc)
+        KoptThread.free(kc)
+        assert.are.equal(1, state.joins)
+        assert.are.equal(1, state.frees)
     end)
 end)

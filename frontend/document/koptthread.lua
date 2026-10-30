@@ -3,14 +3,22 @@ local ffi = require("ffi")
 local logger = require("logger")
 
 require("ffi/posix_h")
-ffi.cdef[[ int pthread_join(pthread_t, void **); ]]
+ffi.cdef[[
+int pthread_join(pthread_t, void **);
+int _getpid(void);
+]]
 
 local KoptThread = {}
 local workers = setmetatable({}, { __mode = "k" })
 local retained = {}
 
+local function getpid()
+    if ffi.os == "Windows" then return ffi.C._getpid() end
+    return ffi.C.getpid()
+end
+
 local function inherited(worker)
-    return worker.pid ~= ffi.C.getpid()
+    return worker.pid ~= getpid()
 end
 
 local function join(worker)
@@ -65,7 +73,7 @@ end
 
 function KoptThread.start(kc, pthread, entry)
     KoptThread.reap()
-    local worker = { pthread = pthread, thread = ffi.new("pthread_t[1]"), pid = ffi.C.getpid() }
+    local worker = { pthread = pthread, thread = ffi.new("pthread_t[1]"), pid = getpid() }
     workers[kc] = worker
     -- Capture only the worker. Capturing kc here would keep the context alive.
     -- The weak-key table may already have lost its entry when this runs.

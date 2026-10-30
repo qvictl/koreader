@@ -12,3 +12,5 @@ fork 子进程拒绝消费父进程尚未 join 的 context；父进程已 join �
 安全负例只使用模拟 pthread 和 Lua 断言，不运行 native worker：覆盖提前置零仍须 join、延迟写 thread 数组、GC/重复释放、缓存拒绝与异常、消费/序列化边界、启动失败、join 错误隔离与恢复、fake PID 变化。修复后真实 native cache-pressure 单测 3/3 通过；完整 ReaderUI 场景 `28_cache_pressure` 26/26 检查通过，确认两个真实 native worker 均已 join。
 
 本地原生验证复用成功 CI 的 a2c7697 模拟器产物及相同 base SHA，通过启动注入加载本工作树的 Lua；没有改写只读 runtime，也未重新编译 native。第一次场景运行曾因启动注入被覆盖而误用了旧 cache Lua，修正注入后再次运行通过；第一次结果保留在本地证据目录。模拟器验证不代表 Kindle 真机验收。
+
+Windows 保留原有 libwinpthread 路径；进程标识显式使用 Windows CRT 的 [`_getpid`](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/getpid)，不会假定 POSIX `getpid` 符号存在。该分支有 fake Windows API 测试，主机未执行 Windows 原生验证。
