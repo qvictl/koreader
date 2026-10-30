@@ -5,9 +5,9 @@ CI 在真实 cache-pressure 清理测试中出现 glibc heap consolidation abort
 依赖保持为 koreader-base `7c4e2f0d81afafb8a19dfa2a28ec2df461962272`，它使用 libk2pdfopt `64aa9ccfcd55921c596458cb8a7197339d5f32c3`。
 [该版本 native 实现](https://github.com/koreader/libk2pdfopt/blob/64aa9ccfcd55921c596458cb8a7197339d5f32c3/lib/koptreflow.c#L124) 提前清除 `precache`，随后仍写 context 的 rectmaps、BOXA 和 NUMA，并释放 source bitmap。仅轮询 `precache` 不保证消费者、序列化和析构看到的是已经完成的 context。
 
-本修复在 core Lua 层为每个后台 context 保留 joinable pthread 的数组句柄及创建进程 PID。消费、序列化和显式释放前执行真实 `pthread_join`；重复等待和释放保持幂等。context 的 GC finalizer 直接捕获不引用 context 的独立 worker 记录，避免弱表条目提前消失或闭包保活；因此缓存拒绝、插入异常和调用者丢引用也能先 join 再析构。线程库不可用、属性初始化失败或线程创建失败均改为同步 reflow。
+本修复在 core Lua 层为每个后台 context 保留 joinable pthread 的数组句柄及创建进程 PID。消费、序列化和显式释放前执行真实 `pthread_join`；重复等待和释放保持幂等。context 的 GC finalizer 直接捕获不引用 context 的独立 worker 记录，避免弱表条目提前消失或闭包保活；因此缓存拒绝、插入异常和调用者丢引用也能先 join 再析构。线程库不可用、属性初始化失败或线程创建失败时跳过本次后台预取，释放未启动的 context 并恢复 CPU 配置；真正需要显示页面时仍沿用既有的前台按需 reflow。
 
-fork 子进程拒绝消费父进程尚未 join 的 context；父进程已 join 或同步完成的 context 仍可读取，不 join 父线程，也不析构其尚在修改的 native buffer 快照；继承的分配由子进程退出统一回收。缓存逐出直接进入释放路径，避免消费等待提前抛错阻断逐出；逐出这些已跟踪的后台 context 时，子进程也不代父线程修改 CPU 配置。正常进程发生 join 错误时拒绝消费和释放；GC 无法 join 则记录错误并保留 context，后续 reaping 逐项重试回收，单个错误不阻止其他 context 回收或新任务启动；仍有未回收 owner 时，新页面同步 reflow，避免继续增加异步故障；回收成功后恢复后台工作，每个 owner 的释放错误只记录一次。这是不可恢复 POSIX 错误下的显式安全隔离，不能把仍可能被 native 使用的内存强行释放。
+fork 子进程拒绝消费父进程尚未 join 的 context；父进程已 join 的 context 仍可读取，不 join 父线程，也不析构其尚在修改的 native buffer 快照；继承的分配由子进程退出统一回收。缓存逐出直接进入释放路径，避免消费等待提前抛错阻断逐出；逐出这些已跟踪的后台 context 时，子进程也不代父线程修改 CPU 配置。正常进程发生 join 错误时拒绝消费和释放；GC 无法 join 则记录错误并保留 context，后续 reaping 逐项重试回收，单个错误不阻止其他 context 回收或新任务启动；仍有未回收 owner 时，跳过新的后台预取，避免继续增加异步故障或阻塞 HintPage 的 UI 回调；回收成功后恢复后台工作，每个 owner 的释放错误只记录一次。这是不可恢复 POSIX 错误下的显式安全隔离，不能把仍可能被 native 使用的内存强行释放。
 
 安全负例只使用模拟 pthread 和 Lua 断言，不运行 native worker：覆盖提前置零仍须 join、延迟写 thread 数组、GC/重复释放、缓存拒绝与异常、消费/序列化边界、启动失败、join 错误隔离与恢复、fake PID 变化。修复后真实 native cache-pressure 单测 3/3 通过；完整 ReaderUI 场景 `28_cache_pressure` 26/26 检查通过，确认两个真实 native worker 均已 join。
 

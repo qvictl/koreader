@@ -95,10 +95,10 @@ function KoptThread.start(kc, pthread, entry)
     -- The weak-key table may already have lost its entry when this runs.
     ffi.gc(kc, function(context) finalize(context, worker) end)
     local status = "pthread unavailable"
-    -- Stop adding asynchronous workers while any failed owner remains. New
-    -- pages still reflow synchronously until reaping succeeds.
-    local synchronous = retained_count > 0
-    if pthread and not synchronous then
+    -- Stop prefetching while any failed owner remains. A later foreground
+    -- request can render the page without blocking the UI's hint callback.
+    local deferred = retained_count > 0
+    if pthread and not deferred then
         local attr = ffi.new("pthread_attr_t[1]")
         -- POSIX attributes are joinable by default.
         status = pthread.pthread_attr_init(attr)
@@ -109,11 +109,8 @@ function KoptThread.start(kc, pthread, entry)
             if destroyed ~= 0 then logger.warn("pthread_attr_destroy failed:", destroyed) end
         end
     end
-    if not worker.started then
-        if not synchronous then
-            logger.warn("Unable to start background KOPT worker; reflowing synchronously:", status)
-        end
-        entry(kc)
+    if not worker.started and not deferred then
+        logger.warn("Unable to start background KOPT worker; skipping prefetch:", status)
     end
     return worker.started
 end
@@ -127,6 +124,7 @@ function KoptThread.wait(kc)
     local worker = workers[kc]
     if worker then
         if worker.freed then error("KOPT context has already been freed") end
+        if not worker.started then error("KOPT worker did not start") end
         join(worker)
     end
 end

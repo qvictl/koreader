@@ -1,6 +1,7 @@
 describe("KOPT background context boundaries", function()
     local ffi, KoptInterface, KoptThread, DocCache, KOPTContext, Persist
     local CanvasContext, thread_methods, cpu_stub, old_bg, old_cache
+    local create_stub, start_stub, free_stub
     local state, kc, doc, reflow_stub, hash_stub, insert_stub, table_stub, persist_stub
     local context_types = 0
 
@@ -64,6 +65,9 @@ describe("KOPT background context boundaries", function()
 
     after_each(function()
         state.join_error = nil
+        if create_stub then create_stub:revert(); create_stub = nil end
+        if start_stub then start_stub:revert(); start_stub = nil end
+        if free_stub then free_stub:revert(); free_stub = nil end
         if insert_stub then insert_stub:revert(); insert_stub = nil end
         if table_stub then table_stub:revert(); table_stub = nil end
         if persist_stub then persist_stub:revert(); persist_stub = nil end
@@ -191,5 +195,29 @@ describe("KOPT background context boundaries", function()
         assert.is_true(KoptInterface.bg_thread)
         assert.are.equal(0, state.joins)
         assert.are.equal(0, state.frees)
+    end)
+
+    it("discards an unstarted hint and restores CPU configuration without caching it", function()
+        reflow_stub:revert(); reflow_stub = nil
+        local discarded = 0
+        local context = { zoom = 1, quality = 1, dev_width = 600, setPreCache = function() end }
+        create_stub = stub(KoptInterface, "createContext", function() return context end)
+        start_stub = stub(KoptThread, "start", function() return false end)
+        free_stub = stub(KoptThread, "free", function(value)
+            assert.are.equal(context, value)
+            discarded = discarded + 1
+        end)
+        cpu_stub = stub(CanvasContext, "enableCPUCores", function() end)
+        doc.getPageBBox = function() return { x1 = 600 } end
+        doc.configurable = {}
+        doc._document = { openPage = function()
+            return { getPagePix = function() end, close = function() end }
+        end }
+        KoptInterface:hintReflowedPage(doc, 1, 1, 0, true)
+        assert.are.equal(1, discarded)
+        assert.is_nil(DocCache:check("kctx"))
+        assert.is_nil(KoptInterface.bg_thread)
+        assert.stub(cpu_stub).was.called_with(CanvasContext, 2)
+        assert.stub(cpu_stub).was.called_with(CanvasContext, 1)
     end)
 end)

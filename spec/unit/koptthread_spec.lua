@@ -8,7 +8,7 @@ describe("Background KOPT context ownership", function()
     end)
 
     before_each(function()
-        state = { joins = 0, frees = 0, creates = 0, destroys = 0, fallbacks = 0, pid = 1, errors = 0 }
+        state = { joins = 0, frees = 0, creates = 0, destroys = 0, entries = 0, pid = 1, errors = 0, records = {} }
         local current = state
         process_ffi = setmetatable({ C = { getpid = function() return current.pid end } }, { __index = ffi })
         local loader = assert(loadfile(assert(package.searchpath("document/koptthread", package.path))))
@@ -21,12 +21,13 @@ describe("Background KOPT context ownership", function()
         end }, { __index = _G }))
         KoptThread = loader()
         context_types = context_types + 1
-        context_type = ffi.metatype(ffi.typeof("struct { int precache; char case_id[" .. context_types .. "]; }"), {
+        context_type = ffi.metatype(ffi.typeof("struct { int precache; int owner_id; char case_id[" .. context_types .. "]; }"), {
             __index = {
-                free = function()
+                free = function(context)
                     -- This Lua guard is the negative oracle. No native worker
                     -- or native buffer participates in these tests.
-                    if not current.complete then error("context freed before worker returned", 0) end
+                    local record = current.records[tonumber(context.owner_id)]
+                    if record.started and not record.completed then error("context freed before worker returned", 0) end
                     current.frees = current.frees + 1
                 end,
             },
@@ -41,6 +42,7 @@ describe("Background KOPT context ownership", function()
                 current.creates = current.creates + 1
                 if not current.held then thread[0] = 17 end
                 current.thread = thread
+                current.thread_owner = current.pending
                 return current.create_error or 0
             end,
             pthread_join = function(thread)
@@ -48,6 +50,7 @@ describe("Background KOPT context ownership", function()
                 current.joins = current.joins + 1
                 if current.join_error then return current.join_error end
                 current.complete = true
+                current.thread_owner.completed = true
                 return 0
             end,
         }
@@ -56,10 +59,15 @@ describe("Background KOPT context ownership", function()
     local function start()
         local kc = context_type()
         local current = state
+        kc.owner_id = #current.records + 1
+        local record = { started = false, completed = false }
+        current.records[tonumber(kc.owner_id)] = record
+        current.pending = record
         local asynchronous = KoptThread.start(kc, pthread, function()
-            current.fallbacks = current.fallbacks + 1
+            current.entries = current.entries + 1
             current.complete = true
         end)
+        record.started = asynchronous
         return kc, asynchronous
     end
 
@@ -122,13 +130,13 @@ describe("Background KOPT context ownership", function()
         assert.are.equal(1, state.frees)
     end)
 
-    it("falls back synchronously when thread creation fails", function()
+    it("skips reflow when thread creation fails", function()
         state.create_error = 11
         local kc, asynchronous = start()
         assert.is_falsy(asynchronous)
         KoptThread.free(kc)
         assert.are.equal(1, state.destroys)
-        assert.are.equal(1, state.fallbacks)
+        assert.are.equal(0, state.entries)
         assert.are.equal(0, state.joins)
         assert.are.equal(1, state.frees)
     end)
@@ -140,16 +148,16 @@ describe("Background KOPT context ownership", function()
         KoptThread.free(kc)
         assert.are.equal(0, state.creates)
         assert.are.equal(0, state.destroys)
-        assert.are.equal(1, state.fallbacks)
+        assert.are.equal(0, state.entries)
         assert.are.equal(0, state.joins)
     end)
 
-    it("falls back synchronously when pthread is unavailable", function()
+    it("skips reflow when pthread is unavailable", function()
         pthread = nil
         local kc, asynchronous = start()
         assert.is_falsy(asynchronous)
         KoptThread.free(kc)
-        assert.are.equal(1, state.fallbacks)
+        assert.are.equal(0, state.entries)
         assert.are.equal(0, state.joins)
     end)
 
@@ -178,10 +186,12 @@ describe("Background KOPT context ownership", function()
         local next_kc, asynchronous = start()
         assert.is_false(asynchronous)
         assert.are.equal(1, state.creates)
-        assert.are.equal(1, state.fallbacks)
+        assert.are.equal(0, state.entries)
         assert.are.equal(1, state.errors)
-        state.join_error = nil
         KoptThread.free(next_kc)
+        assert.is_false(state.records[1].completed)
+        assert.are.equal(1, state.frees)
+        state.join_error = nil
         KoptThread.reap()
         KoptThread.reap()
         assert.are.equal(2, state.frees)
@@ -226,11 +236,11 @@ describe("Background KOPT context ownership", function()
         assert.are.equal(0, state.frees)
     end)
 
-    it("allows reading an inherited synchronous fallback without joining", function()
+    it("rejects an inherited context whose worker never started", function()
         state.create_error = 11
         local kc = start()
         state.pid = 2
-        KoptThread.wait(kc)
+        assert.has_error(function() KoptThread.wait(kc) end, "KOPT worker did not start")
         KoptThread.free(kc)
         assert.are.equal(0, state.joins)
         assert.are.equal(0, state.frees)

@@ -321,7 +321,10 @@ function KoptInterface:reflowPage(doc, pageno, bbox, background)
     -- Reflow.
     if background then
         local pthread = get_pthread()
-        KoptThread.start(kc, pthread, KOPTContext.k2pdfopt.k2pdfopt_reflow_bmp)
+        if not KoptThread.start(kc, pthread, KOPTContext.k2pdfopt.k2pdfopt_reflow_bmp) then
+            finishContext(self, kc, KoptThread.free)
+            return
+        end
     else
         KOPTContext.k2pdfopt.k2pdfopt_reflow_bmp(kc)
     end
@@ -580,6 +583,7 @@ function KoptInterface:hintReflowedPage(doc, pageno, zoom, rotation, hinting)
             CanvasContext:enableCPUCores(2)
         end
         local kc = self:reflowPage(doc, pageno, bbox, true)
+        if not kc then return end
         DocCache:insert(hash, ContextCacheItem:new{
             size = self.last_context_size or self.default_context_size,
             kctx = kc,
