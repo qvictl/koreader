@@ -8,8 +8,23 @@ return {
         dict_progressive_lookup = false,
     },
     run = function(T)
+        local util = require("util")
+        local ffiUtil = require("ffi/util")
+        local DataStorage = require("datastorage")
+        local lfs = require("libs/libkoreader-lfs")
+        -- Downloads must not mutate the fixture shared by other scenarios or repeats,
+        -- even if the process exits before the protected cleanup can run.
+        local profile = assert(os.getenv("KO_HOME"))
+        assert(ffiUtil.realpath(DataStorage:getDataDir()) == ffiUtil.realpath(profile), "unexpected profile root")
+        local dict_dir = profile .. "/data/dict"
+        local fixture_dict = assert(os.getenv("IT_FIXTURES")) .. "/dict"
+        assert(lfs.symlinkattributes(dict_dir, "mode") == "link", "expected the runner's fixture symlink")
+        assert(ffiUtil.realpath(dict_dir) == ffiUtil.realpath(fixture_dict), "unexpected dictionary symlink target")
+        assert(os.remove(dict_dir)) -- Remove only the link in this isolated KO_HOME.
+        assert(os.execute(util.shell_escape({ "cp", "-R", fixture_dict, dict_dir })) == 0)
         local DictHelper = dofile(T.spec_dir .. "/dicthelper.lua")
         local ui = T:openBook(T:fixture("books/en.epub"))
+        assert(ffiUtil.realpath(ui.dictionary.data_dir) == ffiUtil.realpath(dict_dir), "dictionary override bypasses isolation")
 
         -- Distinct dictionaries can share a display name. All must remain selectable.
         local download_menu
@@ -85,9 +100,6 @@ return {
 
         -- Download two archives with identical booknames through the painted UI.
         -- The URL identity must keep classic and progressive selection independent.
-        local util = require("util")
-        local ffiUtil = require("ffi/util")
-        local DataStorage = require("datastorage")
         local StarDict = dofile(T.spec_dir .. "/../unit/stardict_fixture.lua")
         local http = require("socket.http")
         local original_request = http.request
