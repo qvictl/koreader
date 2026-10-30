@@ -26,6 +26,60 @@ return {
     name = "Synthetic page-map cache and PDF highlight holds",
     timeout = 90,
     run = function(T)
+        T:run(function()
+            local ffi = require("ffi")
+            local BB = require("ffi/blitbuffer")
+            local Mupdf = require("ffi/mupdf")
+            local RenderImage = require("ui/renderimage")
+            local slot, backend
+            for i = 1, 20 do
+                local name, value = debug.getupvalue(Mupdf.scaleBlitBuffer, i)
+                if not name then break end
+                if name == "W" then slot, backend = i, value; break end
+            end
+            assert(slot, "MuPDF pixmap backend is available")
+            local calls = 0
+            local guard = setmetatable({
+                mupdf_new_pixmap_with_data = function(ctx, colorspace, w, h, seps, alpha, stride, data)
+                    -- Stop invalid layouts at the Lua boundary, before native memory access.
+                    assert(stride == w * 4, "RGB565 conversion must use the RGBA buffer stride")
+                    calls = calls + 1
+                    return backend.mupdf_new_pixmap_with_data(ctx, colorspace, w, h, seps, alpha, stride, data)
+                end,
+            }, { __index = backend })
+            local legacy = G_reader_settings:readSetting("legacy_image_scaling")
+            G_reader_settings:saveSetting("legacy_image_scaling", false)
+            debug.setupvalue(Mupdf.scaleBlitBuffer, slot, guard)
+            local input, scaled
+            local ok, err = xpcall(function()
+                for _, stride in ipairs({ 24, 32, 64 }) do
+                    input = BB.new(12, 8, BB.TYPE_BBRGB16, nil, stride, stride / 2)
+                    input:paintRectRGB32(0, 0, 12, 8, BB.ColorRGB32(255, 0, 0, 255))
+                    input:paintRectRGB32(6, 0, 6, 8, BB.ColorRGB32(0, 0, 255, 255))
+                    local before = ffi.string(input.data, input.stride * input.h)
+                    scaled = RenderImage:scaleBlitBuffer(input, 6, 4, false)
+                    T:eq(scaled.w, 6, "RGB565 image scales to the requested width")
+                    T:eq(scaled.h, 4, "RGB565 image scales to the requested height")
+                    local left = scaled:getPixel(0, 0):getColorRGB24()
+                    local right = scaled:getPixel(5, 3):getColorRGB24()
+                    T:eq(left:getR(), 255, "scaled RGB565 image retains red pixels")
+                    T:eq(left:getB(), 0, "red pixels do not pick up blue")
+                    T:eq(right:getR(), 0, "blue pixels do not pick up red")
+                    T:eq(right:getB(), 255, "scaled RGB565 image retains blue pixels")
+                    T:eq(input:getAllocated(), 1, "image scaling preserves caller-owned source")
+                    T:check(ffi.string(input.data, input.stride * input.h) == before, "source pixels and padding remain unchanged")
+                    scaled:free(); scaled = nil
+                    input:free(); input = nil
+                end
+                T:eq(calls, 3, "all RGB565 layouts reach the real MuPDF backend")
+            end, debug.traceback)
+            debug.setupvalue(Mupdf.scaleBlitBuffer, slot, backend)
+            if legacy == nil then G_reader_settings:delSetting("legacy_image_scaling")
+            else G_reader_settings:saveSetting("legacy_image_scaling", legacy) end
+            if scaled then scaled:free() end
+            if input then input:free() end
+            assert(ok, err)
+        end)
         local reader = T:openBook(T:fixture("books/en.epub"))
         T:run(function()
             local doc = reader.document

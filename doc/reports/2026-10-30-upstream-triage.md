@@ -1,6 +1,6 @@
 # 三上游 issues / PR 调研与修复（2026-10-30）
 
-**已交付的修复包括 PDF 后台线程生命周期、WAL 云同步、页脚、微信读书二维码与字典基础修复。** 字典元数据、配套文件和即时列表补修由 [PR55](https://github.com/qvictl/koreader/pull/55) 交付，本报告随该补修更新；最终提交、合入状态及当前门禁以其[检查页](https://github.com/qvictl/koreader/pull/55/checks)为准。base PR35 尚未合入，最近执行请求被 GitHub 拒绝，仍缺四项必需 CI。
+**已交付的修复包括 PDF 后台线程生命周期、WAL 云同步、页脚、微信读书二维码与字典基础修复。** 字典元数据、配套文件和即时列表补修由 [PR55](https://github.com/qvictl/koreader/pull/55) 交付，本报告随该补修更新；最终提交、合入状态及当前门禁以其[检查页](https://github.com/qvictl/koreader/pull/55/checks)为准。base PR35 的 Actions 已恢复执行，经原必需检查和审查门禁正常合入；本轮 core pin 与场景回归同步更新，详见下文。
 
 交付状态记录于 2026-10-30；开放条目数使用本轮采样快照，不能当作实时总数。页脚 PR50 在用户要求先报告前已合入，本报告保留该事实。
 
@@ -43,7 +43,7 @@
 | [禁用页脚后目录重置崩溃](https://github.com/koreader/koreader/issues/16202) / [生命周期修复建议](https://github.com/koreader/koreader/pull/16203) | 完全禁用页脚时没有进度条，EPUB 目录重置却仍更新标记，真实 ReaderUI 与模拟器均复现 nil 错误 | 一行生产修复，按已有禁用生命周期停止标记更新；完整 ReaderFooter 23 个单测和真实重排场景 7 个检查通过，均有修前失败证据 | [本 fork PR50](https://github.com/qvictl/koreader/pull/50)，已合入 `ff643535c92edac959dce59155a8db94300e3caa` |
 | [同名词典被下载菜单隐藏](https://github.com/koreader/koreader/pull/16281) | 真实 1773 项目录中 5 个下载地址、10 个语言入口被显示名去重隐藏 | 菜单按地址区分，同名来源使用不同安装目录和实际词典身份；目标路径不同的旧副本保留，同一路径成功重装替换旧目录；补充准备失败保旧、配套文件准入和即时列表恢复 | [PR49](https://github.com/qvictl/koreader/pull/49) 已合入 `ab784a8c080255007497f8009d9d1890fd1cdea8`；[PR55](https://github.com/qvictl/koreader/pull/55) 为后续补修，最终交付及检查记录见该 PR |
 | [二维码 UI 候选](https://github.com/finlater/weread.koplugin/pull/225) | 官方运行时样本存在 0.9 二次插值；简单放大又会令白边不足，不能照搬尺寸改动或其中未证的鉴权假设 | 复用原生 QR 编码/绘制，保持整数像素与至少四模块白边；保留取消、释放、F5 刷新；不改鉴权协议。最终源码在三个实际运行时/屏幕组合各通过 10 项流程检查 | [本 fork PR71](https://github.com/qvictl/weread.koplugin/pull/71)，已合入 `4afb5d3138d23298a6b0451d0a341419ebf229cd`；兼容小屏 nil/零尺寸失败分支，同时保留大屏 dense 正向编码断言 |
-| [RGB565 缩放行距错误](https://github.com/koreader/koreader/issues/16298) | 格式转换后仍使用旧行距，当前 base 与上游对应代码均受影响 | 一行生产修复；旧实现由 Lua 参数边界安全拒绝，修后正常原生像素、尺寸和输入数据保持验证通过；2 个原生 UT 与 35 个跨仓检查通过 | [本 fork base PR35](https://github.com/qvictl/koreader-base/pull/35)，Actions 外部禁用阻塞，尚未合入 |
+| [RGB565 缩放行距错误](https://github.com/koreader/koreader/issues/16298) | 格式转换后仍使用旧行距，修前 base 与上游对应代码均受影响 | 一行生产修复；旧实现由 Lua 参数边界安全拒绝，修后正常原生像素、尺寸和输入数据保持验证通过；2 个原生 UT 与 35 个跨仓检查通过 | [本 fork base PR35](https://github.com/qvictl/koreader-base/pull/35)，已合入 `cc2be6a552998ca3ee379c1eec56db29df53beb9`；core 固定该实际主线，并补充 `17_document_regressions` 场景 |
 
 SQLite 能力已分别在本轮 main 原生运行时和官方 v2026.07.1 实测：
 SQLite 3.54.1 / 3.53.3 的只读连接均支持 `VACUUM INTO`，并能在持有旧读事务时生成包含新已提交行的独立快照。
@@ -104,11 +104,11 @@ PDF/WAL 两项均有最新候选的正式 AI 批准与全部必需检查，审�
 按照 [CONTRIBUTING](../../CONTRIBUTING.md) 与当前 CI，普通 PR 须通过全部必需构建、选择性 UT、改动行单测覆盖率与 AI/对话门禁；用户可见修复还须提供适用集成场景，但完整模拟器 IT 在发版候选验证时执行。本轮有针对性的本地主机集成复现，不改变该执行策略或门槛。README 的中英文贡献说明也已与此策略对齐。
 未为本轮修改版本号、手动发版或重新安装设备。
 
-原先三个 `do-not-merge` 是维护 agent 在“先报告、暂停实施”阶段添加的标记，用户恢复工作后已移除。PR49 收到有效 outside-diff 意见时未及时恢复技术暂停，正常门禁先行合入；PR55 补齐已确认的数据丢失和列表缺口。此次补修在完整 AI 检查结束、全文意见读完并处理完有效阻断、当前 CI 通过后才解除临时暂停。报告随同补修交付，后续非阻断建议记录待办，避免持续扩大本轮范围。原保护、必需检查和执行策略保持。
+原先三个 `do-not-merge` 是维护 agent 在“先报告、暂停实施”阶段添加的标记，用户恢复工作后已移除。PR49 收到有效 outside-diff 意见时未及时恢复技术暂停，正常门禁先行合入；PR55 补齐已确认的数据丢失和列表缺口。此次补修在代码验证就绪、必需 CI 通过后恢复原门禁，旧 Request changes 正常拦截到完整 AI 检查结束并自然批准；全文意见已读完，有效阻断均已处理。报告随同补修交付，后续非阻断建议记录待办，避免持续扩大本轮范围。原保护、必需检查和执行策略保持。
 
-base 的 Actions 设置显示 enabled、workflow 显示 active，但 2026-10-30 08:20:38 UTC 对当前 `448fa0440d64c63a4918ecdca29b15ccaee61ff3` 分支进行的一次正确 dispatch，仍返回 HTTP422：`Actions has been disabled for this repository.`（请求 ID `D3B4:2CF054:A703F:B6E93:6AE45355`）。前后工作流 run 均为 1331 个，没有创建新 run。当前 AI 已批准、无开放审查对话，重新验证的 2 个原生正向测试通过；保护规则的 Lint、Build and unit tests、Tests policy、Coverage 四个真实检查仍缺失。本次没有重复 dispatch，原四项必需检查继续执行；限制原因尚未得到提供方确认，需要仓库所有者核查 GitHub 限制通知或由 GitHub Support 恢复执行。诊断与未发送的支持草稿已本地保存。
-因此其修复与配套 core 测试已经保存、验证并推到自有分支，却不能算作已合入。
-配套 core 测试保留 `f76d9115004eb61c46a993f0eac85a63802487bb`，没有把未合 base 固定进产品 main，也未绕过分支保护。
+base 曾于 2026-10-30 08:20:38 UTC 对 `448fa0440d64c63a4918ecdca29b15ccaee61ff3` 分支进行一次正确 dispatch，收到 HTTP422：`Actions has been disabled for this repository.`（请求 ID `D3B4:2CF054:A703F:B6E93:6AE45355`），当时未创建新 run；该历史阻塞及未发送的支持草稿保留。用户确认恢复后，真实 Actions 已能执行。手动 dispatch 的绿色结果不能满足 PR 必需检查，因此通过一次正常关闭再重开触发现有 PR 工作流；[PR CI 41054490210](https://github.com/qvictl/koreader-base/actions/runs/41054490210) 与测试策略检查通过，当前 AI 已批准、无开放审查对话，原门禁于 12:21:26 UTC 将该候选正常合入 `cc2be6a552998ca3ee379c1eec56db29df53beb9`。改动行单测覆盖率为 1/1（100%），普通 CI 的整体指标仍为 null；未降低四项必需检查或改动保护设置。
+
+配套 core 将 gitlink 从 `7c4e2f0d81afafb8a19dfa2a28ec2df461962272` 更新到该实际 base main，而非未合候选。当前 core 主线源码组合的 `17_document_regressions` 真实模拟器场景重新通过 35/35，覆盖 RenderImage 入口、RGB565 三种行距的真实 MuPDF 输出、源像素和 padding 保留，并保留原页面映射及 PDF 高亮回归。base 实际合入树与已验证候选一致，2 个原生定向单测证据按源码 SHA 复用，没有重复执行旧负控。精确差异只含一行 MuPDF Lua 产品修正及测试、覆盖率脚本与文档，未改 C/C++、构建输入或原生依赖；本地主机验证使用当前完整 core Lua、实际 base 的 MuPDF Lua 与已核原生运行时，未冒称重新编译 native。core 的集成增量、实际 pin 与本报告同轮提交，仍须通过当前 PR 的原必需 CI、完整 AI 与对话门禁。
 
 对三个上游的操作均为只读：没有评论、reaction、标签、review、PR、push 或关闭操作。
 本 fork 的 PR 描述、评论和提交消息也避免上游条目的 URL/跨仓引用，防止自动 cross-reference 通知；
