@@ -11,6 +11,7 @@ local Document = require("document/document")
 local FFIUtil = require("ffi/util")
 local Geom = require("ui/geometry")
 local KOPTContext = require("ffi/koptcontext")
+local KoptThread = require("document/koptthread")
 local Persist = require("persist")
 local Screen = require("device").screen
 local TileCacheItem = require("document/tilecacheitem")
@@ -38,11 +39,12 @@ local ContextCacheItem = CacheItem:new{}
 function ContextCacheItem:onFree()
     KoptInterface:waitForContext(self.kctx)
     logger.dbg("ContextCacheItem: free KOPTContext", self.kctx)
-    self.kctx:free()
+    KoptThread.free(self.kctx)
 end
 
 function ContextCacheItem:dump(filename)
     if self.kctx:isPreCache() == 0 then
+        KoptInterface:waitForContext(self.kctx)
         logger.dbg("Dumping KOPTContext to", filename)
 
         local cache_file = Persist:new{
@@ -110,15 +112,11 @@ function KoptInterface:setDefaultConfigurable(configurable)
 end
 
 function KoptInterface:waitForContext(kc)
-    -- If our koptcontext is busy in a background thread, isPreCache will return 1.
-    local waited = false
-    while kc and kc:isPreCache() == 1 do
-        waited = true
-        logger.dbg("waiting for background rendering")
-        FFIUtil.usleep(100000)
-    end
+    -- Native reflow clears precache before it finishes writing the context.
+    -- Join before consuming or freeing any of those buffers.
+    if kc then KoptThread.wait(kc) end
 
-    if waited or self.bg_thread then
+    if self.bg_thread then
         -- Background thread is done, go back to a single CPU core.
         CanvasContext:enableCPUCores(1)
         self.bg_thread = nil
@@ -291,8 +289,10 @@ local function get_pthread()
         candidates = {"pthread", "libpthread.so.0"}
     end
     for _, libname in ipairs(candidates) do
-        ok, cached_pthread = pcall(ffi.load, libname)
+        local loaded
+        ok, loaded = pcall(ffi.load, libname)
         if ok then
+            cached_pthread = loaded
             return cached_pthread
         end
     end
@@ -314,12 +314,7 @@ function KoptInterface:reflowPage(doc, pageno, bbox, background)
     -- Reflow.
     if background then
         local pthread = get_pthread()
-        local rf_thread = ffi.new("pthread_t[1]")
-        local attr = ffi.new("pthread_attr_t[1]")
-        pthread.pthread_attr_init(attr)
-        pthread.pthread_attr_setdetachstate(attr, pthread.PTHREAD_CREATE_DETACHED)
-        pthread.pthread_create(rf_thread, attr, KOPTContext.k2pdfopt.k2pdfopt_reflow_bmp, ffi.cast("void*", kc))
-        pthread.pthread_attr_destroy(attr)
+        KoptThread.start(kc, pthread, KOPTContext.k2pdfopt.k2pdfopt_reflow_bmp)
     else
         KOPTContext.k2pdfopt.k2pdfopt_reflow_bmp(kc)
     end
@@ -562,9 +557,8 @@ end
 --[[--
 Render reflowed page into cache in background thread.
 
-This method returns immediately, leaving the precache flag on
-in context. Subsequent usage of this context should wait for the precache flag
-off by calling self:waitForContext(kctx)
+This method returns immediately. Subsequent usage of this context must join its
+worker with self:waitForContext(kctx); precache only reports reflow progress.
 
 Inherited from common document interface.
 --]]

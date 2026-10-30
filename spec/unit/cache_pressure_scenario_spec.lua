@@ -1,6 +1,6 @@
 describe("Cache pressure scenario failure cleanup", function()
     local DocCache, DocumentRegistry, KoptInterface, ffi, ffiutil, time, util, scenario
-    local active, mode, closes, creates, destroys
+    local active, mode, closes, creates, destroys, joins
     local original_load, original_wait, original_mem, original_open
     local open_stub
 
@@ -15,7 +15,7 @@ describe("Cache pressure scenario failure cleanup", function()
     end)
 
     before_each(function()
-        active, closes, creates, destroys = nil, 0, 0, 0
+        active, closes, creates, destroys, joins = nil, 0, 0, 0, 0
         open_stub = nil
         original_load, original_wait = ffi.load, KoptInterface.waitForContext
         original_mem, original_open = util.calcFreeMem, io.open
@@ -99,6 +99,10 @@ describe("Cache pressure scenario failure cleanup", function()
                     destroys = destroys + 1
                     return lib.pthread_attr_destroy(...)
                 end,
+                pthread_join = function(...)
+                    joins = joins + 1
+                    return lib.pthread_join(...)
+                end,
             }, { __index = lib })
         end
         ffi.load = observed_load
@@ -107,6 +111,7 @@ describe("Cache pressure scenario failure cleanup", function()
         assert.are.equal(2, closes)
         assert.are.equal(2, creates)
         assert.are.equal(2, destroys)
+        assert.are.equal(2, joins)
         assert.is_nil(KoptInterface.bg_thread)
     end)
 end)

@@ -32,7 +32,7 @@ end
 local function threadBarrier()
     local ffi = require("ffi")
     local original_load = ffi.load
-    local held, hold_next = nil, true
+    local held, hold_next, joined = nil, true, 0
     ffi.load = function(name, ...)
         local lib = original_load(name, ...)
         if name ~= "pthread" and name ~= "libpthread.so.0" then return lib end
@@ -47,11 +47,18 @@ local function threadBarrier()
                 if held and attr == held.attr then return 0 end
                 return lib.pthread_attr_destroy(attr)
             end,
+            pthread_join = function(thread, result)
+                if held then error("attempted join before releasing held worker") end
+                local status = lib.pthread_join(thread, result)
+                if status == 0 then joined = joined + 1 end
+                return status
+            end,
         }, { __index = lib })
     end
     return {
         holdNext = function() hold_next = true end,
         isHeld = function() return held ~= nil end,
+        joinedCount = function() return joined end,
         release = function()
             if not held then return end
             local h = held
@@ -183,6 +190,8 @@ return {
         if not released then error(release_err) end
         if not closed then error(close_err) end
         if not cleaned then error(cleanup_err) end
+        T:eq(barrier.joinedCount(), 2, "both native workers are joined before their contexts are released")
+        T:metric("native_threads_joined", barrier.joinedCount(), "count")
         T:metric("context_wait_callbacks", waits, "count")
         T:metric("contexts_busy_before_wait", busy_waits, "count")
         T:metric("context_wait_total_ms", wait_ms, "ms")
