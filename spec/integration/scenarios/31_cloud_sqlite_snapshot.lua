@@ -27,56 +27,60 @@ return {
                 VALUES(%d,'Synthetic WAL %d','Synthetic author',100,'synthetic-wal-%d')]], id, id, id))
             conn:close()
         end
-        T:run(function()
-            local conn = SQ3.open(path)
-            conn:exec("PRAGMA journal_mode=WAL")
-            conn:exec("DELETE FROM page_stat_data; DELETE FROM book")
-            conn:close()
-            insert(101)
-            conn = SQ3.open(path)
-            conn:exec("PRAGMA wal_checkpoint(TRUNCATE)")
-            conn:close()
-            observer = SQ3.open(path)
-            observer:exec("BEGIN")
-            T:eq(tonumber(observer:rowexec("SELECT count(*) FROM book")), 1, "observer holds the old SQLite snapshot")
-            insert(102)
-            local providers = cloud.providers
-            cloud.providers = { synthetic = {
-                run = function(callback) callback() end,
-                downloadFile = function(_, destination)
-                    local f = assert(io.open(destination, "w")); f:write("not found"); f:close()
-                    return 404
-                end,
-                uploadFile = function(_, source)
-                    snapshot_path = source
-                    T:eq(ffiUtil.basename(source), "statistics.sqlite3", "provider keeps the remote database name")
-                    upload_count = count(source)
-                    assert(not ffiUtil.copyFile(source, uploaded))
-                    insert(103) -- This write belongs to the next synchronization.
-                    return 200
-                end,
-            } }
-            stats.settings.sync_server = { type = "synthetic", url = "synthetic" }
-            stats:onSyncBookStats(true)
-            cloud.providers = providers
+        local ok, err = pcall(function()
+            T:run(function()
+                local conn = SQ3.open(path)
+                conn:exec("PRAGMA journal_mode=WAL")
+                conn:exec("DELETE FROM page_stat_data; DELETE FROM book")
+                conn:close()
+                insert(101)
+                conn = SQ3.open(path)
+                conn:exec("PRAGMA wal_checkpoint(TRUNCATE)")
+                conn:close()
+                observer = SQ3.open(path)
+                observer:exec("BEGIN")
+                T:eq(tonumber(observer:rowexec("SELECT count(*) FROM book")), 1, "observer holds the old SQLite snapshot")
+                insert(102)
+                local providers = cloud.providers
+                cloud.providers = { synthetic = {
+                    run = function(callback) callback() end,
+                    downloadFile = function(_, destination)
+                        local f = assert(io.open(destination, "w")); f:write("not found"); f:close()
+                        return 404
+                    end,
+                    uploadFile = function(_, source)
+                        snapshot_path = source
+                        T:eq(ffiUtil.basename(source), "statistics.sqlite3", "provider keeps the remote database name")
+                        upload_count = count(source)
+                        assert(not ffiUtil.copyFile(source, uploaded))
+                        insert(103) -- This write belongs to the next synchronization.
+                        return 200
+                    end,
+                } }
+                stats.settings.sync_server = { type = "synthetic", url = "synthetic" }
+                stats:onSyncBookStats(true)
+                cloud.providers = providers
+            end)
+            T:waitUntil(function() return upload_count ~= nil end, 5, "interactive statistics synchronization uploads")
+            T:waitUntil(function()
+                local widget = T:topWidget()
+                return widget and widget.text == require("gettext")("Successfully synchronized.")
+            end, 5, "successful statistics synchronization notification")
+            T:repaint()
+            T:check(T:topWidget().dimen and T:topWidget().dimen.w > 0, "success notification is painted")
+            T:eq(upload_count, 2, "upload includes the row committed only to WAL")
+            T:eq(count(uploaded), 2, "the standalone uploaded database has both committed rows")
+            T:eq(count(path .. ".sync"), 2, "cached baseline equals the upload despite a later live write")
+            T:eq(count(path), 3, "the later live write remains for the next sync")
+            T:eq(lfs.attributes(snapshot_path), nil, "temporary snapshot is removed after upload")
+            T:eq(lfs.attributes(ffiUtil.dirname(snapshot_path)), nil, "temporary snapshot directory is removed")
+            T:eq(lfs.attributes(path .. ".temp"), nil, "download scratch file is removed")
+            T:run(function()
+                UIManager:close(T:topWidget())
+            end)
         end)
-        T:waitUntil(function() return upload_count ~= nil end, 5, "interactive statistics synchronization uploads")
-        T:waitUntil(function()
-            local widget = T:topWidget()
-            return widget and widget.text == require("gettext")("Successfully synchronized.")
-        end, 5, "successful statistics synchronization notification")
-        T:repaint()
-        T:check(T:topWidget().dimen and T:topWidget().dimen.w > 0, "success notification is painted")
-        T:eq(upload_count, 2, "upload includes the row committed only to WAL")
-        T:eq(count(uploaded), 2, "the standalone uploaded database has both committed rows")
-        T:eq(count(path .. ".sync"), 2, "cached baseline equals the upload despite a later live write")
-        T:eq(count(path), 3, "the later live write remains for the next sync")
-        T:eq(lfs.attributes(snapshot_path), nil, "temporary snapshot is removed after upload")
-        T:eq(lfs.attributes(ffiUtil.dirname(snapshot_path)), nil, "temporary snapshot directory is removed")
-        T:eq(lfs.attributes(path .. ".temp"), nil, "download scratch file is removed")
-        T:run(function()
-            observer:close()
-            UIManager:close(T:topWidget())
-        end)
+        if observer then pcall(observer.close, observer) end
+        os.remove(uploaded)
+        if not ok then error(err, 0) end
     end,
 }
