@@ -94,19 +94,20 @@ return {
         local original_rename = os.rename
         local original_disabled = util.tableDeepCopy(ui.dictionary.dicts_disabled)
         local original_order = util.tableDeepCopy(ui.dictionary.dicts_order)
+        local original_progressive = G_reader_settings:readSetting("dict_progressive_lookup")
         local source_dir = DataStorage:getDataDir() .. "/same-name-downloads"
         local bodies, entries = {}, {}
-        for _, version in ipairs({ "first", "second" }) do
-            local dir = source_dir .. "/" .. version
-            StarDict.write(dir, version, "IT Shared", { harbor = version .. " shared definition" })
-            local archive = source_dir .. "/" .. version .. ".tar.gz"
-            local status = os.execute(util.shell_escape({ "tar", "czf", archive, "-C", dir, "." }))
-            T:eq(status, 0, "create the synthetic dictionary archive")
-            local url = "https://example.com/" .. version .. ".tar.gz"
-            bodies[url] = assert(util.readFromFile(archive))
-            entries[version] = { name = "German-English dictionary", url = url }
-        end
         local ok, err = pcall(function()
+            for _, version in ipairs({ "first", "second" }) do
+                local dir = source_dir .. "/" .. version
+                StarDict.write(dir, version, "IT Shared", { harbor = version .. " shared definition" })
+                local archive = source_dir .. "/" .. version .. ".tar.gz"
+                local status = os.execute(util.shell_escape({ "tar", "czf", archive, "-C", dir, "." }))
+                T:eq(status, 0, "create the synthetic dictionary archive")
+                local url = "https://example.com/" .. version .. ".tar.gz"
+                bodies[url] = assert(util.readFromFile(archive))
+                entries[version] = { name = "German-English dictionary", url = url }
+            end
             http.request = function(request)
                 local body = assert(bodies[request.url], "unexpected dictionary download URL")
                 if request.method == "GET" then request.sink(body); request.sink(nil) end
@@ -195,11 +196,27 @@ return {
         end)
         rawset(os, "rename", original_rename)
         http.request = original_request
+        G_reader_settings:saveSetting("dict_progressive_lookup", original_progressive)
+        for _, entry in pairs(entries) do
+            local path = ui.dictionary.data_dir .. "/" .. entry.name .. "-" .. require("ffi/sha2").md5(entry.url)
+            ffiUtil.purgeDir(path)
+        end
         G_reader_settings:saveSetting("dicts_disabled", original_disabled)
         G_reader_settings:saveSetting("dicts_order", original_order)
         ui.dictionary.dicts_disabled = original_disabled
         ui.dictionary.dicts_order = original_order
-        ui.dictionary:updateSdcvDictNamesOptions()
+        -- Downloads invalidate the module cache; refresh after removing our installations.
+        local index = 1
+        while true do
+            local key = debug.getupvalue(ui.dictionary.init, index)
+            if not key then break end
+            if key == "available_ifos" then
+                debug.setupvalue(ui.dictionary.init, index, false)
+                break
+            end
+            index = index + 1
+        end
+        ui.dictionary:init()
         ffiUtil.purgeDir(source_dir)
         if not ok then error(err, 0) end
 
