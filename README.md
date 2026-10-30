@@ -10,6 +10,8 @@
 > - **Upstream**: we regularly merge updates from [koreader/koreader](https://github.com/koreader/koreader). If upstream changes can no longer be merged cleanly, this fork will continue fully independently. Changes made here are not submitted upstream.
 > - **Contributions**: pull requests are welcome whether written by people or by AI. We gate on tests, not on authorship: every PR must come with adequate unit tests and pass the emulator-based integration tests and all CI checks before it can be merged. See [CONTRIBUTING](CONTRIBUTING.md).
 
+本轮维护报告：[2026-10-29 修复、性能、测试与交付总结](doc/reports/2026-10-29-maintenance.md)。
+
 [![CI](https://github.com/qvictl/koreader/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/qvictl/koreader/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fqvictl%2Fkoreader%2Fcoverage%2Fbadge.json)](https://github.com/qvictl/koreader/blob/coverage/HISTORY.md)
 [![Fork-owned coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fqvictl%2Fkoreader%2Fcoverage%2Fbadge-owned.json)](https://github.com/qvictl/koreader/blob/coverage/HISTORY.md)
