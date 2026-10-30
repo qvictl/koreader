@@ -2,6 +2,7 @@ describe("WakeupMgr", function()
     local RTC
     local WakeupMgr
     local epoch1, epoch2, epoch3
+    local clock
 
     setup(function()
         require("commonrequire")
@@ -12,9 +13,15 @@ describe("WakeupMgr", function()
         stub(WakeupMgr, "setWakeupAlarm")
         WakeupMgr.validateWakeupAlarmByProximity = spy.new(function() return true end)
 
+        local now = os.time()
+        clock = stub(os, "time", function() return now end)
         epoch1 = RTC:secondsFromNowToEpoch(1234)
         epoch2 = RTC:secondsFromNowToEpoch(123)
         epoch3 = RTC:secondsFromNowToEpoch(9999)
+    end)
+
+    teardown(function()
+        if clock then clock:revert() end
     end)
 
     it("should add a task", function()

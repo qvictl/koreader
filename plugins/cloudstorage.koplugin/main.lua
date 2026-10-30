@@ -5,6 +5,7 @@ local LuaSettings = require("luasettings")
 local Notification = require("ui/widget/notification")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
+local ffi = require("ffi")
 local ffiUtil = require("ffi/util")
 local filemanagerutil = require("apps/filemanager/filemanagerutil")
 local logger = require("logger")
@@ -195,13 +196,25 @@ end
 -- The same applies to income file. Then we can delete them from both local and income files to be ready for merging. (The actual
 -- deletion and merging procedures happen in sync_cb as users of this service will have different file specifications)
 --
--- After merging, the income file is no longer needed and is deleted. The local file is uploaded and then a copy of it is saved
--- and renamed to replace the old cached file (thus the naming). The cached file stays (in the same folder) till being replaced
--- in the next round.
+-- After merging, a standalone snapshot is uploaded and atomically replaces the old cached file on success.
+-- The income file and temporary snapshot are cleaned up after the attempt. The cached file stays until the next successful sync.
 --
--- `is_silent` suppresses both the failure message and the success notification, so a caller can run
--- a sync the user did not ask for without interrupting what they are doing.
-function Cloud:sync(server, file_path, sync_cb, is_silent, caller_pre_callback)
+-- Make a standalone database including committed changes still held in its WAL.
+-- A plain file copy (or an unchecked checkpoint) can silently omit those changes.
+function Cloud.createSQLiteSnapshot(file_path, snapshot_path)
+    local conn
+    local ok, err = pcall(function()
+        conn = require("lua-ljsqlite3/init").open(file_path, "ro")
+        conn:exec("VACUUM INTO '" .. snapshot_path:gsub("'", "''") .. "'")
+    end)
+    if conn then conn:close() end
+    return ok, err
+end
+
+-- `is_silent` suppresses both the failure message and the success notification.
+-- SQLite callers supply createSQLiteSnapshot as snapshot_cb. Other callers use
+-- a plain file snapshot. Upload and cache always share the exact same snapshot.
+function Cloud:sync(server, file_path, sync_cb, is_silent, caller_pre_callback, snapshot_cb)
     local provider = server and server.type and self.providers[server.type]
     if not provider then return end
     provider.base = util.tableDeepCopy(server)
@@ -216,7 +229,6 @@ function Cloud:sync(server, file_path, sync_cb, is_silent, caller_pre_callback)
             local fail_msg = _("Something went wrong when syncing, please check your network connection and try again later.")
             local show_msg = function(msg)
                 if is_silent then
-                    -- nobody is watching: log it
                     logger.warn("cloud sync failed:", msg or fail_msg)
                     return
                 end
@@ -225,37 +237,72 @@ function Cloud:sync(server, file_path, sync_cb, is_silent, caller_pre_callback)
                     timeout = 3,
                 })
             end
-            local etag
-            local code_response = 412 -- If-Match header failed
-            while code_response == 412 do
-                os.remove(income_file_path)
-                code_response, etag = provider.downloadFile(server.url.."/"..file_name, income_file_path)
-                if code_response ~= 200 and code_response ~= 404
-                    and not (server.type == "dropbox" and code_response == 409)
-                    and not (server.type == "ftp" and code_response == 550)
-                then
-                    show_msg()
-                    return
-                end
-                local ok, cb_return, cb_error = pcall(sync_cb, file_path, cached_file_path, income_file_path)
-                if not ok or not cb_return then
-                    show_msg(ok and cb_error or nil)
-                    if not ok then logger.err("sync service callback failed:", cb_return) end
-                    return
-                end
-                code_response = provider.uploadFile(server.url, file_path, etag, true) or 412 -- FTP returns nil if failed
+            -- Keep the provider's remote filename, and stay on the cache's filesystem
+            -- so a successful upload can atomically replace the previous baseline.
+            local template = file_path .. ".sync.XXXXXX"
+            local buffer = ffi.new("char[?]", #template + 1, template)
+            if ffi.C.mkdtemp(buffer) == nil then
+                show_msg()
+                return
             end
-            os.remove(income_file_path)
-            if type(code_response) == "number" and code_response >= 200 and code_response < 300 then
-                os.remove(cached_file_path)
-                ffiUtil.copyFile(file_path, cached_file_path)
-                if not is_silent then
-                    UIManager:show(Notification:new{
-                        text = _("Successfully synchronized."),
-                        timeout = 2,
-                    })
+            local snapshot_dir = ffi.string(buffer)
+            local snapshot_path = snapshot_dir .. "/" .. file_name
+            local ok, err = pcall(function()
+                local etag
+                local code_response = 412 -- If-Match header failed
+                while code_response == 412 do
+                    os.remove(income_file_path)
+                    os.remove(snapshot_path)
+                    code_response, etag = provider.downloadFile(server.url.."/"..file_name, income_file_path)
+                    if code_response ~= 200 and code_response ~= 404
+                        and not (server.type == "dropbox" and code_response == 409)
+                        and not (server.type == "ftp" and code_response == 550)
+                    then
+                        show_msg()
+                        return
+                    end
+                    local cb_ok, cb_return, cb_error = pcall(sync_cb, file_path, cached_file_path, income_file_path)
+                    if not cb_ok or not cb_return then
+                        show_msg(cb_ok and cb_error or nil)
+                        if not cb_ok then logger.err("sync service callback failed:", cb_return) end
+                        return
+                    end
+                    local snapshot_ok, snapshot_error
+                    if snapshot_cb then
+                        snapshot_ok, snapshot_error = snapshot_cb(file_path, snapshot_path)
+                    else
+                        snapshot_error = ffiUtil.copyFile(file_path, snapshot_path)
+                        snapshot_ok = not snapshot_error
+                    end
+                    if not snapshot_ok then
+                        logger.err("cloud sync snapshot failed:", snapshot_error)
+                        show_msg()
+                        return
+                    end
+                    code_response = provider.uploadFile(server.url, snapshot_path, etag, true) or 412 -- FTP returns nil if failed
                 end
-            else
+                if type(code_response) == "number" and code_response >= 200 and code_response < 300 then
+                    local renamed, rename_error = os.rename(snapshot_path, cached_file_path)
+                    if not renamed then
+                        logger.err("cloud sync cache replacement failed:", rename_error)
+                        show_msg()
+                        return
+                    end
+                    if not is_silent then
+                        UIManager:show(Notification:new{
+                            text = _("Successfully synchronized."),
+                            timeout = 2,
+                        })
+                    end
+                else
+                    show_msg()
+                end
+            end)
+            os.remove(income_file_path)
+            os.remove(snapshot_path)
+            os.remove(snapshot_dir)
+            if not ok then
+                logger.err("cloud sync failed:", err)
                 show_msg()
             end
         end)

@@ -1,7 +1,8 @@
 describe("Cache pressure scenario failure cleanup", function()
-    local DocCache, DocumentRegistry, KoptInterface, ffi, ffiutil, time, util, scenario
-    local active, mode, closes, creates, destroys
+    local DocCache, DocumentRegistry, KoptInterface, KoptThread, ffi, ffiutil, time, util, scenario
+    local active, mode, closes, creates, destroys, joins
     local original_load, original_wait, original_mem, original_open
+    local original_free
     local open_stub
 
     setup(function()
@@ -9,20 +10,23 @@ describe("Cache pressure scenario failure cleanup", function()
         DocCache = require("document/doccache")
         DocumentRegistry = require("document/documentregistry")
         KoptInterface = require("document/koptinterface")
+        KoptThread = require("document/koptthread")
         ffi, ffiutil, time, util = require("ffi"), require("ffi/util"), require("ui/time"), require("util")
         local spec_dir = debug.getinfo(1, "S").source:sub(2):match("^(.*)/unit/[^/]+$")
         scenario = dofile(spec_dir .. "/integration/scenarios/28_cache_pressure.lua")
     end)
 
     before_each(function()
-        active, closes, creates, destroys = nil, 0, 0, 0
+        active, closes, creates, destroys, joins = nil, 0, 0, 0, 0
         open_stub = nil
         original_load, original_wait = ffi.load, KoptInterface.waitForContext
+        original_free = KoptThread.free
         original_mem, original_open = util.calcFreeMem, io.open
     end)
 
     after_each(function()
         ffi.load, KoptInterface.waitForContext = original_load, original_wait
+        KoptThread.free = original_free
         util.calcFreeMem = original_mem
         if open_stub then open_stub:revert() end
         if active then active.document:close(); active = nil end
@@ -60,6 +64,7 @@ describe("Cache pressure scenario failure cleanup", function()
         assert.is_false(ok)
         assert.is_not_nil(tostring(err):find("injected " .. mode .. " failure", 1, true))
         assert.are.equal(original_wait, KoptInterface.waitForContext)
+        assert.are.equal(original_free, KoptThread.free)
         assert.are.equal(original_mem, util.calcFreeMem)
         assert.is_nil(active)
         assert.are.equal(0, DocCache.cache:used_slots())
@@ -99,6 +104,10 @@ describe("Cache pressure scenario failure cleanup", function()
                     destroys = destroys + 1
                     return lib.pthread_attr_destroy(...)
                 end,
+                pthread_join = function(...)
+                    joins = joins + 1
+                    return lib.pthread_join(...)
+                end,
             }, { __index = lib })
         end
         ffi.load = observed_load
@@ -107,6 +116,7 @@ describe("Cache pressure scenario failure cleanup", function()
         assert.are.equal(2, closes)
         assert.are.equal(2, creates)
         assert.are.equal(2, destroys)
+        assert.are.equal(2, joins)
         assert.is_nil(KoptInterface.bg_thread)
     end)
 end)
