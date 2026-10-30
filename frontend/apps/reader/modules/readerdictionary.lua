@@ -43,6 +43,8 @@ local android = Device:isAndroid() and require("android")
 local available_ifos = nil
 local lookup_history = nil
 
+local DOWNLOAD_STAGING_PREFIX = ".koreader-dict-download-"
+
 local function getIfosInDir(path)
     -- Get all the .ifo under directory path.
     -- Don't walk into "res/" subdirectories, as per Stardict specs, they
@@ -52,7 +54,8 @@ local function getIfosInDir(path)
     local ok, iter, dir_obj = pcall(lfs.dir, path)
     if ok then
         for name in iter, dir_obj do
-            if name ~= "." and name ~= ".." and name ~= "res" then
+            if name ~= "." and name ~= ".." and name ~= "res"
+                and name:sub(1, #DOWNLOAD_STAGING_PREFIX) ~= DOWNLOAD_STAGING_PREFIX then
                 local fullpath = path.."/"..name
                 local attributes = lfs.attributes(fullpath)
                 if attributes ~= nil then
@@ -2284,32 +2287,34 @@ function ReaderDictionary:onTapDownloadDict(item)
     })
 end
 
-local function extractDictionary(archive, extract_to)
-    -- Ensure the parent directory exists.
+local function extractDictionary(archive, extract_to, prepare)
     local ok, err = util.makePath(ffiUtil.dirname(extract_to))
-    if not ok then
-        return ok, err
+    if not ok then return ok, err end
+    -- Native sdcv skips hidden directories; discovery skips this owned prefix.
+    -- Unremoved staging or recovery files must never become installed dictionaries.
+    local template = ffiUtil.dirname(extract_to) .. "/" .. DOWNLOAD_STAGING_PREFIX .. "XXXXXX"
+    local buffer = ffi.new("char[?]", #template + 1, template)
+    if C.mkdtemp(buffer) == nil then
+        return false, string.format("mkdtemp(%s): %s", ffi.string(buffer), posix.strerror())
     end
-    -- If there's a previously extracted directory, remove it.
-    if lfs.attributes(extract_to, "mode") then
-        ok, err = ffiUtil.purgeDir(extract_to)
-        if not ok then
-            return ok, err
+    local temporary = ffi.string(buffer)
+    local function cleanup()
+        local removed, cleanup_error = ffiUtil.purgeDir(temporary)
+        if not removed then
+            logger.warn("Dictionary download staging cleanup failed:", temporary, cleanup_error)
         end
     end
-    -- Create a temporary directory alongside the final directory.
-    local tmpdir_template = extract_to .. ".XXXXXX"
-    local tmpdir = ffi.new("char[?]", #tmpdir_template + 1, tmpdir_template)
-    if C.mkdtemp(tmpdir) == nil then
-        return false, string.format("mkdtemp(%s): %s", ffi.string(tmpdir), posix.strerror())
+    local staged = temporary .. "/new"
+    ok, err = util.makePath(staged)
+    if not ok then
+        cleanup()
+        return ok, err
     end
-    tmpdir = ffi.string(tmpdir)
-    -- Extract archive.
     local arc = Archiver.Reader:new()
     ok = arc:open(archive)
     if ok then
         for entry in arc:iterate() do
-            if not arc:extractToPath(entry.path, tmpdir.."/"..entry.path) then
+            if not arc:extractToPath(entry.path, staged.."/"..entry.path) then
                 break
             end
         end
@@ -2317,31 +2322,49 @@ local function extractDictionary(archive, extract_to)
     end
     arc:close()
     os.remove(archive)
-    -- Finalize.
     if ok then
-        -- Determine root directory, if any.
         local archive_root
-        for entry in lfs.dir(tmpdir) do
+        for entry in lfs.dir(staged) do
             if entry ~= ".." and entry ~= "." then
                 if archive_root then
-                    -- Multiple entries: no root.
                     archive_root = nil
                     break
                 end
                 archive_root = entry
             end
         end
-        if archive_root then
-            -- Rename root to final directory and remove temporary directory.
-            ok, err = os.rename(tmpdir.."/"..archive_root, extract_to)
-            os.remove(tmpdir)
+        if archive_root then staged = staged .. "/" .. archive_root end
+        local called, ready, prepare_error = pcall(prepare, staged)
+        if called then
+            ok, err = ready, prepare_error
         else
-            -- No root, just rename the whole temporary directory.
-            ok, err = os.rename(tmpdir, extract_to)
+            ok, err = false, ready
         end
-    else
-        ffiUtil.purgeDir(tmpdir)
     end
+    if not ok then
+        cleanup()
+        return false, err
+    end
+
+    local previous
+    if lfs.attributes(extract_to, "mode") then
+        previous = temporary .. "/previous"
+        ok, err = os.rename(extract_to, previous)
+        if not ok then
+            cleanup()
+            return false, err
+        end
+    end
+    ok, err = os.rename(staged, extract_to)
+    if not ok and previous then
+        local restored, restore_error = os.rename(previous, extract_to)
+        if not restored then
+            -- Keep the old installation available for recovery if rollback fails.
+            return false, string.format("%s; previous dictionary preserved at %s (%s)",
+                tostring(err), previous, tostring(restore_error))
+        end
+    end
+    cleanup()
     return ok, err
 end
 
@@ -2429,27 +2452,22 @@ function ReaderDictionary:downloadDictionary(dict)
         end
     end
     local dict_dir = self.data_dir.."/"..util.getSafeFilename(install_name, ffiUtil.realpath(self.data_dir))
-    local ok, err = extractDictionary(dict_archive, dict_dir)
+    local ok, err = extractDictionary(dict_archive, dict_dir, function(staged)
+        if download_id then
+            local ready, identity_error = self:setDownloadDictionaryIdentity(staged, download_id)
+            if not ready then return false, identity_error end
+        end
+        if dict.ifo_lang then
+            self:extendIfoWithLanguage(staged, dict.ifo_lang)
+        end
+        return true
+    end)
     if not ok then
         show_info(T(_("Extraction failed:\n\n%1"), BD.ltr(err)))
         return
     end
 
-    if download_id then
-        ok, err = self:setDownloadDictionaryIdentity(dict_dir, download_id)
-        if not ok then
-            ffiUtil.purgeDir(dict_dir)
-            available_ifos = false
-            self:init()
-            show_info(T(_("Extraction failed:\n\n%1"), BD.ltr(err)))
-            return
-        end
-    end
-
-    -- Update available dictionaries.
-    if dict.ifo_lang then
-        self:extendIfoWithLanguage(dict_dir, dict.ifo_lang)
-    end
+    -- Keep the final paths stable so disabled and ordering settings still apply.
     available_ifos = false
     self:init()
     show_info(_("Dictionary downloaded"))

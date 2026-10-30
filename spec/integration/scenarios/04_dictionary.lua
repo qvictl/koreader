@@ -91,6 +91,9 @@ return {
         local StarDict = dofile(T.spec_dir .. "/../unit/stardict_fixture.lua")
         local http = require("socket.http")
         local original_request = http.request
+        local original_rename = os.rename
+        local original_disabled = util.tableDeepCopy(ui.dictionary.dicts_disabled)
+        local original_order = util.tableDeepCopy(ui.dictionary.dicts_order)
         local source_dir = DataStorage:getDataDir() .. "/same-name-downloads"
         local bodies, entries = {}, {}
         for _, version in ipairs({ "first", "second" }) do
@@ -109,8 +112,8 @@ return {
                 if request.method == "GET" then request.sink(body); request.sink(nil) end
                 return 1, 200, { ["content-length"] = tostring(#body) }
             end
-            for _, version in ipairs({ "first", "second" }) do
-                T:run(function() ui.dictionary:downloadDictionary(entries[version]) end)
+            local function download(entry, expected)
+                T:run(function() ui.dictionary:downloadDictionary(entry) end)
                 local confirm = T:waitUntil(function()
                     local top = T:topWidget()
                     return top and top.ok_text == "Download" and top
@@ -122,10 +125,51 @@ return {
                 T:tapWidget(button, "confirm a same-name dictionary download")
                 T:waitUntil(function()
                     local top = T:topWidget()
-                    return top and top.text == "Dictionary downloaded"
-                end, 5, "same-name dictionary installation completes")
+                    return top and top.text and top.text:find(expected, 1, true)
+                end, 5, "same-name dictionary installation result")
                 T:run(function() UIManager:close(T:topWidget()) end)
             end
+            for _, version in ipairs({ "first", "second" }) do
+                download(entries[version], "Dictionary downloaded")
+            end
+            local target = ui.dictionary.data_dir .. "/" .. entries.second.name .. "-"
+                .. require("ffi/sha2").md5(entries.second.url)
+            local ifo_path = target .. "/second.ifo"
+            local ifo_before = assert(util.readFromFile(ifo_path))
+            local dictionary_before = assert(util.readFromFile(target .. "/second.dict"))
+            local marker = assert(io.open(target .. "/keep", "w")); marker:write("old dictionary"); marker:close()
+            local count_before = ui.dictionary:getNumberOfDictionaries()
+            T:run(function()
+                ui.dictionary.dicts_disabled[ifo_path] = true
+                ui.dictionary.dicts_order[ifo_path] = 24
+                G_reader_settings:saveSetting("dicts_disabled", ui.dictionary.dicts_disabled)
+                G_reader_settings:saveSetting("dicts_order", ui.dictionary.dicts_order)
+            end)
+            local failures = 0
+            rawset(os, "rename", function(source, destination)
+                if source:match("%.ifo%.tmp$") then
+                    failures = failures + 1
+                    return nil, "synthetic UI identity rename failure"
+                end
+                return original_rename(source, destination)
+            end)
+            download(entries.second, "synthetic UI identity rename failure")
+            rawset(os, "rename", original_rename)
+            T:eq(failures, 1, "the metadata rename failure is actually reached")
+            T:eq(require("libs/libkoreader-lfs").attributes(target, "mode"), "directory",
+                "failed reinstallation retains the previous directory")
+            T:eq(assert(util.readFromFile(ifo_path)), ifo_before, "failed reinstallation preserves the old identity bytes")
+            T:eq(assert(util.readFromFile(target .. "/second.dict")), dictionary_before,
+                "failed reinstallation preserves the old dictionary data")
+            T:eq(assert(util.readFromFile(target .. "/keep")), "old dictionary", "failed reinstallation preserves user files")
+            T:eq(G_reader_settings:readSetting("dicts_disabled")[ifo_path], true, "failure preserves the disabled setting")
+            T:eq(G_reader_settings:readSetting("dicts_order")[ifo_path], 24, "failure preserves the ordering setting")
+            download(entries.second, "Dictionary downloaded")
+            T:eq(require("libs/libkoreader-lfs").attributes(target .. "/keep"), nil,
+                "successful reinstallation replaces the original directory")
+            T:eq(ui.dictionary:getNumberOfDictionaries(), count_before, "reinstallation does not create an additional dictionary")
+            T:eq(G_reader_settings:readSetting("dicts_disabled")[ifo_path], true, "success preserves the disabled setting")
+            T:eq(G_reader_settings:readSetting("dicts_order")[ifo_path], 24, "success preserves the ordering setting")
             local first = "IT Shared [" .. require("ffi/sha2").md5(entries.first.url) .. "]"
             local second = "IT Shared [" .. require("ffi/sha2").md5(entries.second.url) .. "]"
             T:run(function()
@@ -149,7 +193,13 @@ return {
                 "progressive lookup uses the independently selected source")
             DictHelper.close(T, ui)
         end)
+        rawset(os, "rename", original_rename)
         http.request = original_request
+        G_reader_settings:saveSetting("dicts_disabled", original_disabled)
+        G_reader_settings:saveSetting("dicts_order", original_order)
+        ui.dictionary.dicts_disabled = original_disabled
+        ui.dictionary.dicts_order = original_order
+        ui.dictionary:updateSdcvDictNamesOptions()
         ffiUtil.purgeDir(source_dir)
         if not ok then error(err, 0) end
 
