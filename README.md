@@ -12,6 +12,8 @@
 
 本轮维护报告：[2026-10-29 修复、性能、测试与交付总结](doc/reports/2026-10-29-maintenance.md)。
 
+上游调研报告：[2026-10-30 三仓问题清单、优先级与修复状态](doc/reports/2026-10-30-upstream-triage.md)。
+
 [![CI](https://github.com/qvictl/koreader/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/qvictl/koreader/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fqvictl%2Fkoreader%2Fcoverage%2Fbadge.json)](https://github.com/qvictl/koreader/blob/coverage/HISTORY.md)
 [![Fork-owned coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fqvictl%2Fkoreader%2Fcoverage%2Fbadge-owned.json)](https://github.com/qvictl/koreader/blob/coverage/HISTORY.md)
