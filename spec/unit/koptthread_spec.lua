@@ -8,12 +8,15 @@ describe("Background KOPT context ownership", function()
     end)
 
     before_each(function()
-        state = { joins = 0, frees = 0, creates = 0, destroys = 0, fallbacks = 0, pid = 1 }
+        state = { joins = 0, frees = 0, creates = 0, destroys = 0, fallbacks = 0, pid = 1, errors = 0 }
         local current = state
         process_ffi = setmetatable({ C = { getpid = function() return current.pid end } }, { __index = ffi })
         local loader = assert(loadfile(assert(package.searchpath("document/koptthread", package.path))))
         setfenv(loader, setmetatable({ require = function(name)
             if name == "ffi" then return process_ffi end
+            if name == "logger" then
+                return { err = function() current.errors = current.errors + 1 end, warn = function() end }
+            end
             return require(name)
         end }, { __index = _G }))
         KoptThread = loader()
@@ -173,12 +176,19 @@ describe("Background KOPT context ownership", function()
         assert.are.equal(0, state.frees)
         assert.is_false(KoptThread.reap())
         local next_kc, asynchronous = start()
-        assert.is_true(asynchronous)
+        assert.is_false(asynchronous)
+        assert.are.equal(1, state.creates)
+        assert.are.equal(1, state.fallbacks)
+        assert.are.equal(1, state.errors)
         state.join_error = nil
         KoptThread.free(next_kc)
         KoptThread.reap()
         KoptThread.reap()
         assert.are.equal(2, state.frees)
+        local recovered, background = start()
+        assert.is_true(background)
+        assert.are.equal(2, state.creates)
+        KoptThread.free(recovered)
     end)
 
     it("rejects consumption of an inherited context and skips child destruction", function()

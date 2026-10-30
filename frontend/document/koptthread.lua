@@ -11,6 +11,21 @@ int _getpid(void);
 local KoptThread = {}
 local workers = setmetatable({}, { __mode = "k" })
 local retained = {}
+local retained_count = 0
+
+local function forget(kc)
+    if retained[kc] then
+        retained[kc] = nil
+        retained_count = retained_count - 1
+    end
+end
+
+local function reportFailure(worker, err)
+    if not worker.reported then
+        worker.reported = true
+        logger.err("Unable to release background KOPT context:", err)
+    end
+end
 
 local function getpid()
     if ffi.os == "Windows" then return ffi.C._getpid() end
@@ -39,14 +54,14 @@ local function free(kc, worker)
         -- The child process exit reclaims this inherited allocation instead.
         worker.freed = true
         ffi.gc(kc, nil)
-        retained[kc] = nil
+        forget(kc)
         return
     end
     join(worker)
     kc:free()
     worker.freed = true
     ffi.gc(kc, nil)
-    retained[kc] = nil
+    forget(kc)
 end
 
 local function finalize(kc, worker)
@@ -54,8 +69,9 @@ local function finalize(kc, worker)
     if not ok then
         -- Never let GC reclaim the struct while native code may still use it.
         -- Keep the failed owner available for a later explicit retry.
+        if not retained[kc] then retained_count = retained_count + 1 end
         retained[kc] = worker
-        logger.err("Unable to release background KOPT context:", err)
+        reportFailure(worker, err)
     end
 end
 
@@ -65,7 +81,7 @@ function KoptThread.reap()
         local ok, err = pcall(free, kc, worker)
         if not ok then
             complete = false
-            logger.err("Unable to reap background KOPT context:", err)
+            reportFailure(worker, err)
         end
     end
     return complete
@@ -73,13 +89,16 @@ end
 
 function KoptThread.start(kc, pthread, entry)
     KoptThread.reap()
-    local worker = { pthread = pthread, thread = ffi.new("pthread_t[1]"), pid = getpid() }
+    local worker = { pthread = pthread, thread = ffi.new("pthread_t[1]"), pid = getpid(), started = false }
     workers[kc] = worker
     -- Capture only the worker. Capturing kc here would keep the context alive.
     -- The weak-key table may already have lost its entry when this runs.
     ffi.gc(kc, function(context) finalize(context, worker) end)
     local status = "pthread unavailable"
-    if pthread then
+    -- Stop adding asynchronous workers while any failed owner remains. New
+    -- pages still reflow synchronously until reaping succeeds.
+    local synchronous = retained_count > 0
+    if pthread and not synchronous then
         local attr = ffi.new("pthread_attr_t[1]")
         -- POSIX attributes are joinable by default.
         status = pthread.pthread_attr_init(attr)
@@ -91,10 +110,17 @@ function KoptThread.start(kc, pthread, entry)
         end
     end
     if not worker.started then
-        logger.warn("Unable to start background KOPT worker; reflowing synchronously:", status)
+        if not synchronous then
+            logger.warn("Unable to start background KOPT worker; reflowing synchronously:", status)
+        end
         entry(kc)
     end
     return worker.started
+end
+
+function KoptThread.isInherited(kc)
+    local worker = workers[kc]
+    return worker ~= nil and inherited(worker)
 end
 
 function KoptThread.wait(kc)

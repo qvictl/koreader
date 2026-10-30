@@ -1,5 +1,6 @@
 describe("KOPT background context boundaries", function()
     local ffi, KoptInterface, KoptThread, DocCache, KOPTContext, Persist
+    local CanvasContext, thread_methods, cpu_stub, old_bg, old_cache
     local state, kc, doc, reflow_stub, hash_stub, insert_stub, table_stub, persist_stub
     local context_types = 0
 
@@ -11,12 +12,24 @@ describe("KOPT background context boundaries", function()
         DocCache = require("document/doccache")
         KOPTContext = require("ffi/koptcontext")
         Persist = require("persist")
+        CanvasContext = require("document/canvascontext")
     end)
 
     before_each(function()
         DocCache:clear()
-        state = { joins = 0, frees = 0 }
+        state = { joins = 0, frees = 0, pid = 1 }
         local current = state
+        old_bg, old_cache = KoptInterface.bg_thread, DocCache.cache
+        local process_ffi = setmetatable({ C = { getpid = function() return current.pid end } }, { __index = ffi })
+        local loader = assert(loadfile(assert(package.searchpath("document/koptthread", package.path))))
+        setfenv(loader, setmetatable({ require = function(name)
+            if name == "ffi" then return process_ffi end
+            return require(name)
+        end }, { __index = _G }))
+        thread_methods = {}
+        for name, method in pairs(loader()) do
+            thread_methods[name], KoptThread[name] = KoptThread[name], method
+        end
         context_types = context_types + 1
         local ctype = ffi.metatype(ffi.typeof("struct { int precache; char boundary_id[" .. context_types .. "]; }"), {
             __index = {
@@ -39,6 +52,7 @@ describe("KOPT background context boundaries", function()
             pthread_join = function(thread)
                 assert.are.equal(19, tonumber(thread))
                 current.joins = current.joins + 1
+                if current.join_error then return current.join_error end
                 current.complete = true
                 return 0
             end,
@@ -49,6 +63,7 @@ describe("KOPT background context boundaries", function()
     end)
 
     after_each(function()
+        state.join_error = nil
         if insert_stub then insert_stub:revert(); insert_stub = nil end
         if table_stub then table_stub:revert(); table_stub = nil end
         if persist_stub then persist_stub:revert(); persist_stub = nil end
@@ -58,6 +73,9 @@ describe("KOPT background context boundaries", function()
         if kc then KoptThread.free(kc); kc = nil end
         collectgarbage("collect")
         collectgarbage("collect")
+        if cpu_stub then cpu_stub:revert(); cpu_stub = nil end
+        KoptInterface.bg_thread, DocCache.cache = old_bg, old_cache
+        for name, method in pairs(thread_methods) do KoptThread[name] = method end
     end)
 
     it("joins before consuming a cached context whose progress flag is zero", function()
@@ -122,5 +140,56 @@ describe("KOPT background context boundaries", function()
         collectgarbage("collect")
         assert.are.equal(1, state.joins)
         assert.are.equal(1, state.frees)
+    end)
+
+    it("restores parent CPU configuration after a consumption join fails", function()
+        cpu_stub = stub(CanvasContext, "enableCPUCores", function() end)
+        state.join_error = 3
+        KoptInterface.bg_thread = true
+        assert.has_error(function() KoptInterface:waitForContext(kc) end, "pthread_join failed: 3")
+        assert.stub(cpu_stub).was.called_with(CanvasContext, 1)
+        assert.is_nil(KoptInterface.bg_thread)
+        assert.are.equal(0, state.frees)
+    end)
+
+    it("restores parent CPU configuration without freeing after an eviction join fails", function()
+        KoptInterface:hintReflowedPage(doc, 1, 1, 0, false)
+        cpu_stub = stub(CanvasContext, "enableCPUCores", function() end)
+        state.join_error = 3
+        KoptInterface.bg_thread = true
+        assert.has_error(function() DocCache:clear() end, "pthread_join failed: 3")
+        assert.stub(cpu_stub).was.called_with(CanvasContext, 1)
+        assert.is_nil(KoptInterface.bg_thread)
+        assert.are.equal(0, state.frees)
+    end)
+
+    it("lets child cache insertion evict an inherited worker without joining or touching CPU settings", function()
+        local cache = require("cache"):new{ slots = 1, enable_eviction_cb = true }
+        DocCache.cache = cache.cache
+        KoptInterface:hintReflowedPage(doc, 1, 1, 0, false)
+        state.pid = 2
+        KoptInterface.bg_thread = true
+        cpu_stub = stub(CanvasContext, "enableCPUCores", function() end)
+        local tile = require("cacheitem"):new{ size = 1 }
+        DocCache:insert("child-tile", tile)
+        assert.are.equal(tile, DocCache:check("child-tile"))
+        assert.is_nil(DocCache:check("kctx"))
+        assert.are.equal(0, state.joins)
+        assert.are.equal(0, state.frees)
+        assert.stub(cpu_stub).was_not.called()
+        assert.is_true(KoptInterface.bg_thread)
+    end)
+
+    it("rejects child consumption of an inherited worker without touching CPU settings", function()
+        KoptInterface:hintReflowedPage(doc, 1, 1, 0, false)
+        state.pid = 2
+        KoptInterface.bg_thread = true
+        cpu_stub = stub(CanvasContext, "enableCPUCores", function() end)
+        assert.has_error(function() KoptInterface:getCachedContext(doc, 1) end,
+            "KOPT context belongs to another process")
+        assert.stub(cpu_stub).was_not.called()
+        assert.is_true(KoptInterface.bg_thread)
+        assert.are.equal(0, state.joins)
+        assert.are.equal(0, state.frees)
     end)
 end)

@@ -176,9 +176,10 @@ describe("Cache memory pressure", function()
             KoptInterface.bg_thread = true
             return context
         end)
-        replace(KoptThread, "wait", function(context)
+        replace(KoptThread, "free", function(context)
             if context.busy then busy_joins = busy_joins + 1 end
             context.busy = false
+            context:free()
         end)
         for i = 1, 16 do insert(cache, "metadata" .. i, 1) end
         local doc = { getPageBBox = function() return nil end }

@@ -86,14 +86,15 @@ return {
         local CacheItem = require("cacheitem")
         local DocCache = require("document/doccache")
         local KoptInterface = require("document/koptinterface")
+        local KoptThread = require("document/koptthread")
         local util = require("util")
-        local original_mem, original_wait = util.calcFreeMem, KoptInterface.waitForContext
+        local original_mem, original_free = util.calcFreeMem, KoptThread.free
         local waits, busy_waits, wait_ms, max_wait_ms = 0, 0, 0, 0
         local barrier, reader
-        local function waitForContext(self, kc)
+        local function freeContext(kc)
             if barrier.isHeld() then error("pressure attempted wait on held worker") end
             local busy, start = kc:isPreCache() == 1, T:now()
-            local result = original_wait(self, kc)
+            local result = original_free(kc)
             local elapsed = T:now() - start
             if busy then busy_waits = busy_waits + 1 end
             wait_ms, max_wait_ms = wait_ms + elapsed, math.max(max_wait_ms, elapsed)
@@ -137,7 +138,7 @@ return {
         local context
         local ok, err = pcall(function()
             barrier = threadBarrier()
-            KoptInterface.waitForContext = waitForContext
+            KoptThread.free = freeContext
             local path = os.getenv("KO_HOME") .. "/cache-pressure.pdf"
             writePDF(path)
             reader = T:openBook(path)
@@ -184,7 +185,7 @@ return {
             T:run(function() DocCache:clear() end)
         end)
         if barrier then barrier.restore() end
-        KoptInterface.waitForContext = original_wait
+        KoptThread.free = original_free
         util.calcFreeMem = original_mem
         if not ok then error(err) end
         if not released then error(release_err) end

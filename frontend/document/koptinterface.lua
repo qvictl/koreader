@@ -34,12 +34,25 @@ local KoptInterface = {
     default_context_size = 1024*1024,
 }
 
+local function finishContext(self, kc, operation)
+    local inherited = KoptThread.isInherited(kc)
+    local ok, err = pcall(operation, kc)
+    if not inherited and self.bg_thread then
+        -- Restore the parent's CPU configuration even when joining fails.
+        -- A fork child must not change it on behalf of the parent's worker.
+        CanvasContext:enableCPUCores(1)
+        self.bg_thread = nil
+    end
+    if not ok then error(err, 0) end
+end
+
 local ContextCacheItem = CacheItem:new{}
 
 function ContextCacheItem:onFree()
-    KoptInterface:waitForContext(self.kctx)
     logger.dbg("ContextCacheItem: free KOPTContext", self.kctx)
-    KoptThread.free(self.kctx)
+    -- Destruction in a fork child skips the inherited worker; consumption does
+    -- not. Do not call the consumption wait before this child-safe release.
+    finishContext(KoptInterface, self.kctx, KoptThread.free)
 end
 
 function ContextCacheItem:dump(filename)
@@ -114,13 +127,7 @@ end
 function KoptInterface:waitForContext(kc)
     -- Native reflow clears precache before it finishes writing the context.
     -- Join before consuming or freeing any of those buffers.
-    if kc then KoptThread.wait(kc) end
-
-    if self.bg_thread then
-        -- Background thread is done, go back to a single CPU core.
-        CanvasContext:enableCPUCores(1)
-        self.bg_thread = nil
-    end
+    finishContext(self, kc, KoptThread.wait)
 
     return kc
 end
