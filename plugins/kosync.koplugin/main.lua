@@ -977,7 +977,7 @@ function KOSync:getProgress(ensure_networking, interactive)
                 return
             end
 
-            if body.device == Device.model
+            if body.device == (self.settings.kosync_hostname or Device.model)
             and body.device_id == self.device_id then
                 if interactive then
                     UIManager:show(InfoMessage:new{
