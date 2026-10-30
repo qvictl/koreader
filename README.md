@@ -3,12 +3,12 @@
 > **本仓库是 KOReader 的独立维护分支**，专注于内存受限电子阅读器（如 Kindle Oasis 3）上的稳定性、内存占用与响应速度。
 >
 > - **与上游的关系**：我们会定期把 [koreader/koreader](https://github.com/koreader/koreader) 的更新合并进来；一旦上游的变更无法再与本分支干净合并，本分支将彻底独立发展。本分支的改动不再向上游提交。
-> - **贡献规则**：欢迎任何 PR，无论由人编写还是由 AI 编写。我们以测试而非作者身份把关：每个 PR 必须附带充分的单元测试，并通过基于模拟器的集成测试与全部 CI 检查后才能合并。详见 [CONTRIBUTING](CONTRIBUTING.md)。
+> - **贡献规则**：欢迎任何 PR，无论由人编写还是由 AI 编写。我们以测试而非作者身份把关：每个 PR 必须附带充分的单元测试与适用的集成场景，通过选择性单元测试及全部必需 CI 检查后才能合并；完整模拟器集成测试在发版候选验证时执行。详见 [CONTRIBUTING](CONTRIBUTING.md)。
 >
 > **This repository is an independently maintained fork of KOReader**, focused on stability, memory footprint and responsiveness on memory-constrained e-readers (e.g. Kindle Oasis 3).
 >
 > - **Upstream**: we regularly merge updates from [koreader/koreader](https://github.com/koreader/koreader). If upstream changes can no longer be merged cleanly, this fork will continue fully independently. Changes made here are not submitted upstream.
-> - **Contributions**: pull requests are welcome whether written by people or by AI. We gate on tests, not on authorship: every PR must come with adequate unit tests and pass the emulator-based integration tests and all CI checks before it can be merged. See [CONTRIBUTING](CONTRIBUTING.md).
+> - **Contributions**: pull requests are welcome whether written by people or by AI. We gate on tests, not on authorship: every PR must include adequate unit tests and applicable integration scenarios, and pass selected unit tests and all required CI checks before it can be merged. The full emulator integration suite runs for release candidates. See [CONTRIBUTING](CONTRIBUTING.md).
 
 本轮维护报告：[2026-10-29 修复、性能、测试与交付总结](doc/reports/2026-10-29-maintenance.md)。
 

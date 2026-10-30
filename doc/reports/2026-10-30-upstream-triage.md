@@ -17,7 +17,14 @@
 这是 2026-10-30 本轮收集的快照，共 1341 个开放 issue、123 个开放 PR。
 上游在扫描期间仍有更新，例如另一次稍晚 core 读取已变为 1305 个 issue；不能把不同采样时间拼成一个实时总数。
 全量覆盖指元数据分页清单，**不是逐一复现了所有开放条目**。
-core 中有 554 个带 enhancement 标签的 issue；标签也可重叠，更不能把清单总数当成 bug 总数。
+快照中的主要分类如下，标签可以重叠，未打 bug 标签也不表示不存在缺陷：
+
+| 上游 | 标签与 PR 状态 | 对本 fork 的含义 |
+| --- | --- | --- |
+| core | enhancement 554、Plugin 103、bug 60、firmware 57、Kindle 48、Kobo 48、CREngine 38；17 个草稿 PR | 大量条目是功能或平台特定需求；优先做有源码和复现证据的数据安全、生命周期及本设备常用路径 |
+| base | 7 个 issue 仅 1 个 enhancement 标签；9 个 PR 中 3 个草稿 | 标签不足以判断严重性，需核查当前 diff、core 接口和设备契约，不能按标题直接移植 |
+| weread | bug 12、enhancement 11、P0 2、P1 1；无草稿 PR | 重点区分凭据、服务端限流、启动缓存与排版问题；上游优先级标签不等于当前 fork 已复现 |
+
 
 可审计的完整开放元数据保存在 [压缩 JSON 快照](2026-10-30-upstream-census.json.gz)：
 包含每条编号、标题、链接、创建/更新时间、标签，以及 PR 的草稿和 head 信息，不含评论正文或用户书籍数据。
@@ -59,6 +66,9 @@ SQLite 3.54.1 / 3.53.3 的只读连接均支持 `VACUUM INTO`，并能在持有�
 | --- | --- |
 | [Android 旋转候选](https://github.com/koreader/koreader-base/pull/2393) | 当前 diff 与早期正文方案已不同，作者讨论提及触摸/显示错位；需要 core 联动契约及 Android 验证，不能直接抄映射 |
 | [多输入 FD 的触摸 slot](https://github.com/koreader/koreader-base/issues/1437) | 需要把每 FD 身份跨 C 输入与 core 手势链传递；不是独立一行 Lua 修复，也未用模型单测冒称设备闭环 |
+| [公众号凭据过期（上游 P0）](https://github.com/finlater/weread.koplugin/issues/62) | 依赖账号/服务状态，未访问真实账号或猜改参数；与二维码 UI 显示问题分开处理 |
+| [想法下载限流（上游 P0）](https://github.com/finlater/weread.koplugin/issues/134) | 已有错误分类和暂停续跑，但该账号限流未稳定复现，不能用资源下载 499/429 的已有缓解冒称此问题关闭 |
+| [重启缓存冲突（上游 P1）](https://github.com/finlater/weread.koplugin/issues/97) | 已有原子 EPUB 与 workspace 隔离；仍缺该旧启动失败的稳定复现，不能声称根因已闭环 |
 | 插件 401 登录协议、截图手势等反馈 | 没有足够真实协议/事件链证据的项继续列为候选，不凭匿名请求或标题猜修复 |
 | base 其余开放项 | 主要包括构建分发、CMake/Makefile、SDL、面板/文字接口和 Android IME 等需求；不将功能提案当作本设备已确认缺陷，不整包引入新增原生模块 |
 | core 其余开放项 | 平台、固件、格式兼容、插件与功能建议仍有大量条目；本轮只对表内明确范围给出源码和复现结论 |
@@ -66,7 +76,7 @@ SQLite 3.54.1 / 3.53.3 的只读连接均支持 `VACUUM INTO`，并能在持有�
 ## 合入、通知边界和剩余事项
 
 修复仅提交到我们的 fork，经当前 head 的必需 CI、AI 审查及 review thread 门禁进入 main。
-普通 PR 仍只执行选择出的 UT 与原单测门槛；本轮有针对性的本地主机集成复现，不改变“真实完整 IT 仅在发版执行”的 CI 策略。
+按照 [CONTRIBUTING](../../CONTRIBUTING.md) 与当前 CI，普通 PR 须通过全部必需构建、选择性 UT、改动行单测覆盖率与 AI/对话门禁；用户可见修复还须提供适用集成场景，但完整模拟器 IT 在发版候选验证时执行。本轮有针对性的本地主机集成复现，不改变该执行策略或门槛。README 的中英文贡献说明也已与此策略对齐。
 未为本轮修改版本号、手动发版或重新安装设备。
 
 base 的 Actions 设置显示 enabled、workflow 显示 active；此前执行接口返回 HTTP422 禁用，本轮 PR 仍没有 required checks，尚未确认执行恢复。
