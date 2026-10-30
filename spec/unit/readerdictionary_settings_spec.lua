@@ -781,18 +781,116 @@ describe("ReaderDictionary settings", function()
             end
             local first_dir = dict_dir .. "/" .. name .. "-" .. md5(first.url)
             local second_dir = dict_dir .. "/" .. name .. "-" .. md5(second.url)
+            local legacy_dir = dict_dir .. "/" .. name
+            local legacy_ifo = legacy_dir .. "/delta.ifo"
+            StarDict.write(legacy_dir, "delta", "Legacy unknown", { harbor = "legacy harbor" })
+            rd.dicts_disabled[legacy_ifo] = true
+            rd.dicts_order[legacy_ifo] = 7
+            G_reader_settings:saveSetting("dicts_disabled", rd.dicts_disabled)
+            G_reader_settings:saveSetting("dicts_order", rd.dicts_order)
             install(first)
+            assert.are.equal("file", lfs.attributes(legacy_ifo, "mode"))
+            assert.is_true(G_reader_settings:readSetting("dicts_disabled")[legacy_ifo])
+            assert.are.equal(7, G_reader_settings:readSetting("dicts_order")[legacy_ifo])
             local marker = assert(io.open(first_dir .. "/keep", "w")); marker:write("keep"); marker:close()
             install(second)
             assert.are.equal("file", lfs.attributes(first_dir .. "/delta.ifo", "mode"))
             assert.are.equal("file", lfs.attributes(second_dir .. "/delta.ifo", "mode"))
             assert.are.equal("keep", readFile(first_dir .. "/keep"))
+            local second_marker = assert(io.open(second_dir .. "/replace", "w"))
+            second_marker:write("replace"); second_marker:close()
+            local function installationCount()
+                local n = 0
+                for entry in lfs.dir(dict_dir) do
+                    if entry:sub(1, #name + 1) == name .. "-" then n = n + 1 end
+                end
+                return n
+            end
+            assert.are.equal(2, installationCount())
             install(second) -- Updating the same URL must use the same directory.
+            assert.is_nil(lfs.attributes(second_dir .. "/replace"))
+            assert.are.equal(2, installationCount())
             assert.are.equal("keep", readFile(first_dir .. "/keep"))
             assert.are.equal("file", lfs.attributes(second_dir .. "/delta.ifo", "mode"))
+            local first_name = "Delta [" .. md5(first.url) .. "]"
+            local second_name = "Delta [" .. md5(second.url) .. "]"
+            assert.truthy(readFile(first_dir .. "/delta.ifo"):find("bookname=" .. first_name, 1, true))
+            assert.truthy(readFile(second_dir .. "/delta.ifo"):find("bookname=" .. second_name, 1, true))
+            rd:loadPreset({ enabled_dict_names = { [second_name] = true } }, true)
+            assert.same({ second_name }, rd.enabled_dict_names)
+            assert.same({ [second_name] = true }, rd:buildPreset().enabled_dict_names)
+            local queries = rd:getProgressiveQueries({ first_name, second_name })
+            assert.same({ first_name }, queries[1].dict_names)
+            assert.same({ second_name }, queries[2].dict_names)
+            local results, done
+            require("ui/trapper"):wrap(function()
+                local cancelled
+                cancelled, results = rd:rawSdcv({ "harbor" }, rd.enabled_dict_names, false, false)
+                assert.is_false(cancelled)
+                done = true
+            end)
+            for _ = 1, 200 do
+                if done then break end
+                fastforward_ui_events()
+                socket.sleep(0.005)
+            end
+            assert.is_true(done)
+            assert.are.equal(1, #results[1])
+            assert.are.equal(second_name, results[1][1].dict)
+            rd:loadPreset({ enabled_dict_names = { [first_name] = true } }, true)
+            assert.same({ first_name }, rd.enabled_dict_names)
+            rd.dicts_disabled[legacy_ifo] = nil
+            rd.dicts_order[legacy_ifo] = nil
+            ffiUtil.purgeDir(legacy_dir)
             ffiUtil.purgeDir(first_dir)
             ffiUtil.purgeDir(second_dir)
             rd:init()
+        end)
+
+        it("preserves valid metadata when an identity update fails", function()
+            local dir = tmp .. "/identity-failure"
+            StarDict.write(dir, "unchanged", "Unchanged", { harbor = "unchanged" })
+            local ifo = dir .. "/unchanged.ifo"
+            local original = readFile(ifo)
+            local rename = stub(os, "rename", function() return nil, "synthetic rename failure" end)
+            local ok, err = rd:setDownloadDictionaryIdentity(dir, "synthetic-id")
+            rename:revert()
+            assert.is_false(ok)
+            assert.are.equal("synthetic rename failure", err)
+            assert.are.equal(original, readFile(ifo))
+            assert.is_nil(lfs.attributes(ifo .. ".tmp"))
+            local open = io.open
+            local open_stub
+            finally(function() if open_stub then open_stub:revert() end end)
+            for _, failure in ipairs({ "read", "open", "write", "close" }) do
+                open_stub = stub(io, "open", function(path, mode)
+                    if failure == "read" and path == ifo then return nil, "synthetic read failure" end
+                    if path == ifo .. ".tmp" then
+                        if failure == "open" then return nil, "synthetic open failure" end
+                        if failure == "write" or failure == "close" then
+                            return {
+                                write = function(self)
+                                    if failure == "write" then return nil, "synthetic write failure" end
+                                    return self
+                                end,
+                                close = function()
+                                    if failure == "close" then return nil, "synthetic close failure" end
+                                    return true
+                                end,
+                            }
+                        end
+                    end
+                    return open(path, mode)
+                end)
+                ok, err = rd:setDownloadDictionaryIdentity(dir, "synthetic-id")
+                open_stub:revert()
+                open_stub = nil
+                assert.is_false(ok)
+                assert.truthy(err)
+                assert.are.equal(original, readFile(ifo))
+                assert.is_nil(lfs.attributes(ifo .. ".tmp"))
+            end
+            ffiUtil.purgeDir(dir)
         end)
 
         it("should tell about failed requests", function()

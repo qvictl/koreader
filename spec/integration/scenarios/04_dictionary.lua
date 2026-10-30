@@ -83,6 +83,76 @@ return {
         T:run(function() UIManager:close(dialog) end)
         ui.dictionary.disable_fuzzy_search = false
 
+        -- Download two archives with identical booknames through the painted UI.
+        -- The URL identity must keep classic and progressive selection independent.
+        local util = require("util")
+        local ffiUtil = require("ffi/util")
+        local DataStorage = require("datastorage")
+        local StarDict = dofile(T.spec_dir .. "/../unit/stardict_fixture.lua")
+        local http = require("socket.http")
+        local original_request = http.request
+        local source_dir = DataStorage:getDataDir() .. "/same-name-downloads"
+        local bodies, entries = {}, {}
+        for _, version in ipairs({ "first", "second" }) do
+            local dir = source_dir .. "/" .. version
+            StarDict.write(dir, version, "IT Shared", { harbor = version .. " shared definition" })
+            local archive = source_dir .. "/" .. version .. ".tar.gz"
+            local status = os.execute(util.shell_escape({ "tar", "czf", archive, "-C", dir, "." }))
+            T:eq(status, 0, "create the synthetic dictionary archive")
+            local url = "https://example.com/" .. version .. ".tar.gz"
+            bodies[url] = assert(util.readFromFile(archive))
+            entries[version] = { name = "German-English dictionary", url = url }
+        end
+        local ok, err = pcall(function()
+            http.request = function(request)
+                local body = assert(bodies[request.url], "unexpected dictionary download URL")
+                if request.method == "GET" then request.sink(body); request.sink(nil) end
+                return 1, 200, { ["content-length"] = tostring(#body) }
+            end
+            for _, version in ipairs({ "first", "second" }) do
+                T:run(function() ui.dictionary:downloadDictionary(entries[version]) end)
+                local confirm = T:waitUntil(function()
+                    local top = T:topWidget()
+                    return top and top.ok_text == "Download" and top
+                end, 5, "dictionary download confirmation")
+                T:repaint()
+                local button = T:findWidget(confirm, function(widget)
+                    return widget.text == "Download" and widget.callback
+                end)
+                T:tapWidget(button, "confirm a same-name dictionary download")
+                T:waitUntil(function()
+                    local top = T:topWidget()
+                    return top and top.text == "Dictionary downloaded"
+                end, 5, "same-name dictionary installation completes")
+                T:run(function() UIManager:close(T:topWidget()) end)
+            end
+            local first = "IT Shared [" .. require("ffi/sha2").md5(entries.first.url) .. "]"
+            local second = "IT Shared [" .. require("ffi/sha2").md5(entries.second.url) .. "]"
+            T:run(function()
+                ui.dictionary:loadPreset({ enabled_dict_names = { [second] = true } }, true)
+                G_reader_settings:saveSetting("dict_progressive_lookup", false)
+            end)
+            r = DictHelper.lookup(T, ui, "harbor")
+            T:eq(r.dicts, { second }, "classic lookup excludes the disabled same-name version")
+            T:check(r.results[1]:find("second shared definition", 1, true), "classic lookup uses the selected source")
+            DictHelper.close(T, ui)
+            T:run(function()
+                ui.dictionary:loadPreset({ enabled_dict_names = { [first] = true, ["IT Beta"] = true } }, true)
+                G_reader_settings:saveSetting("dict_progressive_lookup", true)
+            end)
+            r = DictHelper.lookup(T, ui, "harbor")
+            T:check(r.initial_pending, "progressive lookup runs a background dictionary query")
+            local names = {}
+            for _, name in ipairs(r.dicts) do names[name] = true end
+            T:eq(names, { [first] = true, ["IT Beta"] = true }, "progressive lookup excludes the other disabled version")
+            T:check(table.concat(r.results, " "):find("first shared definition", 1, true),
+                "progressive lookup uses the independently selected source")
+            DictHelper.close(T, ui)
+        end)
+        http.request = original_request
+        ffiUtil.purgeDir(source_dir)
+        if not ok then error(err, 0) end
+
         -- No sdcv process left behind.
         T:waitUntil(function() return #T:children() == 0 end, 5, "no child process left")
         T:closeBook()

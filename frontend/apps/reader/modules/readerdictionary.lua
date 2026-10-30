@@ -2419,10 +2419,12 @@ function ReaderDictionary:downloadDictionary(dict)
     -- Additionally, make sure a safe directory name is used (so for example the "Dictionnaire de
     -- l'Académie Française: 8ème edition" dictionary can be installed on Kindle).
     local install_name = dict.name
+    local download_id
     for _, entry in ipairs(require("ui/data/dictionaries")) do
         if entry.name == dict.name and entry.url ~= dict.url then
             -- Same-name catalogue downloads must not erase one another on install.
-            install_name = install_name .. "-" .. require("ffi/sha2").md5(dict.url)
+            download_id = require("ffi/sha2").md5(dict.url)
+            install_name = install_name .. "-" .. download_id
             break
         end
     end
@@ -2433,6 +2435,14 @@ function ReaderDictionary:downloadDictionary(dict)
         return
     end
 
+    if download_id then
+        ok, err = self:setDownloadDictionaryIdentity(dict_dir, download_id)
+        if not ok then
+            show_info(T(_("Extraction failed:\n\n%1"), BD.ltr(err)))
+            return
+        end
+    end
+
     -- Update available dictionaries.
     if dict.ifo_lang then
         self:extendIfoWithLanguage(dict_dir, dict.ifo_lang)
@@ -2440,6 +2450,33 @@ function ReaderDictionary:downloadDictionary(dict)
     available_ifos = false
     self:init()
     show_info(_("Dictionary downloaded"))
+end
+
+-- Only conflicting catalogue downloads receive a URL identity. sdcv selects by
+-- bookname, so separating directories alone would not allow independent disabling.
+function ReaderDictionary:setDownloadDictionaryIdentity(dict_dir, download_id)
+    for _, ifo_path in ipairs(getIfosInDir(dict_dir)) do
+        local content, err = util.readFromFile(ifo_path)
+        if not content then return false, err end
+        content = content:gsub("(\nbookname=[^\r\n]*)", "%1 [" .. download_id .. "]")
+        local temporary = ifo_path .. ".tmp"
+        local f
+        f, err = io.open(temporary, "wb")
+        if not f then return false, err end
+        local written, write_error = f:write(content)
+        local closed, close_error = f:close()
+        local ok
+        if written and closed then
+            ok, err = os.rename(temporary, ifo_path)
+        else
+            err = write_error or close_error
+        end
+        if not ok then
+            os.remove(temporary)
+            return false, err
+        end
+    end
+    return true
 end
 
 function ReaderDictionary:extendIfoWithLanguage(dictionary_location, ifo_lang)
