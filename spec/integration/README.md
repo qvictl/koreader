@@ -86,6 +86,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `25_async_command_output` | multi-megabyte streaming command output, stdout EOF before shell exit, late descendant writers, cancellation after a prefix without killing the command, bounded background collection, UI heartbeats and pipe/pid cleanup |
 | `27_kosync_default_http` | real localhost Spore HTTP: UI responsiveness, parent authentication, bounded workers, cancellation, failed fork and late progress responses across lifecycle changes |
 | `28_cache_pressure` | byte-based PDF cache pressure eviction, original budget preservation, and real background reflow context cleanup before and after reader closure |
+| `32_news_download_folder_safety` | real folder-selection and deletion confirmations: cancel preserves inert fixtures/settings, accept retains feed configuration, unrelated files/subfolders are deleted only after explicit consent, unreadable selection fails closed |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
