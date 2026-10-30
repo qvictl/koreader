@@ -200,7 +200,7 @@ describe("KOPT background context boundaries", function()
     it("discards an unstarted hint and restores CPU configuration without caching it", function()
         reflow_stub:revert(); reflow_stub = nil
         local discarded = 0
-        local context = { zoom = 1, quality = 1, dev_width = 600, setPreCache = function() end }
+        local context = { zoom = 1, quality = 1, dev_width = 600, setPreCache = function() end } -- unscaled_size_check: ignore (native pixel fixture)
         create_stub = stub(KoptInterface, "createContext", function() return context end)
         start_stub = stub(KoptThread, "start", function() return false end)
         free_stub = stub(KoptThread, "free", function(value)
