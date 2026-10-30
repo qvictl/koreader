@@ -30,7 +30,7 @@ return {
             plugin.settings.custom_server, plugin.settings.auto_sync = server.url, false
             plugin.device_id = "synthetic-local-device"
             plugin:registerEvents()
-            for _, name in ipairs{ "custom", "default" } do
+            for _, name in ipairs{ "custom", "default", "renamed" } do
                 plugin.settings.kosync_hostname = name == "custom" and "My reader" or nil
                 local published_page = reader:getCurrentPage()
                 local put = server:plan(200, { message = "accepted" })
@@ -48,6 +48,7 @@ return {
                 T:waitUntil(function() return reader:getCurrentPage() > published_page end,
                     5, "reading continues after the push")
                 local current_page = reader:getCurrentPage()
+                if name == "renamed" then plugin.settings.kosync_hostname = "My renamed reader" end
                 local response = request.payload
                 local get = server:plan(200, response)
                 T:run(function() plugin:getProgress(false, true) end)

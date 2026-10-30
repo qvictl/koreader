@@ -977,7 +977,9 @@ function KOSync:getProgress(ensure_networking, interactive)
                 return
             end
 
-            if body.device == (self.settings.kosync_hostname or Device.model)
+            local chosen_device_name = self.settings.kosync_hostname or Device.model
+            -- Also recognize default-name uploads made before a custom hostname was set.
+            if (body.device == chosen_device_name or body.device == Device.model)
             and body.device_id == self.device_id then
                 if interactive then
                     UIManager:show(InfoMessage:new{

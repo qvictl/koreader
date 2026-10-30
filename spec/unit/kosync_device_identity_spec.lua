@@ -76,6 +76,28 @@ describe("KOSync device identity", function()
             end
         end
     end
+    for _, mode in ipairs{ "interactive", "automatic" } do
+        for _, timing in ipairs{ "before", "during" } do
+            for _, identity in ipairs{ "same", "different" } do
+                it("handles " .. identity .. " IDs when a hostname is set " .. timing .. " an " .. mode .. " pull", function()
+                    local sync = plugin()
+                    sync:updateProgress(false, false)
+                    assert.are.equal(Device.model, published.device)
+                    sync.progress, sync.percentage = "newer-local-position", 0.5
+                    if identity == "different" then published.device_id = "other-device" end
+                    if timing == "before" then sync.settings.kosync_hostname = "My reader" end
+                    sync:getProgress(false, mode == "interactive")
+                    sync.settings.kosync_hostname = "My reader"
+                    pending(true, published)
+                    if identity == "same" then
+                        assert.is_nil(applied)
+                    else
+                        assert.are.equal("published-position", applied)
+                    end
+                end)
+            end
+        end
+    end
     it("still requires the device name to match as well as the ID", function()
         local sync = plugin("My reader")
         sync:getProgress(false, true)
