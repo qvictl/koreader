@@ -15,6 +15,7 @@ return {
         local path = settings .. "/statistics.sqlite3"
         local uploaded = settings .. "/uploaded-statistics.sqlite3"
         local observer, upload_count, snapshot_path
+        local original_providers, original_server = cloud.providers, stats.settings.sync_server
         local function count(file)
             local conn = SQ3.open(file, "ro")
             local value = tonumber(conn:rowexec("SELECT count(*) FROM book"))
@@ -41,7 +42,6 @@ return {
                 observer:exec("BEGIN")
                 T:eq(tonumber(observer:rowexec("SELECT count(*) FROM book")), 1, "observer holds the old SQLite snapshot")
                 insert(102)
-                local providers = cloud.providers
                 cloud.providers = { synthetic = {
                     run = function(callback) callback() end,
                     downloadFile = function(_, destination)
@@ -59,7 +59,6 @@ return {
                 } }
                 stats.settings.sync_server = { type = "synthetic", url = "synthetic" }
                 stats:onSyncBookStats(true)
-                cloud.providers = providers
             end)
             T:waitUntil(function() return upload_count ~= nil end, 5, "interactive statistics synchronization uploads")
             T:waitUntil(function()
@@ -79,6 +78,8 @@ return {
                 UIManager:close(T:topWidget())
             end)
         end)
+        cloud.providers = original_providers
+        stats.settings.sync_server = original_server
         if observer then pcall(observer.close, observer) end
         os.remove(uploaded)
         if not ok then error(err, 0) end
