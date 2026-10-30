@@ -705,7 +705,7 @@ describe("ReaderDictionary settings", function()
     describe("downloads", function()
         local socket, orig_http
         local http_responses
-        local archive, updated_archive
+        local archive, updated_archive, unsupported_archive, empty_archive, missing_archive, unterminated_archive
 
         local function fakeRequest(reqt)
             local resp = table.remove(http_responses, 1)
@@ -731,6 +731,27 @@ describe("ReaderDictionary settings", function()
             StarDict.write(updated .. "/delta", "delta", "Delta", { harbor = "updated harbor" })
             updated_archive = tmp .. "/updated.tar.gz"
             assert.are.equal(0, os.execute(util.shell_escape({ "tar", "czf", updated_archive, "-C", updated, "delta" })))
+            local metadata = assert(io.open(updated .. "/delta/delta.ifo", "rb"))
+            local original_metadata = metadata:read("*a"); metadata:close()
+            local unsupported = original_metadata:gsub("\n", "\r")
+            metadata = assert(io.open(updated .. "/delta/delta.ifo", "wb"))
+            metadata:write(unsupported); metadata:close()
+            unsupported_archive = tmp .. "/unsupported.tar.gz"
+            assert.are.equal(0, os.execute(util.shell_escape({ "tar", "czf", unsupported_archive, "-C", updated, "delta" })))
+            metadata = assert(io.open(updated .. "/delta/delta.ifo", "wb"))
+            metadata:write((original_metadata:gsub("\nbookname=[^\r\n]*", ""))); metadata:close()
+            missing_archive = tmp .. "/missing.tar.gz"
+            assert.are.equal(0, os.execute(util.shell_escape({ "tar", "czf", missing_archive, "-C", updated, "delta" })))
+            metadata = assert(io.open(updated .. "/delta/delta.ifo", "wb"))
+            metadata:write((original_metadata:gsub("\nbookname=[^\r\n]*", "")) .. "bookname=Unterminated"); metadata:close()
+            unterminated_archive = tmp .. "/unterminated.tar.gz"
+            assert.are.equal(0, os.execute(util.shell_escape({ "tar", "czf", unterminated_archive, "-C", updated, "delta" })))
+            local empty = tmp .. "/archive_empty"
+            assert(util.makePath(empty))
+            local readme = assert(io.open(empty .. "/README", "w")); readme:write("no dictionary metadata"); readme:close()
+            local license = assert(io.open(empty .. "/LICENSE", "w")); license:write("synthetic fixture"); license:close()
+            empty_archive = tmp .. "/empty.tar.gz"
+            assert.are.equal(0, os.execute(util.shell_escape({ "tar", "czf", empty_archive, "-C", empty, "." })))
         end)
 
         before_each(function()
@@ -760,14 +781,25 @@ describe("ReaderDictionary settings", function()
         local function purgeStaging()
             for _, path in ipairs(stagingDirectories()) do ffiUtil.purgeDir(path) end
         end
-        local function nativeLookup()
+        local function nativeLookup(word)
             local pipe = assert(io.popen(util.shell_escape({ "./sdcv", "--utf8-input", "--utf8-output", "--json-output",
-                "--non-interactive", "--only-data-dir", "--data-dir", dict_dir, "--exact-search", "--", "harbor" })))
+                "--non-interactive", "--only-data-dir", "--data-dir", dict_dir, "--exact-search", "--", word or "harbor" })))
             local output = pipe:read("*a")
             assert(pipe:close())
             local results = require("rapidjson").decode(output)
             assert.is_table(results)
             return results
+        end
+
+        local function installArchive(entry, body)
+            http_responses = {
+                { method = "HEAD", code = 200, headers = { ["content-length"] = tostring(#body) } },
+                { method = "GET", code = 200, headers = {}, body = body },
+            }
+            rd:downloadDictionary(entry)
+            topWidget().ok_callback()
+            assert.are.equal(0, #http_responses)
+            return topWidget().text
         end
 
         local dict = { name = "Delta: l'édition", url = "https://example.com/dl/delta.tar.gz", ifo_lang = "en-de",
@@ -943,6 +975,22 @@ describe("ReaderDictionary settings", function()
             ffiUtil.purgeDir(dir)
         end)
 
+        it("rejects metadata without a discoverable bookname before writing", function()
+            local dir = tmp .. "/identity-unsupported"
+            StarDict.write(dir, "unsupported", "Unsupported", { harbor = "unchanged data" })
+            finally(function() ffiUtil.purgeDir(dir) end)
+            local ifo = dir .. "/unsupported.ifo"
+            local original = readFile(ifo)
+            for _, content in ipairs({ (original:gsub("\n", "\r")), (original:gsub("\nbookname=[^\r\n]*", "")) }) do
+                local f = assert(io.open(ifo, "wb")); f:write(content); f:close()
+                local ok, err = rd:setDownloadDictionaryIdentity(dir, "synthetic-id")
+                assert.is_false(ok)
+                assert.are.equal("Dictionary metadata does not contain a supported bookname.", err)
+                assert.are.equal(content, readFile(ifo))
+                assert.is_nil(lfs.attributes(ifo .. ".tmp"))
+            end
+        end)
+
         it("removes an incomplete install after the identity update fails", function()
             local entry = { name = "German-English dictionary", url = "https://example.com/identity-failure.tar.gz" }
             http_responses = {
@@ -1009,14 +1057,30 @@ describe("ReaderDictionary settings", function()
             rd:updateSdcvDictNamesOptions()
             local count = rd:getNumberOfDictionaries()
             local open, rename = io.open, os.rename
-            for _, failure in ipairs({ "identity_rename", "read", "open", "write", "close", "extract", "backup", "publish", "exception" }) do
+            for _, failure in ipairs({ "identity_rename", "read", "open", "write", "close", "admission_read", "admission_close", "extract", "bookname", "backup", "publish", "exception" }) do
                 local injected = false
                 local reason = "synthetic reinstall " .. failure
-                if failure == "read" or failure == "open" or failure == "write" or failure == "close" then
+                if failure == "read" or failure == "open" or failure == "write" or failure == "close"
+                    or failure == "admission_read" or failure == "admission_close" then
                     open_stub = stub(io, "open", function(path, mode)
-                        if failure == "read" and path:match("%.ifo$") then
+                        if failure == "read" and path:find("/" .. STAGING_PREFIX, 1, true) and path:match("%.ifo$") then
                             injected = true
                             return nil, reason
+                        end
+                        if path:find("/" .. STAGING_PREFIX, 1, true) and path:match("%.ifo$")
+                            and (failure == "admission_read" or failure == "admission_close") then
+                            local real = assert(open(path, mode))
+                            return {
+                                read = function(_, size)
+                                    if failure == "admission_read" then injected = true; return nil, reason end
+                                    return real:read(size)
+                                end,
+                                close = function()
+                                    local closed = real:close()
+                                    if failure == "admission_close" then injected = true; return nil, reason end
+                                    return closed
+                                end,
+                            }
                         end
                         if path:match("%.ifo%.tmp$") then
                             if failure == "open" then injected = true; return nil, reason end
@@ -1043,7 +1107,7 @@ describe("ReaderDictionary settings", function()
                         injected = true
                         error(reason)
                     end)
-                elseif failure ~= "extract" then
+                elseif failure ~= "extract" and failure ~= "bookname" then
                     rename_stub = stub(os, "rename", function(source, destination)
                         if (failure == "identity_rename" and source:match("%.ifo%.tmp$"))
                             or (failure == "backup" and source == target and destination:match("/previous$"))
@@ -1055,11 +1119,16 @@ describe("ReaderDictionary settings", function()
                         return rename(source, destination)
                     end)
                 end
-                local message = install(failure == "extract" and "not an archive" or readFile(updated_archive))
+                local body = failure == "extract" and "not an archive" or readFile(failure == "bookname" and unsupported_archive or updated_archive)
+                local message = install(body)
                 restoreStubs()
-                if failure ~= "extract" then assert.is_true(injected, failure .. " fault was not reached") end
+                if failure ~= "extract" and failure ~= "bookname" then assert.is_true(injected, failure .. " fault was not reached") end
                 assert.matches("Extraction failed", message)
-                if failure ~= "extract" then assert.truthy(message:find(reason, 1, true), message) end
+                if failure == "bookname" then
+                    assert.truthy(message:find("No discoverable dictionary metadata was found.", 1, true))
+                elseif failure ~= "extract" then
+                    assert.truthy(message:find(reason, 1, true), message)
+                end
                 assert.are.equal("directory", lfs.attributes(target, "mode"), failure .. " removed the previous installation")
                 for suffix, content in pairs(original) do assert.are.equal(content, readFile(target .. "/delta" .. suffix)) end
                 assert.are.equal("old user file", readFile(target .. "/keep"))
@@ -1078,12 +1147,250 @@ describe("ReaderDictionary settings", function()
             noStaging()
         end)
 
+        for _, name in ipairs({ "German-English dictionary", "Unique admission dictionary" }) do
+            for _, kind in ipairs({ "empty", "missing" }) do
+                it("keeps " .. name .. " when a replacement has " .. kind .. " metadata", function()
+                    local entry = { name = name, url = "https://example.com/" .. kind .. ".tar.gz" }
+                    local target = dict_dir .. "/" .. name
+                    if name == "German-English dictionary" then target = target .. "-" .. require("ffi/sha2").md5(entry.url) end
+                    local ifo = target .. "/delta.ifo"
+                    local saved_disabled = util.tableDeepCopy(rd.dicts_disabled)
+                    local saved_order = util.tableDeepCopy(rd.dicts_order)
+                    finally(function()
+                        ffiUtil.purgeDir(target)
+                        purgeStaging()
+                        G_reader_settings:saveSetting("dicts_disabled", saved_disabled)
+                        G_reader_settings:saveSetting("dicts_order", saved_order)
+                        reloadDictionaries()
+                    end)
+                    local function install(body)
+                        http_responses = {
+                            { method = "HEAD", code = 200, headers = { ["content-length"] = tostring(#body) } },
+                            { method = "GET", code = 200, headers = {}, body = body },
+                        }
+                        rd:downloadDictionary(entry)
+                        topWidget().ok_callback()
+                        assert.are.equal(0, #http_responses)
+                        return topWidget().text
+                    end
+                    assert.are.equal("Dictionary downloaded", install(readFile(archive)))
+                    local old = {}
+                    for _, suffix in ipairs({ ".ifo", ".idx", ".dict" }) do old[suffix] = readFile(target .. "/delta" .. suffix) end
+                    rd.dicts_disabled[ifo], rd.dicts_order[ifo] = true, 31
+                    G_reader_settings:saveSetting("dicts_disabled", rd.dicts_disabled)
+                    G_reader_settings:saveSetting("dicts_order", rd.dicts_order)
+                    local count = rd:getNumberOfDictionaries()
+                    local replacements = kind == "empty" and { empty_archive } or { missing_archive, unterminated_archive }
+                    for _, replacement in ipairs(replacements) do
+                        local message = install(readFile(replacement))
+                        assert.are.equal("directory", lfs.attributes(target, "mode"))
+                        assert.are.equal("file", lfs.attributes(ifo, "mode"), "rejected archives must retain the old metadata file")
+                        for suffix, content in pairs(old) do assert.are.equal(content, readFile(target .. "/delta" .. suffix)) end
+                        assert.truthy(message:find("No discoverable dictionary metadata was found.", 1, true), message)
+                        assert.is_true(G_reader_settings:readSetting("dicts_disabled")[ifo])
+                        assert.are.equal(31, G_reader_settings:readSetting("dicts_order")[ifo])
+                        assert.are.equal(count, rd:getNumberOfDictionaries())
+                        assert.same({}, stagingDirectories())
+                    end
+                end)
+            end
+        end
+
+        it("keeps old bytes and settings when any candidate lacks regular companion files", function()
+            local entry = { name = "Companion admission dictionary", url = "https://example.com/companions.tar.gz" }
+            local target, source = dict_dir .. "/" .. entry.name, tmp .. "/companions-source"
+            local saved_disabled, saved_order = util.tableDeepCopy(rd.dicts_disabled), util.tableDeepCopy(rd.dicts_order)
+            local attributes, dir, open_stub
+            local function restoreStubs()
+                if open_stub then open_stub:revert(); open_stub = nil end
+                if dir then dir:revert(); dir = nil end
+                if attributes then attributes:revert(); attributes = nil end
+            end
+            finally(function()
+                restoreStubs()
+                ffiUtil.purgeDir(source); ffiUtil.purgeDir(target); purgeStaging()
+                G_reader_settings:saveSetting("dicts_disabled", saved_disabled)
+                G_reader_settings:saveSetting("dicts_order", saved_order)
+                reloadDictionaries()
+            end)
+            assert.are.equal("Dictionary downloaded", installArchive(entry, readFile(archive)))
+            local old, ifo = {}, target .. "/delta.ifo"
+            for _, suffix in ipairs({ ".ifo", ".idx", ".dict" }) do old[suffix] = readFile(target .. "/delta" .. suffix) end
+            rd.dicts_disabled[ifo], rd.dicts_order[ifo] = true, 33
+            G_reader_settings:saveSetting("dicts_disabled", rd.dicts_disabled)
+            G_reader_settings:saveSetting("dicts_order", rd.dicts_order)
+            for _, kind in ipairs({ "ifo_only", "no_index", "no_data", "wrong_stem", "index_directory", "data_directory",
+                    "compressed_index_directory", "compressed_data_directory", "metadata_nonregular", "later_incomplete" }) do
+                ffiUtil.purgeDir(source)
+                local bundle = source .. "/bundle"
+                StarDict.write(bundle, "delta", "Delta", { harbor = "replacement data" })
+                local stem = bundle .. "/delta"
+                if kind == "ifo_only" or kind == "no_index" or kind == "index_directory" then assert(os.remove(stem .. ".idx")) end
+                if kind == "ifo_only" or kind == "no_data" or kind == "data_directory" then assert(os.remove(stem .. ".dict")) end
+                if kind == "wrong_stem" then
+                    assert(os.rename(stem .. ".idx", bundle .. "/other.idx")); assert(os.rename(stem .. ".dict", bundle .. "/other.dict"))
+                elseif kind == "index_directory" then assert(lfs.mkdir(stem .. ".idx"))
+                elseif kind == "data_directory" then assert(lfs.mkdir(stem .. ".dict"))
+                elseif kind == "compressed_index_directory" then assert(lfs.mkdir(stem .. ".idx.gz"))
+                elseif kind == "compressed_data_directory" then assert(lfs.mkdir(stem .. ".dict.dz"))
+                elseif kind == "later_incomplete" then
+                    StarDict.write(bundle, "second", "Second", { harbor = "incomplete data" })
+                    assert(os.remove(bundle .. "/second.idx"))
+                    local raw_dir, ordered = lfs.dir, false
+                    dir = stub(lfs, "dir", function(path)
+                        if not ordered and path:find("/" .. STAGING_PREFIX, 1, true) and path:sub(-7) == "/bundle" then
+                            ordered = true
+                            local names, position = { "delta.ifo", "second.ifo" }, 0
+                            return function() position = position + 1; return names[position] end
+                        end
+                        return raw_dir(path)
+                    end)
+                end
+                local metadata_opened, raw_open = false, io.open
+                open_stub = stub(io, "open", function(path, mode)
+                    if path:find("/" .. STAGING_PREFIX, 1, true) and path:match("%.ifo$") then metadata_opened = true end
+                    return raw_open(path, mode)
+                end)
+                if kind == "metadata_nonregular" then
+                    local raw_attributes = lfs.attributes
+                    attributes = stub(lfs, "attributes", function(path, key)
+                        if key == "mode" and path:find("/" .. STAGING_PREFIX, 1, true) and path:match("%.ifo$") then return "named pipe" end
+                        return raw_attributes(path, key)
+                    end) -- Simulate the type without creating a special file.
+                end
+                local tar = tmp .. "/companions.tar.gz"
+                assert.are.equal(0, os.execute(util.shell_escape({ "tar", "czf", tar, "-C", source, "bundle" })))
+                local message = installArchive(entry, readFile(tar))
+                restoreStubs()
+                for suffix, content in pairs(old) do
+                    assert.are.equal("file", lfs.attributes(target .. "/delta" .. suffix, "mode"), kind .. " removed old files")
+                    assert.are.equal(content, readFile(target .. "/delta" .. suffix), kind .. " changed old bytes")
+                end
+                assert.matches("Extraction failed", message)
+                if kind == "metadata_nonregular" then assert.is_false(metadata_opened) end
+                assert.is_true(G_reader_settings:readSetting("dicts_disabled")[ifo])
+                assert.are.equal(33, G_reader_settings:readSetting("dicts_order")[ifo])
+                assert.same({}, stagingDirectories())
+            end
+        end)
+
+        for _, index_kind in ipairs({ "plain", "gzip" }) do
+            for _, data_kind in ipairs({ "plain", "dictzip" }) do
+                it("queries the official fixture with " .. index_kind .. " index and " .. data_kind .. " data", function()
+                    local fixture = ffiUtil.dirname(debug.getinfo(1, "S").source:sub(2)) .. "/fixtures/sdcv-synonyms"
+                    local source = tmp .. "/official-compressed-source"
+                    local entry = { name = "Official compressed dictionary", url = "https://example.com/official.tar.gz" }
+                    local target = dict_dir .. "/" .. entry.name
+                    finally(function()
+                        ffiUtil.purgeDir(source); ffiUtil.purgeDir(target)
+                        purgeStaging(); reloadDictionaries()
+                    end)
+                    assert(util.makePath(source))
+                    for _, suffix in ipairs({ ".ifo", ".syn" }) do
+                        assert.is_nil(ffiUtil.copyFile(fixture .. "/test" .. suffix, source .. "/test" .. suffix))
+                    end
+                    if index_kind == "gzip" then
+                        local command = util.shell_escape({ "gzip", "-c", fixture .. "/test.idx" })
+                            .. " > " .. util.shell_escape({ source .. "/test.idx.gz" })
+                        assert.are.equal(0, os.execute(command))
+                    else
+                        assert.is_nil(ffiUtil.copyFile(fixture .. "/test.idx", source .. "/test.idx"))
+                    end
+                    if data_kind == "dictzip" then
+                        assert.is_nil(ffiUtil.copyFile(fixture .. "/test.dict.dz", source .. "/test.dict.dz"))
+                    else
+                        local command = util.shell_escape({ "gzip", "-dc", fixture .. "/test.dict.dz" })
+                            .. " > " .. util.shell_escape({ source .. "/test.dict" })
+                        assert.are.equal(0, os.execute(command))
+                    end
+                    local tar = tmp .. "/official-compressed.tar.gz"
+                    assert.are.equal(0, os.execute(util.shell_escape({ "tar", "czf", tar, "-C", source, "." })))
+                    assert.are.equal("Dictionary downloaded", installArchive(entry, readFile(tar)))
+                    for _, word in ipairs({ "foo", "bar", "test" }) do
+                        local matches = 0
+                        for _, result in ipairs(nativeLookup(word)) do
+                            if result.dict == "Test synonyms" then
+                                matches = matches + 1
+                                assert.are.equal("result of test", result.definition:match("^%s*(.-)%s*$"))
+                            end
+                        end
+                        assert.are.equal(1, matches, "official synonym oracle for " .. word)
+                    end
+                end)
+            end
+        end
+
+        it("streams admission across metadata boundaries without reading the trailing description", function()
+            local source = tmp .. "/streaming-source"
+            StarDict.write(source, "stream", "Stream", { harbor = "stream data" })
+            local metadata = source .. "/stream.ifo"
+            local header = readFile(metadata):gsub("\nbookname=[^\r\n]*", "") .. "author="
+            local marker = "\nbookname="
+            local entry = { name = "Unique streaming dictionary", url = "https://example.com/stream.tar.gz" }
+            local target = dict_dir .. "/" .. entry.name
+            local archive_path = tmp .. "/stream.tar.gz"
+            local open_stub
+            finally(function()
+                if open_stub then open_stub:revert() end
+                ffiUtil.purgeDir(source)
+                ffiUtil.purgeDir(target)
+                purgeStaging()
+                reloadDictionaries()
+            end)
+            -- Exercise every marker split and a value beginning in the next read.
+            for marker_bytes = 1, #marker do
+                local before_marker = 4096 - marker_bytes
+                local bookname = marker_bytes == #marker and string.rep("s", 8192) or "Stream"
+                local content = header .. string.rep("p", before_marker - #header) .. marker .. bookname .. "\n"
+                    .. "description=" .. string.rep("d", 1024 * 1024) .. "\n"
+                local f = assert(io.open(metadata, "wb")); f:write(content); f:close()
+                assert.are.equal(0, os.execute(util.shell_escape({ "tar", "czf", archive_path, "-C", source, "." })))
+                local body = readFile(archive_path)
+                local raw_open = io.open
+                local bytes, maximum_read, unbounded = 0, 0, false
+                open_stub = stub(io, "open", function(path, mode)
+                    local real, err = raw_open(path, mode)
+                    if not real then return nil, err end
+                    if path:find("/" .. STAGING_PREFIX, 1, true) and path:match("%.ifo$") then
+                        return {
+                            read = function(_, size)
+                                if type(size) ~= "number" then unbounded = true; return nil, "unbounded admission read" end
+                                maximum_read = math.max(maximum_read, size)
+                                local data, read_error = real:read(size)
+                                bytes = bytes + (data and #data or 0)
+                                return data, read_error
+                            end,
+                            close = function() return real:close() end,
+                        }
+                    end
+                    return real
+                end)
+                http_responses = {
+                    { method = "HEAD", code = 200, headers = { ["content-length"] = tostring(#body) } },
+                    { method = "GET", code = 200, headers = {}, body = body },
+                }
+                rd:downloadDictionary(entry)
+                topWidget().ok_callback()
+                open_stub:revert(); open_stub = nil
+                assert.is_false(unbounded, "admission must use bounded reads")
+                assert.are.equal("Dictionary downloaded", topWidget().text)
+                assert.are.equal(0, #http_responses)
+                assert.is_true(maximum_read > 0 and maximum_read <= 4096)
+                assert.is_true(bytes <= (marker_bytes == #marker and 16384 or 8192),
+                    "admission must stop after the completed bookname, including a multi-chunk value")
+                assert.are.equal(content, readFile(target .. "/stream.ifo"))
+                assert.truthy(util.arrayContains(rd.enabled_dict_names, bookname))
+            end
+        end)
+
         it("retains recoverable old files if publishing and rollback both fail", function()
             local entry = { name = "German-English dictionary", url = "https://example.com/recovery.tar.gz" }
             local target = dict_dir .. "/" .. entry.name .. "-" .. require("ffi/sha2").md5(entry.url)
             local rename
+            local original_preferred = rd.preferred_dictionaries
             finally(function()
                 if rename then rename:revert() end
+                rd.preferred_dictionaries = original_preferred
                 ffiUtil.purgeDir(target)
                 purgeStaging()
                 reloadDictionaries()
@@ -1101,6 +1408,10 @@ describe("ReaderDictionary settings", function()
             assert.are.equal("Dictionary downloaded", install(readFile(archive)))
             local old = {}
             for _, suffix in ipairs({ ".ifo", ".idx", ".dict" }) do old[suffix] = readFile(target .. "/delta" .. suffix) end
+            local expected_name = "Delta [" .. require("ffi/sha2").md5(entry.url) .. "]"
+            rd.preferred_dictionaries = { expected_name }
+            rd:updateSdcvDictNamesOptions()
+            assert.truthy(util.arrayContains(rd.enabled_dict_names, expected_name))
             local count_before = rd:getNumberOfDictionaries()
             local original_rename = os.rename
             local refused = 0
@@ -1118,12 +1429,86 @@ describe("ReaderDictionary settings", function()
             assert.truthy(recovery)
             assert.truthy(message:find(recovery, 1, true), "failure must report the old installation's recovery location")
             for suffix, content in pairs(old) do assert.are.equal(content, readFile(recovery .. "/delta" .. suffix)) end
-            reloadDictionaries()
-            assert.are.equal(count_before - 1, rd:getNumberOfDictionaries(), "recovery data must not be discovered as an installation")
-            local expected_name = "Delta [" .. require("ffi/sha2").md5(entry.url) .. "]"
+            assert.are.equal(count_before - 1, rd:getNumberOfDictionaries(), "the active instance must immediately drop the unavailable installation")
+            assert.same({ expected_name }, rd.preferred_dictionaries)
+            for _, name in ipairs(rd.enabled_dict_names) do assert.are_not.equal(expected_name, name) end
             for _, result in ipairs(nativeLookup()) do
                 assert.are_not.equal(expected_name, result.dict, "native sdcv must not query staging or recovery files")
             end
+            rename:revert(); rename = nil
+            assert(os.rename(recovery, target))
+            reloadDictionaries()
+            assert.same({ expected_name }, rd.preferred_dictionaries)
+            assert.truthy(util.arrayContains(rd.enabled_dict_names, expected_name), "restored files reactivate the stored preference")
+        end)
+
+        it("keeps the recovery error and settings when refreshing the dictionary list fails", function()
+            local entry = { name = "German-English dictionary", url = "https://example.com/refresh-failure.tar.gz" }
+            local target = dict_dir .. "/" .. entry.name .. "-" .. require("ffi/sha2").md5(entry.url)
+            local ifo = target .. "/delta.ifo"
+            local extra = dict_dir .. "/refresh-failure"
+            local saved_disabled = util.tableDeepCopy(rd.dicts_disabled)
+            local saved_order = util.tableDeepCopy(rd.dicts_order)
+            local rename, open_stub
+            local original_preferred = rd.preferred_dictionaries
+            finally(function()
+                if open_stub then open_stub:revert() end
+                if rename then rename:revert() end
+                rd.preferred_dictionaries = original_preferred
+                ffiUtil.purgeDir(target)
+                ffiUtil.purgeDir(extra)
+                purgeStaging()
+                G_reader_settings:saveSetting("dicts_disabled", saved_disabled)
+                G_reader_settings:saveSetting("dicts_order", saved_order)
+                reloadDictionaries()
+            end)
+            local function install(body)
+                http_responses = {
+                    { method = "HEAD", code = 200, headers = { ["content-length"] = tostring(#body) } },
+                    { method = "GET", code = 200, headers = {}, body = body },
+                }
+                rd:downloadDictionary(entry)
+                topWidget().ok_callback()
+                assert.are.equal(0, #http_responses)
+                return topWidget().text
+            end
+            StarDict.write(extra, "refresh", "Refresh failure", { harbor = "surviving data" })
+            assert.are.equal("Dictionary downloaded", install(readFile(archive)))
+            local old = readFile(ifo)
+            local expected_name = "Delta [" .. require("ffi/sha2").md5(entry.url) .. "]"
+            rd.preferred_dictionaries = { expected_name }
+            rd:updateSdcvDictNamesOptions()
+            rd.dicts_disabled[ifo], rd.dicts_order[ifo] = true, 32
+            G_reader_settings:saveSetting("dicts_disabled", rd.dicts_disabled)
+            G_reader_settings:saveSetting("dicts_order", rd.dicts_order)
+            local raw_rename, raw_open = os.rename, io.open
+            local refused, read_failed = 0, false
+            rename = stub(os, "rename", function(source, destination)
+                if destination == target then refused = refused + 1; return nil, "synthetic recovery failure" end
+                return raw_rename(source, destination)
+            end)
+            open_stub = stub(io, "open", function(path, mode)
+                if path == extra .. "/refresh.ifo" then
+                    local real = assert(raw_open(path, mode))
+                    return { read = function() read_failed = true; return nil, "synthetic refresh read failure" end,
+                        close = function() return real:close() end }
+                end
+                return raw_open(path, mode)
+            end)
+            local message = install(readFile(updated_archive))
+            assert.are.equal(2, refused)
+            assert.is_true(read_failed, "the real init metadata read failure must be reached")
+            assert.truthy(message:find("synthetic recovery failure", 1, true))
+            local recovery = stagingDirectories()[1] .. "/previous"
+            assert.truthy(message:find(recovery, 1, true), "refresh failure must not hide the recovery location")
+            assert.are.equal(old, readFile(recovery .. "/delta.ifo"))
+            assert.is_true(G_reader_settings:readSetting("dicts_disabled")[ifo])
+            assert.are.equal(32, G_reader_settings:readSetting("dicts_order")[ifo])
+            assert.are.equal(0, rd:getNumberOfDictionaries(), "a failed scan must leave a usable empty cache")
+            assert.same({}, rd.enabled_dict_names, "partial discovery must not leave stale active selections")
+            rd:updateSdcvDictNamesOptions()
+            assert.same({}, rd.enabled_dict_names, "later updates must not revive unavailable preferences")
+            assert.same({ expected_name }, rd.preferred_dictionaries)
         end)
 
         it("excludes retained staging files from discovery and real native lookup", function()

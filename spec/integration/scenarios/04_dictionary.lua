@@ -120,6 +120,14 @@ return {
                 bodies[url] = assert(util.readFromFile(archive))
                 entries[version] = { name = "German-English dictionary", url = url }
             end
+            local incomplete_dir = source_dir .. "/incomplete/second"
+            assert(util.makePath(incomplete_dir))
+            local copy_error = ffiUtil.copyFile(source_dir .. "/second/second.ifo", incomplete_dir .. "/second.ifo")
+            assert(copy_error == nil, copy_error)
+            local incomplete_archive = source_dir .. "/incomplete.tar.gz"
+            local status = os.execute(util.shell_escape({ "tar", "czf", incomplete_archive, "-C", source_dir .. "/incomplete", "second" }))
+            T:eq(status, 0, "create an IFO-only replacement archive")
+            local incomplete_body = assert(util.readFromFile(incomplete_archive))
             http.request = function(request)
                 local body = assert(bodies[request.url], "unexpected dictionary download URL")
                 if request.method == "GET" then request.sink(body); request.sink(nil) end
@@ -150,8 +158,29 @@ return {
             local ifo_path = target .. "/second.ifo"
             local ifo_before = assert(util.readFromFile(ifo_path))
             local dictionary_before = assert(util.readFromFile(target .. "/second.dict"))
+            local index_before = assert(util.readFromFile(target .. "/second.idx"))
             local marker = assert(io.open(target .. "/keep", "w")); marker:write("old dictionary"); marker:close()
             local count_before = ui.dictionary:getNumberOfDictionaries()
+            local disabled_before = ui.dictionary.dicts_disabled[ifo_path]
+            local order_before = ui.dictionary.dicts_order[ifo_path]
+            local complete_body = bodies[entries.second.url]
+            bodies[entries.second.url] = incomplete_body
+            download(entries.second, "Dictionary index or data files are missing or invalid.")
+            bodies[entries.second.url] = complete_body
+            T:eq(assert(util.readFromFile(ifo_path)), ifo_before, "incomplete replacement preserves old metadata")
+            T:eq(assert(util.readFromFile(target .. "/second.idx")), index_before, "incomplete replacement preserves the old index")
+            T:eq(assert(util.readFromFile(target .. "/second.dict")), dictionary_before, "incomplete replacement preserves old data")
+            T:eq(assert(util.readFromFile(target .. "/keep")), "old dictionary", "incomplete replacement preserves user files")
+            T:eq(ui.dictionary:getNumberOfDictionaries(), count_before, "incomplete replacement keeps the current catalogue")
+            T:eq(ui.dictionary.dicts_disabled[ifo_path], disabled_before, "incomplete replacement preserves disabled state")
+            T:eq(ui.dictionary.dicts_order[ifo_path], order_before, "incomplete replacement preserves ordering")
+            r = DictHelper.lookup(T, ui, "harbor")
+            local retained_name = "IT Shared [" .. require("ffi/sha2").md5(entries.second.url) .. "]"
+            local retained_result
+            for i, name in ipairs(r.dicts) do if name == retained_name then retained_result = r.results[i] end end
+            T:check(retained_result and retained_result:find("second shared definition", 1, true),
+                "the current reader still queries the old dictionary after rejecting an incomplete replacement")
+            DictHelper.close(T, ui)
             T:run(function()
                 ui.dictionary.dicts_disabled[ifo_path] = true
                 ui.dictionary.dicts_order[ifo_path] = 24

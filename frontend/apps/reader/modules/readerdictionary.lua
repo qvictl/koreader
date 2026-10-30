@@ -234,15 +234,19 @@ function ReaderDictionary:updateSdcvDictNamesOptions()
     -- that sdcv uses to order its results.
 
     self.enabled_dict_names = {}
+    local available_names = {}
+    for _, ifo in pairs(available_ifos) do available_names[ifo.name] = true end
 
-    -- First, insert any preferred dicts, even if globally disabled
+    -- First, insert available preferred dicts, even if globally disabled
     -- (this might allow enabling a dict only for a specific book,
     -- while keeping it disabled for all others)
     local preferred_names_already_in = {}
     if self.preferred_dictionaries then
         for _, name in ipairs(self.preferred_dictionaries) do
-            table.insert(self.enabled_dict_names, name)
-            preferred_names_already_in[name] = true
+            if available_names[name] then
+                table.insert(self.enabled_dict_names, name)
+                preferred_names_already_in[name] = true
+            end
         end
     end
 
@@ -2287,6 +2291,36 @@ function ReaderDictionary:onTapDownloadDict(item)
     })
 end
 
+-- Boolean detection of init()'s LF-delimited bookname, without retaining its value.
+local function hasDictionaryBookname(path)
+    local file, err = io.open(path, "rb")
+    if not file then return nil, err end
+    local marker = "\nbookname="
+    local carry = ""
+    local in_bookname, found = false, false
+    while true do
+        -- A streaming buffer, with no limit on the metadata or field length.
+        local chunk, read_error = file:read(4096)
+        if not chunk then err = read_error; break end
+        if in_bookname then
+            if chunk:find("\n", 1, true) then found = true; break end
+        else
+            chunk = carry .. chunk
+            local marker_at = chunk:find(marker, 1, true)
+            if marker_at then
+                if chunk:find("\n", marker_at + #marker, true) then found = true; break end
+                in_bookname = true
+            else
+                carry = chunk:sub(1 - #marker)
+            end
+        end
+    end
+    local closed, close_error = file:close()
+    if err then return nil, err end
+    if not closed then return nil, close_error end
+    return found
+end
+
 local function extractDictionary(archive, extract_to, prepare)
     local ok, err = util.makePath(ffiUtil.dirname(extract_to))
     if not ok then return ok, err end
@@ -2361,7 +2395,7 @@ local function extractDictionary(archive, extract_to, prepare)
         if not restored then
             -- Keep the old installation available for recovery if rollback fails.
             return false, string.format("%s; previous dictionary preserved at %s (%s)",
-                tostring(err), previous, tostring(restore_error))
+                tostring(err), previous, tostring(restore_error)), true
         end
     end
     cleanup()
@@ -2452,7 +2486,26 @@ function ReaderDictionary:downloadDictionary(dict)
         end
     end
     local dict_dir = self.data_dir.."/"..util.getSafeFilename(install_name, ffiUtil.realpath(self.data_dir))
-    local ok, err = extractDictionary(dict_archive, dict_dir, function(staged)
+    local ok, err, installation_unavailable = extractDictionary(dict_archive, dict_dir, function(staged)
+        local discoverable = false
+        for _index, ifo in ipairs(getIfosInDir(staged)) do
+            if lfs.attributes(ifo, "mode") ~= "file" then
+                return false, _("Dictionary metadata is not a regular file.")
+            end
+            local stem = ifo:sub(1, -5)
+            -- Native selects an existing compressed path even if it cannot be loaded.
+            local index_mode = lfs.attributes(stem .. ".idx.gz", "mode") or lfs.attributes(stem .. ".idx", "mode")
+            local data_mode = lfs.attributes(stem .. ".dict.dz", "mode") or lfs.attributes(stem .. ".dict", "mode")
+            if index_mode ~= "file" or data_mode ~= "file" then
+                return false, _("Dictionary index or data files are missing or invalid.")
+            end
+            if not discoverable then
+                local has_bookname, metadata_error = hasDictionaryBookname(ifo)
+                if has_bookname == nil then return false, metadata_error end
+                discoverable = has_bookname
+            end
+        end
+        if not discoverable then return false, _("No discoverable dictionary metadata was found.") end
         if download_id then
             local ready, identity_error = self:setDownloadDictionaryIdentity(staged, download_id)
             if not ready then return false, identity_error end
@@ -2463,6 +2516,16 @@ function ReaderDictionary:downloadDictionary(dict)
         return true
     end)
     if not ok then
+        if installation_unavailable then
+            available_ifos = false
+            local refreshed, refresh_error = pcall(self.init, self)
+            if not refreshed then
+                -- A partial scan must not keep paths or selections for unavailable files.
+                available_ifos = {}
+                self.enabled_dict_names = {}
+                logger.warn("Dictionary discovery failed after replacement rollback:", refresh_error)
+            end
+        end
         show_info(T(_("Extraction failed:\n\n%1"), BD.ltr(err)))
         return
     end
@@ -2476,10 +2539,12 @@ end
 -- Only conflicting catalogue downloads receive a URL identity. sdcv selects by
 -- bookname, so separating directories alone would not allow independent disabling.
 function ReaderDictionary:setDownloadDictionaryIdentity(dict_dir, download_id)
-    for _, ifo_path in ipairs(getIfosInDir(dict_dir)) do
+    for _index, ifo_path in ipairs(getIfosInDir(dict_dir)) do
         local content, err = util.readFromFile(ifo_path)
         if not content then return false, err end
-        content = content:gsub("(\nbookname=[^\r\n]*)", "%1 [" .. download_id .. "]")
+        local updated, replacements = content:gsub("(\nbookname=[^\r\n]*)", "%1 [" .. download_id .. "]")
+        if replacements == 0 then return false, _("Dictionary metadata does not contain a supported bookname.") end
+        content = updated
         local temporary = ifo_path .. ".tmp"
         local f
         f, err = io.open(temporary, "wb")
