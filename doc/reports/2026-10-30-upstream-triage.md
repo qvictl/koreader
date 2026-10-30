@@ -62,7 +62,7 @@ WAL 最终候选 `9478a710e925b65af59dec0412d895ba60a8b87f` 明确包含已合�
 | 修复 | 最终候选与候选 CI | 验证范围 | 主线交付 |
 | --- | --- | --- | --- |
 | PDF worker 生命周期 | `a2959d5beedb5db8b27e635a54185bb6498ce0c1`；[CI 41016508983](https://github.com/qvictl/koreader/actions/runs/41016508983) | 33 项安全边界、9 项压力检查、3 项原生清理；真实场景 28 为 26/26、两个 worker 已 join；CI front146/base37，改动行 96/103＝93.204% | 07:00:56 UTC 合入 `496f3fd3`；[合入后 CI](https://github.com/qvictl/koreader/actions/runs/41017473409) 成功 |
-| WAL 一致快照 | `9478a710e925b65af59dec0412d895ba60a8b87f`；[CI 41017949388](https://github.com/qvictl/koreader/actions/runs/41017949388) | 19 项相关单测；真实场景 31 为 11/11；CI front147/base37，改动行 56/58＝96.552% | 07:23:43 UTC 合入 `ec3b5cb7` |
+| WAL 一致快照 | `9478a710e925b65af59dec0412d895ba60a8b87f`；[CI 41017949388](https://github.com/qvictl/koreader/actions/runs/41017949388) | 19 项相关单测；真实场景 31 为 11/11；CI front147/base37，改动行 56/58＝96.552% | 07:23:43 UTC 合入 `ec3b5cb7`；[合入后 CI](https://github.com/qvictl/koreader/actions/runs/41019822972) 成功 |
 
 两项均有最新候选的正式 AI 批准与全部必需检查，审查对话全部解决，经原网关正常合入。root 独立核验两份实际合入树分别等于其候选树，`ec3b5cb7` 包含 `496f3fd3`；base 仍为 `7c4e2f0d81afafb8a19dfa2a28ec2df461962272`。上表百分比均为改动行单测覆盖率；普通 CI 的整体指标为未测量，不作为整体 UT 覆盖率提升或发布基线记录。
 
