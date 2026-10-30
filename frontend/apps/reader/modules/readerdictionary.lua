@@ -43,6 +43,8 @@ local android = Device:isAndroid() and require("android")
 local available_ifos = nil
 local lookup_history = nil
 
+local DOWNLOAD_STAGING_PREFIX = ".koreader-dict-download-"
+
 local function getIfosInDir(path)
     -- Get all the .ifo under directory path.
     -- Don't walk into "res/" subdirectories, as per Stardict specs, they
@@ -52,7 +54,8 @@ local function getIfosInDir(path)
     local ok, iter, dir_obj = pcall(lfs.dir, path)
     if ok then
         for name in iter, dir_obj do
-            if name ~= "." and name ~= ".." and name ~= "res" then
+            if name ~= "." and name ~= ".." and name ~= "res"
+                and name:sub(1, #DOWNLOAD_STAGING_PREFIX) ~= DOWNLOAD_STAGING_PREFIX then
                 local fullpath = path.."/"..name
                 local attributes = lfs.attributes(fullpath)
                 if attributes ~= nil then
@@ -956,23 +959,14 @@ function ReaderDictionary:_genDownloadDictionariesMenu()
             languages[dict_lang_in] = {}
         end
         table.insert(languages[dict_lang_in], dict)
-        if not languages[dict_lang_out] then
-            languages[dict_lang_out] = {}
+        -- Monolingual entries already occur under their output language.
+        -- Different dictionaries may share a name, so keep their distinct URLs.
+        if dict_lang_out ~= dict_lang_in then
+            if not languages[dict_lang_out] then
+                languages[dict_lang_out] = {}
+            end
+            table.insert(languages[dict_lang_out], dict)
         end
-        table.insert(languages[dict_lang_out], dict)
-    end
-
-    -- remove duplicates
-    for lang_key,lang in pairs(languages) do
-        local hash = {}
-        local res = {}
-        for k,v in ipairs(lang) do
-           if not hash[v.name] then
-               res[#res+1] = v
-               hash[v.name] = true
-           end
-        end
-        languages[lang_key] = res
     end
 
     local menu_items = {}
@@ -2293,32 +2287,34 @@ function ReaderDictionary:onTapDownloadDict(item)
     })
 end
 
-local function extractDictionary(archive, extract_to)
-    -- Ensure the parent directory exists.
+local function extractDictionary(archive, extract_to, prepare)
     local ok, err = util.makePath(ffiUtil.dirname(extract_to))
-    if not ok then
-        return ok, err
+    if not ok then return ok, err end
+    -- Native sdcv skips hidden directories; discovery skips this owned prefix.
+    -- Unremoved staging or recovery files must never become installed dictionaries.
+    local template = ffiUtil.dirname(extract_to) .. "/" .. DOWNLOAD_STAGING_PREFIX .. "XXXXXX"
+    local buffer = ffi.new("char[?]", #template + 1, template)
+    if C.mkdtemp(buffer) == nil then
+        return false, string.format("mkdtemp(%s): %s", ffi.string(buffer), posix.strerror())
     end
-    -- If there's a previously extracted directory, remove it.
-    if lfs.attributes(extract_to, "mode") then
-        ok, err = ffiUtil.purgeDir(extract_to)
-        if not ok then
-            return ok, err
+    local temporary = ffi.string(buffer)
+    local function cleanup()
+        local removed, cleanup_error = ffiUtil.purgeDir(temporary)
+        if not removed then
+            logger.warn("Dictionary download staging cleanup failed:", temporary, cleanup_error)
         end
     end
-    -- Create a temporary directory alongside the final directory.
-    local tmpdir_template = extract_to .. ".XXXXXX"
-    local tmpdir = ffi.new("char[?]", #tmpdir_template + 1, tmpdir_template)
-    if C.mkdtemp(tmpdir) == nil then
-        return false, string.format("mkdtemp(%s): %s", ffi.string(tmpdir), posix.strerror())
+    local staged = temporary .. "/new"
+    ok, err = util.makePath(staged)
+    if not ok then
+        cleanup()
+        return ok, err
     end
-    tmpdir = ffi.string(tmpdir)
-    -- Extract archive.
     local arc = Archiver.Reader:new()
     ok = arc:open(archive)
     if ok then
         for entry in arc:iterate() do
-            if not arc:extractToPath(entry.path, tmpdir.."/"..entry.path) then
+            if not arc:extractToPath(entry.path, staged.."/"..entry.path) then
                 break
             end
         end
@@ -2326,31 +2322,49 @@ local function extractDictionary(archive, extract_to)
     end
     arc:close()
     os.remove(archive)
-    -- Finalize.
     if ok then
-        -- Determine root directory, if any.
         local archive_root
-        for entry in lfs.dir(tmpdir) do
+        for entry in lfs.dir(staged) do
             if entry ~= ".." and entry ~= "." then
                 if archive_root then
-                    -- Multiple entries: no root.
                     archive_root = nil
                     break
                 end
                 archive_root = entry
             end
         end
-        if archive_root then
-            -- Rename root to final directory and remove temporary directory.
-            ok, err = os.rename(tmpdir.."/"..archive_root, extract_to)
-            os.remove(tmpdir)
+        if archive_root then staged = staged .. "/" .. archive_root end
+        local called, ready, prepare_error = pcall(prepare, staged)
+        if called then
+            ok, err = ready, prepare_error
         else
-            -- No root, just rename the whole temporary directory.
-            ok, err = os.rename(tmpdir, extract_to)
+            ok, err = false, ready
         end
-    else
-        ffiUtil.purgeDir(tmpdir)
     end
+    if not ok then
+        cleanup()
+        return false, err
+    end
+
+    local previous
+    if lfs.attributes(extract_to, "mode") then
+        previous = temporary .. "/previous"
+        ok, err = os.rename(extract_to, previous)
+        if not ok then
+            cleanup()
+            return false, err
+        end
+    end
+    ok, err = os.rename(staged, extract_to)
+    if not ok and previous then
+        local restored, restore_error = os.rename(previous, extract_to)
+        if not restored then
+            -- Keep the old installation available for recovery if rollback fails.
+            return false, string.format("%s; previous dictionary preserved at %s (%s)",
+                tostring(err), previous, tostring(restore_error))
+        end
+    end
+    cleanup()
     return ok, err
 end
 
@@ -2427,20 +2441,63 @@ function ReaderDictionary:downloadDictionary(dict)
     -- Extract archive: a stable target directory is needed so we can look through the folder later.
     -- Additionally, make sure a safe directory name is used (so for example the "Dictionnaire de
     -- l'Académie Française: 8ème edition" dictionary can be installed on Kindle).
-    local dict_dir = self.data_dir.."/"..util.getSafeFilename(dict.name, ffiUtil.realpath(self.data_dir))
-    local ok, err = extractDictionary(dict_archive, dict_dir)
+    local install_name = dict.name
+    local download_id
+    for _, entry in ipairs(require("ui/data/dictionaries")) do
+        if entry.name == dict.name and entry.url ~= dict.url then
+            -- Same-name catalogue downloads must not erase one another on install.
+            download_id = require("ffi/sha2").md5(dict.url)
+            install_name = install_name .. "-" .. download_id
+            break
+        end
+    end
+    local dict_dir = self.data_dir.."/"..util.getSafeFilename(install_name, ffiUtil.realpath(self.data_dir))
+    local ok, err = extractDictionary(dict_archive, dict_dir, function(staged)
+        if download_id then
+            local ready, identity_error = self:setDownloadDictionaryIdentity(staged, download_id)
+            if not ready then return false, identity_error end
+        end
+        if dict.ifo_lang then
+            self:extendIfoWithLanguage(staged, dict.ifo_lang)
+        end
+        return true
+    end)
     if not ok then
         show_info(T(_("Extraction failed:\n\n%1"), BD.ltr(err)))
         return
     end
 
-    -- Update available dictionaries.
-    if dict.ifo_lang then
-        self:extendIfoWithLanguage(dict_dir, dict.ifo_lang)
-    end
+    -- Keep the final paths stable so disabled and ordering settings still apply.
     available_ifos = false
     self:init()
     show_info(_("Dictionary downloaded"))
+end
+
+-- Only conflicting catalogue downloads receive a URL identity. sdcv selects by
+-- bookname, so separating directories alone would not allow independent disabling.
+function ReaderDictionary:setDownloadDictionaryIdentity(dict_dir, download_id)
+    for _, ifo_path in ipairs(getIfosInDir(dict_dir)) do
+        local content, err = util.readFromFile(ifo_path)
+        if not content then return false, err end
+        content = content:gsub("(\nbookname=[^\r\n]*)", "%1 [" .. download_id .. "]")
+        local temporary = ifo_path .. ".tmp"
+        local f
+        f, err = io.open(temporary, "wb")
+        if not f then return false, err end
+        local written, write_error = f:write(content)
+        local closed, close_error = f:close()
+        local ok
+        if written and closed then
+            ok, err = os.rename(temporary, ifo_path)
+        else
+            err = write_error or close_error
+        end
+        if not ok then
+            os.remove(temporary)
+            return false, err
+        end
+    end
+    return true
 end
 
 function ReaderDictionary:extendIfoWithLanguage(dictionary_location, ifo_lang)
