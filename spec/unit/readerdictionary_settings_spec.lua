@@ -765,6 +765,36 @@ describe("ReaderDictionary settings", function()
             assert.are.equal(4, rd:getNumberOfDictionaries())
         end)
 
+        it("keeps same-name catalogue downloads in separate stable directories", function()
+            local name = "German-English dictionary"
+            local first = { name = name, url = "https://example.com/first.tar.gz" }
+            local second = { name = name, url = "https://example.com/second.tar.gz" }
+            local md5 = require("ffi/sha2").md5
+            local function install(entry)
+                http_responses = {
+                    { method = "HEAD", code = 200, headers = { ["content-length"] = "2048" } },
+                    { method = "GET", code = 200, headers = {}, body = readFile(archive) },
+                }
+                rd:downloadDictionary(entry)
+                topWidget().ok_callback()
+                assert.are.equal("Dictionary downloaded", topWidget().text)
+            end
+            local first_dir = dict_dir .. "/" .. name .. "-" .. md5(first.url)
+            local second_dir = dict_dir .. "/" .. name .. "-" .. md5(second.url)
+            install(first)
+            local marker = assert(io.open(first_dir .. "/keep", "w")); marker:write("keep"); marker:close()
+            install(second)
+            assert.are.equal("file", lfs.attributes(first_dir .. "/delta.ifo", "mode"))
+            assert.are.equal("file", lfs.attributes(second_dir .. "/delta.ifo", "mode"))
+            assert.are.equal("keep", readFile(first_dir .. "/keep"))
+            install(second) -- Updating the same URL must use the same directory.
+            assert.are.equal("keep", readFile(first_dir .. "/keep"))
+            assert.are.equal("file", lfs.attributes(second_dir .. "/delta.ifo", "mode"))
+            ffiUtil.purgeDir(first_dir)
+            ffiUtil.purgeDir(second_dir)
+            rd:init()
+        end)
+
         it("should tell about failed requests", function()
             http_responses = { { method = "HEAD", code = 404, headers = {}, status = "HTTP/1.1 404 Not Found" } }
             rd:downloadDictionary(dict)

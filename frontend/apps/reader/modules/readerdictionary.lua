@@ -2418,7 +2418,15 @@ function ReaderDictionary:downloadDictionary(dict)
     -- Extract archive: a stable target directory is needed so we can look through the folder later.
     -- Additionally, make sure a safe directory name is used (so for example the "Dictionnaire de
     -- l'Académie Française: 8ème edition" dictionary can be installed on Kindle).
-    local dict_dir = self.data_dir.."/"..util.getSafeFilename(dict.name, ffiUtil.realpath(self.data_dir))
+    local install_name = dict.name
+    for _, entry in ipairs(require("ui/data/dictionaries")) do
+        if entry.name == dict.name and entry.url ~= dict.url then
+            -- Same-name catalogue downloads must not erase one another on install.
+            install_name = install_name .. "-" .. require("ffi/sha2").md5(dict.url)
+            break
+        end
+    end
+    local dict_dir = self.data_dir.."/"..util.getSafeFilename(install_name, ffiUtil.realpath(self.data_dir))
     local ok, err = extractDictionary(dict_archive, dict_dir)
     if not ok then
         show_info(T(_("Extraction failed:\n\n%1"), BD.ltr(err)))
