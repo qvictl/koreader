@@ -156,6 +156,12 @@ if Device:isKindle() then
             UIManager:scheduleIn(default_kindle_t1_timeout_reset_seconds, self.kindle_task)
         else
             if self:_enabled() then
+                -- powerd may ignore our suspend request, so onSuspend may never
+                -- cancel this timer. Do not spin on an already elapsed t1 delay:
+                -- wait before checking again, without resetting powerd's timer.
+                if kindle_t1_reset_seconds <= 0 then
+                    kindle_t1_reset_seconds = default_kindle_t1_timeout_reset_seconds
+                end
                 logger.dbg("AutoSuspend: scheduling next t1 timeout check in", kindle_t1_reset_seconds)
                 UIManager:scheduleIn(kindle_t1_reset_seconds, self.kindle_task)
             end
