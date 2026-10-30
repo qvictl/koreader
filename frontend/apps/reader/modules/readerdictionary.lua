@@ -2361,7 +2361,7 @@ local function extractDictionary(archive, extract_to, prepare)
         if not restored then
             -- Keep the old installation available for recovery if rollback fails.
             return false, string.format("%s; previous dictionary preserved at %s (%s)",
-                tostring(err), previous, tostring(restore_error))
+                tostring(err), previous, tostring(restore_error)), true
         end
     end
     cleanup()
@@ -2452,7 +2452,18 @@ function ReaderDictionary:downloadDictionary(dict)
         end
     end
     local dict_dir = self.data_dir.."/"..util.getSafeFilename(install_name, ffiUtil.realpath(self.data_dir))
-    local ok, err = extractDictionary(dict_archive, dict_dir, function(staged)
+    local ok, err, installation_unavailable = extractDictionary(dict_archive, dict_dir, function(staged)
+        local discoverable = false
+        for _, ifo in ipairs(getIfosInDir(staged)) do
+            local content, metadata_error = util.readFromFile(ifo)
+            if not content then return false, metadata_error end
+            -- Match the same metadata that init() can discover, including for unique names.
+            if content:match("\nbookname=(.-)\r?\n") then
+                discoverable = true
+                break
+            end
+        end
+        if not discoverable then return false, _("No discoverable dictionary metadata was found.") end
         if download_id then
             local ready, identity_error = self:setDownloadDictionaryIdentity(staged, download_id)
             if not ready then return false, identity_error end
@@ -2463,6 +2474,16 @@ function ReaderDictionary:downloadDictionary(dict)
         return true
     end)
     if not ok then
+        if installation_unavailable then
+            available_ifos = false
+            local refreshed, refresh_error = pcall(self.init, self)
+            if not refreshed then
+                -- A partial scan must not keep paths or selections for unavailable files.
+                available_ifos = {}
+                self.enabled_dict_names = {}
+                logger.warn("Dictionary discovery failed after replacement rollback:", refresh_error)
+            end
+        end
         show_info(T(_("Extraction failed:\n\n%1"), BD.ltr(err)))
         return
     end
@@ -2476,10 +2497,12 @@ end
 -- Only conflicting catalogue downloads receive a URL identity. sdcv selects by
 -- bookname, so separating directories alone would not allow independent disabling.
 function ReaderDictionary:setDownloadDictionaryIdentity(dict_dir, download_id)
-    for _, ifo_path in ipairs(getIfosInDir(dict_dir)) do
+    for _index, ifo_path in ipairs(getIfosInDir(dict_dir)) do
         local content, err = util.readFromFile(ifo_path)
         if not content then return false, err end
-        content = content:gsub("(\nbookname=[^\r\n]*)", "%1 [" .. download_id .. "]")
+        local updated, replacements = content:gsub("(\nbookname=[^\r\n]*)", "%1 [" .. download_id .. "]")
+        if replacements == 0 then return false, _("Dictionary metadata does not contain a supported bookname.") end
+        content = updated
         local temporary = ifo_path .. ".tmp"
         local f
         f, err = io.open(temporary, "wb")
