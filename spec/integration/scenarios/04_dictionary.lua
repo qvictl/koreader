@@ -11,6 +11,33 @@ return {
         local DictHelper = dofile(T.spec_dir .. "/dicthelper.lua")
         local ui = T:openBook(T:fixture("books/en.epub"))
 
+        -- Distinct dictionaries can share a display name. All must remain selectable.
+        local download_menu
+        T:run(function()
+            for _, item in ipairs(ui.dictionary:_genDownloadDictionariesMenu()) do
+                if item.text == "German" then
+                    item.callback()
+                    download_menu = ui.dictionary.dl_dict_list
+                    break
+                end
+            end
+        end)
+        T:check(download_menu, "German dictionary downloads open")
+        T:repaint()
+        local shared_name, urls = 0, {}
+        for _, item in ipairs(download_menu.item_table) do
+            if item.dict.name == "German-English dictionary" then
+                shared_name = shared_name + 1
+                urls[item.dict.url] = true
+                T:eq(item.mandatory, item.dict.entries, "entry count distinguishes same-name downloads")
+            end
+        end
+        T:eq(shared_name, 3, "all three same-name German-English dictionaries are selectable")
+        local distinct_urls = 0
+        for _ in pairs(urls) do distinct_urls = distinct_urls + 1 end
+        T:eq(distinct_urls, 3, "same-name downloads retain distinct URLs")
+        T:run(function() require("ui/uimanager"):close(download_menu) end)
+
         -- Dictionaries found by KOReader: the 4 fixtures, not the decoy one inside it-gamma/res/.
         T:eq(ui.dictionary:getNumberOfDictionaries(), 4, "number of dictionaries found (res/ skipped)")
 

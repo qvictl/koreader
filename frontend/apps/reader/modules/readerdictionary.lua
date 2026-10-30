@@ -956,23 +956,14 @@ function ReaderDictionary:_genDownloadDictionariesMenu()
             languages[dict_lang_in] = {}
         end
         table.insert(languages[dict_lang_in], dict)
-        if not languages[dict_lang_out] then
-            languages[dict_lang_out] = {}
+        -- Monolingual entries already occur under their output language.
+        -- Different dictionaries may share a name, so keep their distinct URLs.
+        if dict_lang_out ~= dict_lang_in then
+            if not languages[dict_lang_out] then
+                languages[dict_lang_out] = {}
+            end
+            table.insert(languages[dict_lang_out], dict)
         end
-        table.insert(languages[dict_lang_out], dict)
-    end
-
-    -- remove duplicates
-    for lang_key,lang in pairs(languages) do
-        local hash = {}
-        local res = {}
-        for k,v in ipairs(lang) do
-           if not hash[v.name] then
-               res[#res+1] = v
-               hash[v.name] = true
-           end
-        end
-        languages[lang_key] = res
     end
 
     local menu_items = {}
