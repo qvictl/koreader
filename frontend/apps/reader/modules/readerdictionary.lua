@@ -234,15 +234,19 @@ function ReaderDictionary:updateSdcvDictNamesOptions()
     -- that sdcv uses to order its results.
 
     self.enabled_dict_names = {}
+    local available_names = {}
+    for _, ifo in pairs(available_ifos) do available_names[ifo.name] = true end
 
-    -- First, insert any preferred dicts, even if globally disabled
+    -- First, insert available preferred dicts, even if globally disabled
     -- (this might allow enabling a dict only for a specific book,
     -- while keeping it disabled for all others)
     local preferred_names_already_in = {}
     if self.preferred_dictionaries then
         for _, name in ipairs(self.preferred_dictionaries) do
-            table.insert(self.enabled_dict_names, name)
-            preferred_names_already_in[name] = true
+            if available_names[name] then
+                table.insert(self.enabled_dict_names, name)
+                preferred_names_already_in[name] = true
+            end
         end
     end
 
@@ -2287,6 +2291,36 @@ function ReaderDictionary:onTapDownloadDict(item)
     })
 end
 
+-- Boolean detection of init()'s LF-delimited bookname, without retaining its value.
+local function hasDictionaryBookname(path)
+    local file, err = io.open(path, "rb")
+    if not file then return nil, err end
+    local marker = "\nbookname="
+    local carry = ""
+    local in_bookname, found = false, false
+    while true do
+        -- A streaming buffer, with no limit on the metadata or field length.
+        local chunk, read_error = file:read(4096)
+        if not chunk then err = read_error; break end
+        if in_bookname then
+            if chunk:find("\n", 1, true) then found = true; break end
+        else
+            chunk = carry .. chunk
+            local marker_at = chunk:find(marker, 1, true)
+            if marker_at then
+                if chunk:find("\n", marker_at + #marker, true) then found = true; break end
+                in_bookname = true
+            else
+                carry = chunk:sub(1 - #marker)
+            end
+        end
+    end
+    local closed, close_error = file:close()
+    if err then return nil, err end
+    if not closed then return nil, close_error end
+    return found
+end
+
 local function extractDictionary(archive, extract_to, prepare)
     local ok, err = util.makePath(ffiUtil.dirname(extract_to))
     if not ok then return ok, err end
@@ -2455,10 +2489,9 @@ function ReaderDictionary:downloadDictionary(dict)
     local ok, err, installation_unavailable = extractDictionary(dict_archive, dict_dir, function(staged)
         local discoverable = false
         for _, ifo in ipairs(getIfosInDir(staged)) do
-            local content, metadata_error = util.readFromFile(ifo)
-            if not content then return false, metadata_error end
-            -- Match the same metadata that init() can discover, including for unique names.
-            if content:match("\nbookname=(.-)\r?\n") then
+            local has_bookname, metadata_error = hasDictionaryBookname(ifo)
+            if has_bookname == nil then return false, metadata_error end
+            if has_bookname then
                 discoverable = true
                 break
             end
