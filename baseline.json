@@ -1,40 +1,40 @@
 {
-  "date": "2026-10-29",
+  "date": "2026-10-30",
   "mode": "combined",
   "overall": {
-    "covered": 52757,
-    "total": 99319,
-    "percent": 53.119,
-    "files": 491
+    "covered": 52952,
+    "total": 99483,
+    "percent": 53.227,
+    "files": 492
   },
   "overall_unit": {
-    "covered": 47846,
-    "total": 98637,
-    "percent": 48.507,
+    "covered": 48220,
+    "total": 98805,
+    "percent": 48.803,
     "min": null
   },
   "diff_unit": {
-    "covered": 13,
-    "total": 13,
-    "percent": 100
+    "covered": 224,
+    "total": 235,
+    "percent": 95.319
   },
   "diff_combined": {
-    "covered": 13,
-    "total": 13,
-    "percent": 100
+    "covered": 224,
+    "total": 235,
+    "percent": 95.319
   },
   "unit_ratchet": {
-    "baseline": 48.473,
-    "label": "main@8e9a159e (previous actual full unit measurement)"
+    "baseline": 48.507,
+    "label": "main@ab190e63 (previous actual full unit measurement)"
   },
   "ratchet": {
-    "baseline": 53.085,
-    "label": "main@8e9a159e (previous actual combined measurement)"
+    "baseline": 53.119,
+    "label": "main@ab190e63 (previous actual combined measurement)"
   },
   "owned": {
-    "covered": 707,
-    "total": 719,
-    "percent": 98.331,
+    "covered": 856,
+    "total": 877,
+    "percent": 97.605,
     "min": 80,
     "ok": true,
     "modules": {
@@ -46,9 +46,9 @@
       },
       "frontend/apps/reader/modules/readerdictionary.lua": {
         "scope": "fork",
-        "covered": 375,
-        "total": 381,
-        "percent": 98.425
+        "covered": 447,
+        "total": 456,
+        "percent": 98.026
       },
       "frontend/ui/widget/dictquicklookup.lua": {
         "scope": "fork",
@@ -58,9 +58,9 @@
       },
       "frontend/ui/trapper.lua": {
         "scope": "fork",
-        "covered": 83,
+        "covered": 84,
         "total": 84,
-        "percent": 98.81
+        "percent": 100
       },
       "frontend/ui/uimanager.lua": {
         "scope": "func:UIManager:widgetInvert",
@@ -127,6 +127,12 @@
         "covered": 87,
         "total": 92,
         "percent": 94.565
+      },
+      "frontend/document/koptthread.lua": {
+        "scope": "file",
+        "covered": 76,
+        "total": 83,
+        "percent": 91.566
       }
     }
   },
@@ -169,9 +175,9 @@
     }
   ],
   "ok": true,
-  "commit": "ab190e63c8ba8cab2324443ca13be9d390c8f157",
+  "commit": "ab784a8c080255007497f8009d9d1890fd1cdea8",
   "event": "release",
-  "diff_base": "8e9a159e16f39541a9c3c406e548f5cac65e1bc3",
-  "ratchet_base": "8e9a159e16f39541a9c3c406e548f5cac65e1bc3",
-  "updated": "2026-10-29T17:19:37Z"
+  "diff_base": "ab190e63c8ba8cab2324443ca13be9d390c8f157",
+  "ratchet_base": "ab190e63c8ba8cab2324443ca13be9d390c8f157",
+  "updated": "2026-10-30T10:36:16Z"
 }
