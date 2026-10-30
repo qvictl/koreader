@@ -2488,12 +2488,21 @@ function ReaderDictionary:downloadDictionary(dict)
     local dict_dir = self.data_dir.."/"..util.getSafeFilename(install_name, ffiUtil.realpath(self.data_dir))
     local ok, err, installation_unavailable = extractDictionary(dict_archive, dict_dir, function(staged)
         local discoverable = false
-        for _, ifo in ipairs(getIfosInDir(staged)) do
-            local has_bookname, metadata_error = hasDictionaryBookname(ifo)
-            if has_bookname == nil then return false, metadata_error end
-            if has_bookname then
-                discoverable = true
-                break
+        for _index, ifo in ipairs(getIfosInDir(staged)) do
+            if lfs.attributes(ifo, "mode") ~= "file" then
+                return false, _("Dictionary metadata is not a regular file.")
+            end
+            local stem = ifo:sub(1, -5)
+            -- Native selects an existing compressed path even if it cannot be loaded.
+            local index_mode = lfs.attributes(stem .. ".idx.gz", "mode") or lfs.attributes(stem .. ".idx", "mode")
+            local data_mode = lfs.attributes(stem .. ".dict.dz", "mode") or lfs.attributes(stem .. ".dict", "mode")
+            if index_mode ~= "file" or data_mode ~= "file" then
+                return false, _("Dictionary index or data files are missing or invalid.")
+            end
+            if not discoverable then
+                local has_bookname, metadata_error = hasDictionaryBookname(ifo)
+                if has_bookname == nil then return false, metadata_error end
+                discoverable = has_bookname
             end
         end
         if not discoverable then return false, _("No discoverable dictionary metadata was found.") end

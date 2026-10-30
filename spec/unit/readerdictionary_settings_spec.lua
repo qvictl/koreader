@@ -781,14 +781,25 @@ describe("ReaderDictionary settings", function()
         local function purgeStaging()
             for _, path in ipairs(stagingDirectories()) do ffiUtil.purgeDir(path) end
         end
-        local function nativeLookup()
+        local function nativeLookup(word)
             local pipe = assert(io.popen(util.shell_escape({ "./sdcv", "--utf8-input", "--utf8-output", "--json-output",
-                "--non-interactive", "--only-data-dir", "--data-dir", dict_dir, "--exact-search", "--", "harbor" })))
+                "--non-interactive", "--only-data-dir", "--data-dir", dict_dir, "--exact-search", "--", word or "harbor" })))
             local output = pipe:read("*a")
             assert(pipe:close())
             local results = require("rapidjson").decode(output)
             assert.is_table(results)
             return results
+        end
+
+        local function installArchive(entry, body)
+            http_responses = {
+                { method = "HEAD", code = 200, headers = { ["content-length"] = tostring(#body) } },
+                { method = "GET", code = 200, headers = {}, body = body },
+            }
+            rd:downloadDictionary(entry)
+            topWidget().ok_callback()
+            assert.are.equal(0, #http_responses)
+            return topWidget().text
         end
 
         local dict = { name = "Delta: l'édition", url = "https://example.com/dl/delta.tar.gz", ifo_lang = "en-de",
@@ -1180,6 +1191,130 @@ describe("ReaderDictionary settings", function()
                         assert.are.equal(31, G_reader_settings:readSetting("dicts_order")[ifo])
                         assert.are.equal(count, rd:getNumberOfDictionaries())
                         assert.same({}, stagingDirectories())
+                    end
+                end)
+            end
+        end
+
+        it("keeps old bytes and settings when any candidate lacks regular companion files", function()
+            local entry = { name = "Companion admission dictionary", url = "https://example.com/companions.tar.gz" }
+            local target, source = dict_dir .. "/" .. entry.name, tmp .. "/companions-source"
+            local saved_disabled, saved_order = util.tableDeepCopy(rd.dicts_disabled), util.tableDeepCopy(rd.dicts_order)
+            local attributes, dir, open_stub
+            local function restoreStubs()
+                if open_stub then open_stub:revert(); open_stub = nil end
+                if dir then dir:revert(); dir = nil end
+                if attributes then attributes:revert(); attributes = nil end
+            end
+            finally(function()
+                restoreStubs()
+                ffiUtil.purgeDir(source); ffiUtil.purgeDir(target); purgeStaging()
+                G_reader_settings:saveSetting("dicts_disabled", saved_disabled)
+                G_reader_settings:saveSetting("dicts_order", saved_order)
+                reloadDictionaries()
+            end)
+            assert.are.equal("Dictionary downloaded", installArchive(entry, readFile(archive)))
+            local old, ifo = {}, target .. "/delta.ifo"
+            for _, suffix in ipairs({ ".ifo", ".idx", ".dict" }) do old[suffix] = readFile(target .. "/delta" .. suffix) end
+            rd.dicts_disabled[ifo], rd.dicts_order[ifo] = true, 33
+            G_reader_settings:saveSetting("dicts_disabled", rd.dicts_disabled)
+            G_reader_settings:saveSetting("dicts_order", rd.dicts_order)
+            for _, kind in ipairs({ "ifo_only", "no_index", "no_data", "wrong_stem", "index_directory", "data_directory",
+                    "compressed_index_directory", "compressed_data_directory", "metadata_nonregular", "later_incomplete" }) do
+                ffiUtil.purgeDir(source)
+                local bundle = source .. "/bundle"
+                StarDict.write(bundle, "delta", "Delta", { harbor = "replacement data" })
+                local stem = bundle .. "/delta"
+                if kind == "ifo_only" or kind == "no_index" or kind == "index_directory" then assert(os.remove(stem .. ".idx")) end
+                if kind == "ifo_only" or kind == "no_data" or kind == "data_directory" then assert(os.remove(stem .. ".dict")) end
+                if kind == "wrong_stem" then
+                    assert(os.rename(stem .. ".idx", bundle .. "/other.idx")); assert(os.rename(stem .. ".dict", bundle .. "/other.dict"))
+                elseif kind == "index_directory" then assert(lfs.mkdir(stem .. ".idx"))
+                elseif kind == "data_directory" then assert(lfs.mkdir(stem .. ".dict"))
+                elseif kind == "compressed_index_directory" then assert(lfs.mkdir(stem .. ".idx.gz"))
+                elseif kind == "compressed_data_directory" then assert(lfs.mkdir(stem .. ".dict.dz"))
+                elseif kind == "later_incomplete" then
+                    StarDict.write(bundle, "second", "Second", { harbor = "incomplete data" })
+                    assert(os.remove(bundle .. "/second.idx"))
+                    local raw_dir, ordered = lfs.dir, false
+                    dir = stub(lfs, "dir", function(path)
+                        if not ordered and path:find("/" .. STAGING_PREFIX, 1, true) and path:sub(-7) == "/bundle" then
+                            ordered = true
+                            local names, position = { "delta.ifo", "second.ifo" }, 0
+                            return function() position = position + 1; return names[position] end
+                        end
+                        return raw_dir(path)
+                    end)
+                end
+                local metadata_opened, raw_open = false, io.open
+                open_stub = stub(io, "open", function(path, mode)
+                    if path:find("/" .. STAGING_PREFIX, 1, true) and path:match("%.ifo$") then metadata_opened = true end
+                    return raw_open(path, mode)
+                end)
+                if kind == "metadata_nonregular" then
+                    local raw_attributes = lfs.attributes
+                    attributes = stub(lfs, "attributes", function(path, key)
+                        if key == "mode" and path:find("/" .. STAGING_PREFIX, 1, true) and path:match("%.ifo$") then return "named pipe" end
+                        return raw_attributes(path, key)
+                    end) -- Simulate the type without creating a special file.
+                end
+                local tar = tmp .. "/companions.tar.gz"
+                assert.are.equal(0, os.execute(util.shell_escape({ "tar", "czf", tar, "-C", source, "bundle" })))
+                local message = installArchive(entry, readFile(tar))
+                restoreStubs()
+                for suffix, content in pairs(old) do
+                    assert.are.equal("file", lfs.attributes(target .. "/delta" .. suffix, "mode"), kind .. " removed old files")
+                    assert.are.equal(content, readFile(target .. "/delta" .. suffix), kind .. " changed old bytes")
+                end
+                assert.matches("Extraction failed", message)
+                if kind == "metadata_nonregular" then assert.is_false(metadata_opened) end
+                assert.is_true(G_reader_settings:readSetting("dicts_disabled")[ifo])
+                assert.are.equal(33, G_reader_settings:readSetting("dicts_order")[ifo])
+                assert.same({}, stagingDirectories())
+            end
+        end)
+
+        for _, index_kind in ipairs({ "plain", "gzip" }) do
+            for _, data_kind in ipairs({ "plain", "dictzip" }) do
+                it("queries the official fixture with " .. index_kind .. " index and " .. data_kind .. " data", function()
+                    local fixture = "spec/unit/fixtures/sdcv-synonyms"
+                    local source = tmp .. "/official-compressed-source"
+                    local entry = { name = "Official compressed dictionary", url = "https://example.com/official.tar.gz" }
+                    local target = dict_dir .. "/" .. entry.name
+                    finally(function()
+                        ffiUtil.purgeDir(source); ffiUtil.purgeDir(target)
+                        purgeStaging(); reloadDictionaries()
+                    end)
+                    assert(util.makePath(source))
+                    for _, suffix in ipairs({ ".ifo", ".syn" }) do
+                        assert.is_nil(ffiUtil.copyFile(fixture .. "/test" .. suffix, source .. "/test" .. suffix))
+                    end
+                    if index_kind == "gzip" then
+                        local command = util.shell_escape({ "gzip", "-c", fixture .. "/test.idx" })
+                            .. " > " .. util.shell_escape({ source .. "/test.idx.gz" })
+                        assert.are.equal(0, os.execute(command))
+                    else
+                        assert.is_nil(ffiUtil.copyFile(fixture .. "/test.idx", source .. "/test.idx"))
+                    end
+                    if data_kind == "dictzip" then
+                        assert.is_nil(ffiUtil.copyFile(fixture .. "/test.dict.dz", source .. "/test.dict.dz"))
+                    else
+                        local command = util.shell_escape({ "gzip", "-dc", fixture .. "/test.dict.dz" })
+                            .. " > " .. util.shell_escape({ source .. "/test.dict" })
+                        assert.are.equal(0, os.execute(command))
+                    end
+                    local tar = tmp .. "/official-compressed.tar.gz"
+                    assert.are.equal(0, os.execute(util.shell_escape({ "tar", "czf", tar, "-C", source, "." })))
+                    assert.are.equal("Dictionary downloaded", installArchive(entry, readFile(tar)))
+                    for _, word in ipairs({ "foo", "bar", "test" }) do
+                        local matches = 0
+                        for _, result in ipairs(nativeLookup(word)) do
+                            if result.dict == "Test synonyms" then
+                                matches = matches + 1
+                                assert.are.equal("result of test", result.definition:match("^%s*(.-)%s*$"))
+                            end
+                        end
+                        assert.are.equal(1, matches, "official synonym oracle for " .. word)
                     end
                 end)
             end
