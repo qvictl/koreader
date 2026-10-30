@@ -145,9 +145,9 @@ describe("Cache memory pressure", function()
     it("keeps old eviction scope for busy reflow and reclaims ready contexts safely", function()
         local KoptInterface = require("document/koptinterface")
         local DocCache = require("document/doccache")
-        local FFIUtil = require("ffi/util")
+        local KoptThread = require("document/koptthread")
         local cache = newCache()
-        local contexts, waits = {}, 0
+        local contexts, busy_joins = {}, 0
         local old_cache, old_size = DocCache.cache, DocCache.size
         local old_bg, old_context_size = KoptInterface.bg_thread, KoptInterface.last_context_size
         DocCache.cache, DocCache.size = cache.cache, cache.size
@@ -176,10 +176,9 @@ describe("Cache memory pressure", function()
             KoptInterface.bg_thread = true
             return context
         end)
-        replace(FFIUtil, "usleep", function(delay)
-            assert.are.equal(100000, delay)
-            waits = waits + 1
-            for _, context in pairs(contexts) do context.busy = false end
+        replace(KoptThread, "wait", function(context)
+            if context.busy then busy_joins = busy_joins + 1 end
+            context.busy = false
         end)
         for i = 1, 16 do insert(cache, "metadata" .. i, 1) end
         local doc = { getPageBBox = function() return nil end }
@@ -192,7 +191,7 @@ describe("Cache memory pressure", function()
         end)
         DocCache:memoryPressureCheck()
         assert.are.equal(2, gc_calls)
-        assert.are.equal(0, waits)
+        assert.are.equal(0, busy_joins)
         assert.are.equal(9, cache.cache:used_slots())
         assert.are.equal(407, cache.cache:used_size())
         assert.are.equal(0, contexts[1].frees)
@@ -203,7 +202,7 @@ describe("Cache memory pressure", function()
         DocCache:memoryPressureCheck()
         assert.are.equal(4, gc_calls)
         assert.are.equal(200, cache.cache:used_size())
-        assert.are.equal(0, waits)
+        assert.are.equal(0, busy_joins)
         assert.are.equal(1, contexts[1].frees)
         assert.are.equal(0, contexts[2].frees)
         assert.is_nil(KoptInterface.bg_thread)
@@ -213,7 +212,7 @@ describe("Cache memory pressure", function()
         KoptInterface.bg_thread = true
         DocCache:clear()
         DocCache:clear()
-        assert.are.equal(1, waits)
+        assert.are.equal(1, busy_joins)
         assert.are.equal(1, contexts[1].frees)
         assert.are.equal(1, contexts[2].frees)
         assert.is_nil(KoptInterface.bg_thread)
