@@ -2,7 +2,7 @@
 
 **本轮结果：PDF 后台线程生命周期与 WAL 云同步两项优先修复均已合入主线。** 扫描报告先交付后，仅恢复这两项。字典 PR49、插件 PR71、base PR35 继续暂停。页脚 PR50 在用户要求先报告前已合入，本报告保留该事实。下表区分已交付与尚未合入的候选。
 
-修复状态核查于 2026-10-30 07:29 UTC；开放条目数使用本轮采样快照，不能当作此时的实时总数。
+修复状态核查于 2026-10-30 08:02 UTC；开放条目数使用本轮采样快照，不能当作此时的实时总数。
 
 本轮只读调查 `koreader/koreader`、`koreader/koreader-base` 和 `finlater/weread.koplugin`，
 以数据安全、可复现崩溃、常用功能正确性和实现风险排序，挑选适合本 fork 的修复。
@@ -41,8 +41,8 @@
 | [统计云同步 WAL 旧快照](https://github.com/koreader/koreader/issues/16299) | 真实 SQLite 中本地 2 本书，实际上传及 `.sync` 基线只有 1 本；直接复制主文件漏掉已提交 WAL 数据 | stats/vocab 显式使用一致 SQLite 快照；上传与原子替换基线使用同一快照；上传期间新增数据留给下次同步；验证冲突/失败清理与旧基线保护 | [本 fork PR51](https://github.com/qvictl/koreader/pull/51)，已合入 `ec3b5cb7583c65e40eeee9dba3700690ced940d6` |
 | PDF 后台 context 的线程完成与回收窗口（本轮 CI 额外发现） | 两次独立 CI 出现原生崩溃；对应 native 源码在最终写入前清除进度标记，不能用该标记代替线程完成同步。无原生栈，精确崩溃因果仍未证明 | Lua 层保留 joinable worker，在消费、序列化、释放和 GC 前等待真实返回；检查启动失败、fork 和跨平台边界 | [本 fork PR52](https://github.com/qvictl/koreader/pull/52)，已合入 `496f3fd326dda8c67faa69d7eb33f7b1ec318c28`；[生命周期验证报告](2026-10-30-kopt-thread-lifetime.md) |
 | [禁用页脚后目录重置崩溃](https://github.com/koreader/koreader/issues/16202) / [生命周期修复建议](https://github.com/koreader/koreader/pull/16203) | 完全禁用页脚时没有进度条，EPUB 目录重置却仍更新标记，真实 ReaderUI 与模拟器均复现 nil 错误 | 一行生产修复，按已有禁用生命周期停止标记更新；完整 ReaderFooter 23 个单测和真实重排场景 7 个检查通过，均有修前失败证据 | [本 fork PR50](https://github.com/qvictl/koreader/pull/50)，已合入 `ff643535c92edac959dce59155a8db94300e3caa` |
-| [同名词典被下载菜单隐藏](https://github.com/koreader/koreader/pull/16281) | 真实 1773 项目录中 5 个下载地址、10 个语言入口被显示名去重隐藏 | 菜单按下载地址区分；同时处理同名版本安装目录与实际词典身份，避免“菜单可选但安装/禁用互相覆盖”；未知来源旧目录不猜测删除 | [本 fork PR49](https://github.com/qvictl/koreader/pull/49)，已暂停，未合入；故障分支单测的 finally 隔离问题仍待处理 |
-| [二维码 UI 候选](https://github.com/finlater/weread.koplugin/pull/225) | 官方运行时样本存在 0.9 二次插值；简单放大又会令白边不足，不能照搬尺寸改动或其中未证的鉴权假设 | 复用原生 QR 编码/绘制，保持整数像素与至少四模块白边；保留取消、释放、F5 刷新；不改鉴权协议。六组真实运行时/视口流程验证 | [本 fork PR71](https://github.com/qvictl/weread.koplugin/pull/71)，已暂停，未合入 |
+| [同名词典被下载菜单隐藏](https://github.com/koreader/koreader/pull/16281) | 真实 1773 项目录中 5 个下载地址、10 个语言入口被显示名去重隐藏 | 菜单按下载地址区分；同时处理同名版本安装目录与实际词典身份，避免“菜单可选但安装/禁用互相覆盖”；未知来源旧目录不猜测删除 | [本 fork PR49](https://github.com/qvictl/koreader/pull/49)，已暂停，未合入；身份改写失败时须保留旧词典，安装流程还需临时目录与成功替换保护；故障测试的 finally 隔离修正尚未提交 |
+| [二维码 UI 候选](https://github.com/finlater/weread.koplugin/pull/225) | 官方运行时样本存在 0.9 二次插值；简单放大又会令白边不足，不能照搬尺寸改动或其中未证的鉴权假设 | 复用原生 QR 编码/绘制，保持整数像素与至少四模块白边；保留取消、释放、F5 刷新；不改鉴权协议。六组真实运行时/视口流程验证 | [本 fork PR71](https://github.com/qvictl/weread.koplugin/pull/71)，已暂停，未合入；AI 尚要求测试同时兼容 QRWidget 无图像和零尺寸图像的失败分支 |
 | [RGB565 缩放行距错误](https://github.com/koreader/koreader/issues/16298) | 格式转换后仍使用旧行距，当前 base 与上游对应代码均受影响 | 一行生产修复；旧实现由 Lua 参数边界安全拒绝，修后正常原生像素、尺寸和输入数据保持验证通过；2 个原生 UT 与 35 个跨仓检查通过 | [本 fork base PR35](https://github.com/qvictl/koreader-base/pull/35)，Actions 外部禁用阻塞，尚未合入 |
 
 SQLite 能力已分别在本轮 main 原生运行时和官方 v2026.07.1 实测：
@@ -93,6 +93,8 @@ WAL 最终候选 `9478a710e925b65af59dec0412d895ba60a8b87f` 明确包含已合�
 按照 [CONTRIBUTING](../../CONTRIBUTING.md) 与当前 CI，普通 PR 须通过全部必需构建、选择性 UT、改动行单测覆盖率与 AI/对话门禁；用户可见修复还须提供适用集成场景，但完整模拟器 IT 在发版候选验证时执行。本轮有针对性的本地主机集成复现，不改变该执行策略或门槛。README 的中英文贡献说明也已与此策略对齐。
 未为本轮修改版本号、手动发版或重新安装设备。
 
+三个 `do-not-merge` 均为维护 agent 在“先报告、暂停实施”阶段添加的暂停标记。随后只推进了 WAL/PDF，其他三项保留暂停；它们的剩余技术问题见上表。标签会阻止自动合并，移除后仍须通过当前提交的 CI、AI 与审查对话门禁。
+
 base 的 Actions 设置显示 enabled、workflow 显示 active；此前执行接口返回 HTTP422 禁用，本轮 PR 仍没有 required checks，尚未确认执行恢复。
 因此其修复与配套 core 测试已经保存、验证并推到自有分支，却不能算作已合入。
 配套 core 测试保留 `f76d9115004eb61c46a993f0eac85a63802487bb`，没有把未合 base 固定进产品 main，也未绕过分支保护。
@@ -101,7 +103,7 @@ base 的 Actions 设置显示 enabled、workflow 显示 active；此前执行接
 本 fork 的 PR 描述、评论和提交消息也避免上游条目的 URL/跨仓引用，防止自动 cross-reference 通知；
 来源和归属保留在仓库文件中，而不是给维护者发送完成通知。
 
-本轮结果不等于所有上游问题已解决。原 Oasis 3 的 811 章卡死/COW 因果、长期长书和休眠恢复真机验收仍未闭环。
+811 章真机问题已由用户确认闭环；原有“仍未闭环”的状态标注有误，现已更正。本轮新增 PDF/WAL 修复的主机测试、真实云服务和硬件验证范围仍按上文分别记录。
 
 ## 本轮 CI 额外发现：原生线程生命周期风险
 
