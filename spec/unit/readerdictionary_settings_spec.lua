@@ -1277,7 +1277,7 @@ describe("ReaderDictionary settings", function()
         for _, index_kind in ipairs({ "plain", "gzip" }) do
             for _, data_kind in ipairs({ "plain", "dictzip" }) do
                 it("queries the official fixture with " .. index_kind .. " index and " .. data_kind .. " data", function()
-                    local fixture = "spec/unit/fixtures/sdcv-synonyms"
+                    local fixture = ffiUtil.dirname(debug.getinfo(1, "S").source:sub(2)) .. "/fixtures/sdcv-synonyms"
                     local source = tmp .. "/official-compressed-source"
                     local entry = { name = "Official compressed dictionary", url = "https://example.com/official.tar.gz" }
                     local target = dict_dir .. "/" .. entry.name
