@@ -808,17 +808,17 @@ describe("ReaderDictionary settings", function()
             assert.is_true(#menu > 10)
             local english = findItem(menu, "English")
             assert.truthy(english)
-            -- sorted, no duplicates
+            -- Sorted language menus, and no repeated download URLs.
             for i = 2, #menu do
                 assert.is_true(menu[i - 1].text < menu[i].text)
             end
             english.callback()
             local list = rd.dl_dict_list
             local all = #list.item_table
-            local names = {}
+            local urls = {}
             for _, item in ipairs(list.item_table) do
-                assert.is_nil(names[item.text])
-                names[item.text] = true
+                assert.is_nil(urls[item.dict.url])
+                urls[item.dict.url] = true
             end
             -- Filter: monolingual, then bilingual
             list.onLeftButtonTap()
