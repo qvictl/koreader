@@ -579,13 +579,16 @@ function KoptInterface:hintReflowedPage(doc, pageno, zoom, rotation, hinting)
     local hash = table.concat(hash_list, "|")
     local cached = DocCache:check(hash)
     if not cached then
+        local context_size = self.last_context_size or self.default_context_size
+        if DocCache.size and not DocCache:willAccept(context_size) then return end
+        if not KoptThread.canStart(get_pthread()) then return end
         if hinting then
             CanvasContext:enableCPUCores(2)
         end
         local kc = self:reflowPage(doc, pageno, bbox, true)
         if not kc then return end
         DocCache:insert(hash, ContextCacheItem:new{
-            size = self.last_context_size or self.default_context_size,
+            size = context_size,
             kctx = kc,
         })
         -- We'll wait until the background thread is done to go back to a single core, as this returns immediately!

@@ -9,6 +9,8 @@ CI 在真实 cache-pressure 清理测试中出现 glibc heap consolidation abort
 
 fork 子进程拒绝消费父进程尚未 join 的 context；父进程已 join 的 context 仍可读取，不 join 父线程，也不析构其尚在修改的 native buffer 快照；继承的分配由子进程退出统一回收。缓存逐出直接进入释放路径，避免消费等待提前抛错阻断逐出；逐出这些已跟踪的后台 context 时，子进程也不代父线程修改 CPU 配置。正常进程发生 join 错误时拒绝消费和释放；GC 无法 join 则记录错误并保留 context，后续 reaping 逐项重试回收，单个错误不阻止其他 context 回收或新任务启动；仍有未回收 owner 时，跳过新的后台预取，避免继续增加异步故障或阻塞 HintPage 的 UI 回调；回收成功后恢复后台工作，每个 owner 的释放错误只记录一次。这是不可恢复 POSIX 错误下的显式安全隔离，不能把仍可能被 native 使用的内存强行释放。
 
+正常预取在 CPU boost 和像素渲染前冻结同一份 context 字节估计，用于缓存准入及最终插入；slot-only 缓存不调用字节预算判断。预算拒收、线程库不可用或隔离未解除时直接跳过，避免创建随后在压力 GC 中等待的 orphan context。真实插入异常、异常丢引用仍保留 GC join 作为内存安全兜底，可能等待 worker；本修复不声称所有异常 GC 都无阻塞，也不通过提前清除 precache 或跳过 join 强行释放。彻底非阻塞的异常回收需要另行设计可靠的 native 完成与回收机制。
+
 安全负例只使用模拟 pthread 和 Lua 断言，不运行 native worker：覆盖提前置零仍须 join、延迟写 thread 数组、GC/重复释放、缓存拒绝与异常、消费/序列化边界、启动失败、join 错误隔离与恢复、fake PID 变化。修复后真实 native cache-pressure 单测 3/3 通过；完整 ReaderUI 场景 `28_cache_pressure` 26/26 检查通过，确认两个真实 native worker 均已 join。
 
 本地原生验证复用成功 CI 的 a2c7697 模拟器产物及相同 base SHA，通过启动注入加载本工作树的 Lua；没有改写只读 runtime，也未重新编译 native。第一次场景运行曾因启动注入被覆盖而误用了旧 cache Lua，修正注入后再次运行通过；第一次结果保留在本地证据目录。模拟器验证不代表 Kindle 真机验收。

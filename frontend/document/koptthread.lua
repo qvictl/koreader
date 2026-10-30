@@ -120,6 +120,11 @@ function KoptThread.isInherited(kc)
     return worker ~= nil and inherited(worker)
 end
 
+function KoptThread.canStart(pthread)
+    KoptThread.reap()
+    return pthread ~= nil and retained_count == 0
+end
+
 function KoptThread.wait(kc)
     local worker = workers[kc]
     if worker then
