@@ -3103,7 +3103,8 @@ function ReaderStatistics:onSyncBookStats(interactive)
                 })
             end
         end
-        self.ui.cloudstorage:sync(self.settings.sync_server, db_location, self.onSync, not interactive, caller_pre_callback)
+        self.ui.cloudstorage:sync(self.settings.sync_server, db_location, self.onSync, not interactive, caller_pre_callback,
+            self.ui.cloudstorage.createSQLiteSnapshot)
     end
 end
 

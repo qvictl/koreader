@@ -2094,7 +2094,8 @@ function VocabBuilder:onSyncVocabBuilder(interactive)
         if self.widget then
             DB:batchUpdateItems(self.widget.item_table)
         end
-        self.ui.cloudstorage:sync(settings.server, DB.path, DB.onSync, not interactive)
+        self.ui.cloudstorage:sync(settings.server, DB.path, DB.onSync, not interactive, nil,
+            self.ui.cloudstorage.createSQLiteSnapshot)
         if self.widget then
             self.widget:reloadItems()
         end
