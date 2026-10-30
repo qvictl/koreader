@@ -16,3 +16,5 @@ fork 子进程拒绝消费父进程尚未 join 的 context；父进程已 join �
 Windows 保留原有 libwinpthread 路径；进程标识显式使用 Windows CRT 的 [`_getpid`](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/getpid)，不会假定 POSIX `getpid` 符号存在。该分支有 fake Windows API 测试，主机未执行 Windows 原生验证。
 
 首轮 PR CI 的真实 KOPT、cache-pressure 和新生命周期套件均通过；唯一失败是既有 cache-memorypressure 合成测试仍通过拦截 `usleep` 模拟线程完成。它已改为模拟 join 边界，仍单独验证 busy context 的等待次数和旧压力回收范围，目标套件 9/9 通过；该断言失败与此前 native 崩溃分开记录。
+
+修正生命周期后的 CI 另遇既有 WakeupMgr 单测跨秒：预期 epoch 与 addTask 分别读取实时时钟，差 1 秒后导致共享队列断言级联失败。仅在该套件 setup 固定 os.time 快照并在 teardown 还原，生产 RTC/队列逻辑及原断言均未改。安全注入第 4 次 RTC 换算时底层时钟加 1 秒，旧套件 6/8 失败、修后 8/8 通过；这是 CI 测试时钟修复，不作为新产品缺陷。
