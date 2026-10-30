@@ -43,7 +43,7 @@ base 主线比产品 gitlink 多出的 [PR #33](https://github.com/qvictl/koread
 
 归档失败和特殊数字序列化已修复并回移；macOS 平台标识判断已修复；原生字体在文档销毁后释放。
 子进程结果管道、文件操作错误传播和直接执行的 shell 输出管道也已交付，分别有单测与产品集成回归。
-详见 [base 分报告](https://github.com/qvictl/koreader-base/blob/main/doc/reports/2026-10-29-maintenance.md)
+详见 [base 分报告](https://github.com/qvictl/koreader-base/blob/62aa10c712fa090483921eeb216789fc3c05a433/doc/reports/2026-10-29-maintenance.md)
 及 [#23](https://github.com/qvictl/koreader-base/pull/23)、[#25](https://github.com/qvictl/koreader-base/pull/25)、
 [#26](https://github.com/qvictl/koreader-base/pull/26)、[#27](https://github.com/qvictl/koreader-base/pull/27)、
 [#28](https://github.com/qvictl/koreader-base/pull/28)、[#29](https://github.com/qvictl/koreader-base/pull/29)。
@@ -57,7 +57,7 @@ base 主线比产品 gitlink 多出的 [PR #33](https://github.com/qvictl/koread
 最新交付中，资源命名修复避免封面名称冲突导致挂起；共享预算持续占用到精确 PID 回收；
 手动待同步进度在重开/恢复阅读后重试；章节 worker 只返回当前章节变化；reader 会话在同一下载任务内复用，
 错误或重试时回到新建会话路径。详见
-[插件分报告](https://github.com/qvictl/weread.koplugin/blob/main/docs/reports/2026-10-29-maintenance.md)
+[插件分报告](https://github.com/qvictl/weread.koplugin/blob/54145af8ff4bcf23cf53c20b629d6be23a23be60/docs/reports/2026-10-29-maintenance.md)
 和 [v1.6.92](https://github.com/qvictl/weread.koplugin/releases/tag/v1.6.92)。
 
 ## 3. 性能实测及代价
