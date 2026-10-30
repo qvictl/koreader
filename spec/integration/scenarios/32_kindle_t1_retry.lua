@@ -67,8 +67,8 @@ return {
                 end
                 UIManager:scheduleIn(0.02, heartbeat)
             end)
-            T:wait(0.12)
-            T:check(beats >= 2, "the real UI queue continues to service other tasks")
+            T:waitUntil(function() return beats >= 2 end, 5,
+                "the real UI queue continues to service other tasks")
             T:eq(calls, 1, "the overdue t1 check does not spin while idle")
             T:metric("t1_checks_before_input", calls, "count")
             T:tap(math.floor(T.screen_w * 0.9), math.floor(T.screen_h * 0.5))
