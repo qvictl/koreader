@@ -11,6 +11,7 @@ local Document = require("document/document")
 local FFIUtil = require("ffi/util")
 local Geom = require("ui/geometry")
 local KOPTContext = require("ffi/koptcontext")
+local KoptThread = require("document/koptthread")
 local Persist = require("persist")
 local Screen = require("device").screen
 local TileCacheItem = require("document/tilecacheitem")
@@ -33,16 +34,30 @@ local KoptInterface = {
     default_context_size = 1024*1024,
 }
 
+local function finishContext(self, kc, operation)
+    local inherited = KoptThread.isInherited(kc)
+    local ok, err = pcall(operation, kc)
+    if not inherited and self.bg_thread then
+        -- Restore the parent's CPU configuration even when joining fails.
+        -- A fork child must not change it on behalf of the parent's worker.
+        CanvasContext:enableCPUCores(1)
+        self.bg_thread = nil
+    end
+    if not ok then error(err, 0) end
+end
+
 local ContextCacheItem = CacheItem:new{}
 
 function ContextCacheItem:onFree()
-    KoptInterface:waitForContext(self.kctx)
     logger.dbg("ContextCacheItem: free KOPTContext", self.kctx)
-    self.kctx:free()
+    -- Destruction in a fork child skips the inherited worker; consumption does
+    -- not. Do not call the consumption wait before this child-safe release.
+    finishContext(KoptInterface, self.kctx, KoptThread.free)
 end
 
 function ContextCacheItem:dump(filename)
     if self.kctx:isPreCache() == 0 then
+        KoptInterface:waitForContext(self.kctx)
         logger.dbg("Dumping KOPTContext to", filename)
 
         local cache_file = Persist:new{
@@ -110,19 +125,9 @@ function KoptInterface:setDefaultConfigurable(configurable)
 end
 
 function KoptInterface:waitForContext(kc)
-    -- If our koptcontext is busy in a background thread, isPreCache will return 1.
-    local waited = false
-    while kc and kc:isPreCache() == 1 do
-        waited = true
-        logger.dbg("waiting for background rendering")
-        FFIUtil.usleep(100000)
-    end
-
-    if waited or self.bg_thread then
-        -- Background thread is done, go back to a single CPU core.
-        CanvasContext:enableCPUCores(1)
-        self.bg_thread = nil
-    end
+    -- Native reflow clears precache before it finishes writing the context.
+    -- Join before consuming or freeing any of those buffers.
+    finishContext(self, kc, KoptThread.wait)
 
     return kc
 end
@@ -291,8 +296,10 @@ local function get_pthread()
         candidates = {"pthread", "libpthread.so.0"}
     end
     for _, libname in ipairs(candidates) do
-        ok, cached_pthread = pcall(ffi.load, libname)
+        local loaded
+        ok, loaded = pcall(ffi.load, libname)
         if ok then
+            cached_pthread = loaded
             return cached_pthread
         end
     end
@@ -314,12 +321,10 @@ function KoptInterface:reflowPage(doc, pageno, bbox, background)
     -- Reflow.
     if background then
         local pthread = get_pthread()
-        local rf_thread = ffi.new("pthread_t[1]")
-        local attr = ffi.new("pthread_attr_t[1]")
-        pthread.pthread_attr_init(attr)
-        pthread.pthread_attr_setdetachstate(attr, pthread.PTHREAD_CREATE_DETACHED)
-        pthread.pthread_create(rf_thread, attr, KOPTContext.k2pdfopt.k2pdfopt_reflow_bmp, ffi.cast("void*", kc))
-        pthread.pthread_attr_destroy(attr)
+        if not KoptThread.start(kc, pthread, KOPTContext.k2pdfopt.k2pdfopt_reflow_bmp) then
+            finishContext(self, kc, KoptThread.free)
+            return
+        end
     else
         KOPTContext.k2pdfopt.k2pdfopt_reflow_bmp(kc)
     end
@@ -562,9 +567,8 @@ end
 --[[--
 Render reflowed page into cache in background thread.
 
-This method returns immediately, leaving the precache flag on
-in context. Subsequent usage of this context should wait for the precache flag
-off by calling self:waitForContext(kctx)
+This method returns immediately. Subsequent usage of this context must join its
+worker with self:waitForContext(kctx); precache only reports reflow progress.
 
 Inherited from common document interface.
 --]]
@@ -575,12 +579,16 @@ function KoptInterface:hintReflowedPage(doc, pageno, zoom, rotation, hinting)
     local hash = table.concat(hash_list, "|")
     local cached = DocCache:check(hash)
     if not cached then
+        local context_size = self.last_context_size or self.default_context_size
+        if not KoptThread.canStart(get_pthread()) then return end
+        if DocCache.size and not DocCache:willAccept(context_size) then return end
         if hinting then
             CanvasContext:enableCPUCores(2)
         end
         local kc = self:reflowPage(doc, pageno, bbox, true)
+        if not kc then return end
         DocCache:insert(hash, ContextCacheItem:new{
-            size = self.last_context_size or self.default_context_size,
+            size = context_size,
             kctx = kc,
         })
         -- We'll wait until the background thread is done to go back to a single core, as this returns immediately!
