@@ -32,7 +32,7 @@ end
 local function threadBarrier()
     local ffi = require("ffi")
     local original_load = ffi.load
-    local held, hold_next = nil, true
+    local held, hold_next, joined = nil, true, 0
     ffi.load = function(name, ...)
         local lib = original_load(name, ...)
         if name ~= "pthread" and name ~= "libpthread.so.0" then return lib end
@@ -47,11 +47,18 @@ local function threadBarrier()
                 if held and attr == held.attr then return 0 end
                 return lib.pthread_attr_destroy(attr)
             end,
+            pthread_join = function(thread, result)
+                if held then error("attempted join before releasing held worker") end
+                local status = lib.pthread_join(thread, result)
+                if status == 0 then joined = joined + 1 end
+                return status
+            end,
         }, { __index = lib })
     end
     return {
         holdNext = function() hold_next = true end,
         isHeld = function() return held ~= nil end,
+        joinedCount = function() return joined end,
         release = function()
             if not held then return end
             local h = held
@@ -79,14 +86,15 @@ return {
         local CacheItem = require("cacheitem")
         local DocCache = require("document/doccache")
         local KoptInterface = require("document/koptinterface")
+        local KoptThread = require("document/koptthread")
         local util = require("util")
-        local original_mem, original_wait = util.calcFreeMem, KoptInterface.waitForContext
+        local original_mem, original_free = util.calcFreeMem, KoptThread.free
         local waits, busy_waits, wait_ms, max_wait_ms = 0, 0, 0, 0
         local barrier, reader
-        local function waitForContext(self, kc)
+        local function freeContext(kc)
             if barrier.isHeld() then error("pressure attempted wait on held worker") end
             local busy, start = kc:isPreCache() == 1, T:now()
-            local result = original_wait(self, kc)
+            local result = original_free(kc)
             local elapsed = T:now() - start
             if busy then busy_waits = busy_waits + 1 end
             wait_ms, max_wait_ms = wait_ms + elapsed, math.max(max_wait_ms, elapsed)
@@ -130,7 +138,7 @@ return {
         local context
         local ok, err = pcall(function()
             barrier = threadBarrier()
-            KoptInterface.waitForContext = waitForContext
+            KoptThread.free = freeContext
             local path = os.getenv("KO_HOME") .. "/cache-pressure.pdf"
             writePDF(path)
             reader = T:openBook(path)
@@ -177,12 +185,14 @@ return {
             T:run(function() DocCache:clear() end)
         end)
         if barrier then barrier.restore() end
-        KoptInterface.waitForContext = original_wait
+        KoptThread.free = original_free
         util.calcFreeMem = original_mem
         if not ok then error(err) end
         if not released then error(release_err) end
         if not closed then error(close_err) end
         if not cleaned then error(cleanup_err) end
+        T:eq(barrier.joinedCount(), 2, "both native workers are joined before their contexts are released")
+        T:metric("native_threads_joined", barrier.joinedCount(), "count")
         T:metric("context_wait_callbacks", waits, "count")
         T:metric("contexts_busy_before_wait", busy_waits, "count")
         T:metric("context_wait_total_ms", wait_ms, "ms")
