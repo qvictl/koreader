@@ -97,6 +97,24 @@ describe("Readerfooter module", function()
         os.remove(DocSettings:getHistoryPath(toc_pdf))
     end)
 
+    it("should ignore TOC updates when the footer is globally disabled", function()
+        local settings = G_reader_settings:readSetting("footer")
+        settings.disabled = true
+        settings.disable_progress_bar = false
+        G_reader_settings:saveSetting("footer", settings)
+
+        readerui = ReaderUI:new{
+            dimen = Screen:getSize(),
+            document = DocumentRegistry:openDocument(sample_epub),
+        }
+        local footer = readerui.view.footer
+        assert.is_nil(footer.progress_bar)
+        assert.is_false(readerui.view.footer_visible)
+        assert.has_no.errors(function() footer:onTocReset() end)
+        assert.is_nil(footer.progress_bar)
+        assert.is_false(readerui.view.footer_visible)
+    end)
+
     it("should setup footer as visible in all_at_once mode", function()
         G_reader_settings:saveSetting("reader_footer_mode", 1)
         local settings = G_reader_settings:readSetting("footer")
