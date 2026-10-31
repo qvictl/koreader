@@ -22,6 +22,7 @@ return {
         local saved_settings, saved_targets = exporter.settings, {}
         local saved_request, saved_online = target.makeJsonRequest, NetworkMgr.runWhenOnline
         local saved_timestamp = target.timestamp
+        local saved_open = SQ3.open
         for name, item in pairs(exporter.targets) do saved_targets[name] = item.settings end
         local requests, conn, book_id = {}, nil, nil
         local notes = {
@@ -91,7 +92,25 @@ return {
             T:eq(#requests[3].fuzzyReadingDurations, 0, "absent reading durations do not abort highlight export")
             T:eq(requests[3].entries[1].text, "Synthetic highlighted text", "highlight text survives empty statistics")
 
+            local closed = 0
+            SQ3.open = function(file, mode)
+                local connection = saved_open(file, mode)
+                if file ~= database or mode ~= "ro" then return connection end
+                return {
+                    prepare = function(_, ...) return connection:prepare(...) end,
+                    close = function()
+                        connection:close()
+                        closed = closed + 1
+                        error("injected optional-statistics close error")
+                    end,
+                }
+            end
+            exportOnce(4)
+            T:eq(closed, 1, "close failure injection runs after actual SQLite cleanup")
+            T:eq(requests[4].entries[1].note, "Preserve this note", "optional close error does not suppress note export")
+
         end)
+        SQ3.open = saved_open
         target.makeJsonRequest, NetworkMgr.runWhenOnline = saved_request, saved_online
         exporter.settings = saved_settings
         target.timestamp = saved_timestamp

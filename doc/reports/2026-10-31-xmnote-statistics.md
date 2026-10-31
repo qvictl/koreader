@@ -38,7 +38,7 @@ validate a live XMNote server's protocol.
 
 ## Validation
 
-- Native focused suite: 13/13 pass. The unchanged source passes 4/13 and fails
+- Native focused suite: 15/15 pass. The initial unchanged source passes 4/13 and fails
   the other nine (five assertion failures and four errors), including actual
   SQLite syntax/identity/lifetime failures, missing-file open and query errors.
 - Existing exporter suite: 3/3 pass in its own native process. The official
@@ -49,13 +49,19 @@ validate a live XMNote server's protocol.
   This is not counted as a pass; suites were rerun in separate processes, as in
   the native test runner's normal per-suite isolation. No binding workaround or
   production change was made to hide that harness limitation.
-- Real scenario `45_xmnote_statistics`: 20/20 checks. It uses the actual exporter
+- Real scenario `45_xmnote_statistics`: 26/26 checks. It uses the actual exporter
   callback and painted success summary, a private EPUB/sidecar and the statistics
   plugin's real schema/view. Literal quoted/Unicode/semicolon titles retain their
   statistics and notes; SQL-like unmatched titles acquire no foreign durations;
   absent reading durations do not suppress highlight text. Only the online gate
   and remote transport are simulated, with no external network or account.
-  Related startup passes 7/7 (27/27 total).
+  An injected optional-statistics close exception after real SQLite cleanup also
+  preserves the note export and success UI. Related startup passes 7/7.
+- Review follow-up protects connection-close exceptions independently of query
+  errors. Two new fault-injection unit cases fail against the previous candidate
+  and pass after the guard, preserving successful statistics or the empty fallback
+  as appropriate. The pinned binding uses `sqlite3_close_v2`; a naturally occurring
+  close failure was not reproduced, and these injections are not presented as one.
 - The old-source integration negative control crashes in the actual queued export
   callback. A separate intentional body-error plus cleanup-SQL-error injection
   confirms connection closure and transport callback restoration and preserves

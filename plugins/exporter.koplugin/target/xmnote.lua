@@ -95,7 +95,12 @@ function XMNoteExporter:getBookReadingDurationsByDay(title, md5)
         return result
     end)
     -- close() also finalizes a statement left open by a failed SQLite query.
-    if conn then conn:close() end
+    if conn then
+        local close_ok, close_err = pcall(conn.close, conn)
+        if not close_ok then
+            logger.warn("XMNote: unable to close statistics database", tostring(close_err):match("^[^\n]*"))
+        end
+    end
     if not ok then
         local err = tostring(durations):match("^[^\n]*")
         logger.warn("XMNote: unable to read optional statistics", err)

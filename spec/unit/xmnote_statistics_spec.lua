@@ -148,4 +148,33 @@ describe("XMNote statistics queries", function()
         assertClosed()
     end)
 
+    for _, query_error in ipairs({ false, true }) do
+        it("contains a close error after " .. (query_error and "a failed" or "a successful") .. " query", function()
+            fixture("Ordinary", "checksum")
+            if query_error then
+                local conn = saved_open(database)
+                conn:exec("DROP TABLE page_stat")
+                conn:close()
+            end
+            local open = SQ3.open
+            SQ3.open = function(...)
+                local conn = open(...)
+                return {
+                    prepare = function(_, ...) return conn:prepare(...) end,
+                    close = function()
+                        conn:close()
+                        error("injected statistics close error")
+                    end,
+                }
+            end
+            local result = XMNote:getBookReadingDurationsByDay("Ordinary", "checksum")
+            if query_error then
+                assert.same({}, result)
+            else
+                assert.equals(30, result[1].durationSeconds)
+            end
+            assertClosed()
+        end)
+    end
+
 end)
