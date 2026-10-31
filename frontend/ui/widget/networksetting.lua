@@ -529,6 +529,7 @@ function NetworkSetting:onCloseWidget()
     -- If we don't have a connectivity check ticking, assume we're done with this connection attempt *now*
     if not NetworkMgr.pending_connectivity_check then
         NetworkMgr.pending_connection = false
+        NetworkMgr.pending_restore = false
     end
     UIManager:setDirty(nil, "ui", self.popup.dimen)
 end

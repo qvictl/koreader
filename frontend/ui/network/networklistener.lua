@@ -213,6 +213,14 @@ function NetworkListener:onSuspend()
     -- Do so only on devices where we have explicit management of Wi-Fi: assume the host system does things properly elsewhere.
     if Device:hasWifiManager() and NetworkMgr:isWifiOn() then
         NetworkMgr:disableWifi()
+    elseif NetworkMgr.pending_restore then
+        -- Ownership only covers this awake lifecycle, not the backend process
+        -- tree across suspend. Retire our old Lua wait without introducing a new
+        -- shutdown path while the radio is still off (or is host-managed).
+        -- This does not claim that a restore script or its children have stopped.
+        NetworkMgr:unscheduleConnectivityCheck()
+        NetworkMgr.pending_connection = false
+        NetworkMgr.pending_restore = false
     end
 
     -- Wi-Fi will be down, unschedule unconditionally
@@ -225,9 +233,7 @@ if Device:hasWifiRestore() then
     function NetworkListener:onResume()
         if NetworkMgr.wifi_was_on and G_reader_settings:isTrue("auto_restore_wifi") then
             logger.dbg("NetworkListener: onResume will restore Wi-Fi in the background")
-            if NetworkMgr:restoreWifiAsync() ~= false then
-                NetworkMgr:scheduleConnectivityCheck()
-            end
+            NetworkMgr:requestToRestoreWifi()
         end
     end
 end
