@@ -142,12 +142,79 @@ describe("luadata module", function()
             -- data file should be removed.
             assert.are.not_equal("file", lfs.attributes(d.file, "mode"))
             assert.Equals("file", lfs.attributes(d.file .. ".old.2", "mode"))
-            -- The content should come from file.old.2.
-            assert.Equals("a", d:readSetting("a"))
+            -- The newest backup is file.old.1, not the original stale snapshot.
+            assert.Equals("b", d:readSetting("a"))
             d:close()
             -- data file should be generated and last good backup should not change name.
             assert.Equals("file", lfs.attributes(d.file, "mode"))
             assert.Equals("file", lfs.attributes(d.file .. ".old.2", "mode"))
+        end)
+    end)
+
+    describe("backup generation ordering", function()
+        local file, data
+        before_each(function()
+            file = DataStorage:getDataDir() .. "/luadata-generation-test"
+            data = Settings:open(file, "Generation")
+        end)
+        after_each(function()
+            os.remove(file)
+            for i = 1, 10 do os.remove(file .. ".old." .. i) end
+        end)
+
+        local function snapshots(count)
+            for i = 1, count do data:reset{ generation = i } end
+        end
+
+        local function generation(suffix)
+            return Settings:open(file .. suffix, "Generation"):readSetting("generation")
+        end
+
+        it("keeps the newest backup first and preserves every older generation", function()
+            snapshots(4)
+            assert.equals(4, generation(""))
+            assert.equals(3, generation(".old.1"))
+            assert.equals(2, generation(".old.2"))
+            assert.equals(1, generation(".old.3"))
+        end)
+
+        it("recovers the newest valid snapshot after the current file is corrupted", function()
+            snapshots(4)
+            local f = assert(io.open(file, "w"))
+            f:write("not valid Lua !!!")
+            f:close()
+            assert.equals(3, generation(""))
+        end)
+
+        it("falls back in recency order when the first backup is also corrupted", function()
+            snapshots(4)
+            for _, suffix in ipairs({ "", ".old.1" }) do
+                local f = assert(io.open(file .. suffix, "w"))
+                f:write("not valid Lua !!!")
+                f:close()
+            end
+            assert.equals(2, generation(""))
+            assert.equals(1, generation(".old.3"))
+        end)
+
+        it("keeps only the configured number of rotated generations", function()
+            data.max_backups = 3
+            snapshots(6)
+            assert.equals(6, generation(""))
+            assert.equals(5, generation(".old.1"))
+            assert.equals(4, generation(".old.2"))
+            assert.equals(3, generation(".old.3"))
+            assert.is_nil(lfs.attributes(file .. ".old.4"))
+        end)
+
+        it("rotates surviving older backups even if an intermediate file is missing", function()
+            snapshots(4)
+            assert(os.remove(file .. ".old.2"))
+            data:reset{ generation = 5 }
+            assert.equals(4, generation(".old.1"))
+            assert.equals(3, generation(".old.2"))
+            assert.is_nil(lfs.attributes(file .. ".old.3"))
+            assert.equals(1, generation(".old.4"))
         end)
     end)
 end)
