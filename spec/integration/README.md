@@ -109,6 +109,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `59_terminal_ime_output` | real InputDialog, VirtualKeyboard taps/layout replacement and terminal ANSI parser with synthetic received bytes and captured transmit; six layouts, UTF-8 output, cursor controls, explicit-navigation IME state reset, BS composition echo and repeated close/reopen; no shell, PTY or commands |
 | `60_japanese_enabled_selection` | native Japanese EPUB hold gestures and sdcv with owned dictionaries; global enable/disable, Cancel/Save, preferred and book-disabled dictionaries, close/reopen, all-disabled selection and recovery |
 | `62_pdf_current_zoom_factor` | real PDF zoom picker arrows, default confirmation Cancel/Save, Apply and unapplied Close, native tap page turns, overlap-only updates and repeated reopen; current book scale stays separate from the global default |
+| `63_wikipedia_metadata_language` | native EPUB ISO metadata, actual Wikipedia result and language settings dialogs, Cancel/Save and remembered explicit editions; automatic normalization/deduplication preserves manual domains; synthetic API only |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
