@@ -42,11 +42,22 @@ function ReadTimer:onDispatcherRegisterActions()
 end
 
 function ReadTimer:init()
+    self._closed = false
     self.settings = G_reader_settings:readSetting(self.settings_key, {})
 
-    self.alarm_callback = function()
+    local alarm_callback = function()
         -- Don't do anything if we were unscheduled
         if self.time == 0 then return end
+        -- UI tasks use MONOTONIC time. On platforms falling back to REALTIME,
+        -- a clock correction may leave this callback ahead of our deadline.
+        local remainder = self:remaining()
+        if remainder > 0 then
+            UIManager:scheduleIn(remainder, self.alarm_callback)
+            if self.settings.show_value_in_header or self.settings.show_value_in_footer then
+                self:update_status_bars()
+            end
+            return
+        end
 
         local function maybeRescheduleInterval()
             if self.last_interval_time > 0 and self.settings.auto_reschedule_interval then
@@ -57,6 +68,9 @@ function ReadTimer:init()
 
         self.time = 0
         UIManager:broadcastEvent(Event:new(self.event_timer_expired))
+        -- An immediate expiry profile may close this view or start a new timer.
+        -- Do not keep using the old view or replace the new timer with a repeat.
+        if self._closed or self:scheduled() then return end
         if self.settings.show_on_expiry == "nothing" then
             maybeRescheduleInterval()
             return
@@ -101,6 +115,16 @@ function ReadTimer:init()
             end
             maybeRescheduleInterval()
         end
+    end
+
+    self.alarm_callback = function()
+        if not self:scheduled() then return end
+        -- Both queued and immediate expiry must remove only the old tasks before
+        -- a repeated interval or an expiry profile can schedule a new timer.
+        UIManager:unschedule(self.alarm_callback)
+        UIManager:unschedule(self.update_status_bars, self)
+        alarm_callback()
+        if not self._closed and not self:scheduled() then self:update_status_bars() end
     end
 
     if ReadTimer.restore_scheduled_time then -- previously scheduled instance
@@ -155,6 +179,7 @@ function ReadTimer:init()
             })
         end
     end)
+    UIManager.event_hook:registerWidget("InputEvent", self)
     self.ui.menu:registerToMainMenu(self)
     self:onDispatcherRegisterActions()
 end
@@ -184,10 +209,13 @@ function ReadTimer:getSnoozeMinutes()
     return self.settings.snooze_minutes or 5
 end
 
+function ReadTimer:now()
+    return time.boottime_or_realtime_coarse()
+end
+
 function ReadTimer:remaining()
     if self:scheduled() then
-        -- Resolution: time.now() subsecond, os.time() two seconds
-        local remaining_s = time.to_s(self.time - time.now())
+        local remaining_s = time.to_s(self.time - self:now())
         if remaining_s > 0 then
             return remaining_s
         else
@@ -258,12 +286,19 @@ function ReadTimer:unschedule()
 end
 
 function ReadTimer:rescheduleIn(seconds)
-    -- Resolution: time.now() subsecond, os.time() two seconds
-    self.time = time.now() + time.s(seconds)
+    self.time = self:now() + time.s(seconds)
     UIManager:scheduleIn(seconds, self.alarm_callback)
     if self.settings.show_value_in_header or self.settings.show_value_in_footer then
         self:update_status_bars()
     end
+end
+
+function ReadTimer:expireIfDue()
+    if self:scheduled() and self:remaining() == 0 then
+        self:alarm_callback()
+        return true
+    end
+    return false
 end
 
 function ReadTimer:addCheckboxes(widget, is_interval)
@@ -428,24 +463,28 @@ function ReadTimer:addToMainMenu(menu_items)
     }
 end
 
--- The UI ticks on a MONOTONIC time domain, while this plugin deals with REAL wall clock time.
+-- UI tasks use MONOTONIC time; the timer deadline includes suspend time.
 function ReadTimer:onResume()
     if self:scheduled() then
         logger.dbg("ReadTimer: onResume with an active timer")
-        local remainder = self:remaining()
-
-        if remainder == 0 then
-            -- Make sure we fire the alarm right away if it expired during suspend...
-            self:alarm_callback()
-            self:unschedule()
-        else
-            -- ...and that we re-schedule the timer against the REAL time if it's still ticking.
+        if not self:expireIfDue() then
+            -- Re-read after the expiry check: the REALTIME fallback can be adjusted.
+            local remainder = self:remaining()
             logger.dbg("ReadTimer: Rescheduling in", remainder, "seconds")
             self:unschedule()
             self:rescheduleIn(remainder)
         end
-
     end
+end
+
+-- Some devices do not emit Resume on every wake (notably Android devices with
+-- brokenLifecycle). Reconcile the elapsed deadline on the next input frame too.
+function ReadTimer:onInputEvent()
+    if not self:scheduled() then return end
+    -- The hook runs before this input batch is dispatched. Even when overdue,
+    -- defer the popup so it cannot consume the tap that woke the device.
+    UIManager:unschedule(self.alarm_callback)
+    UIManager:scheduleIn(self:remaining(), self.alarm_callback)
 end
 
 function ReadTimer:onShowAlarm(touchmenu_instance)
@@ -605,11 +644,12 @@ function ReadTimer:setExpiryMessageText(touchmenu_instance)
 end
 
 function ReadTimer:onCloseWidget()
+    self._closed = true
     if self:scheduled() then
         ReadTimer.restore_scheduled_time = self.time
         ReadTimer.restore_last_interval_time = self.last_interval_time
-        self:unschedule()
     end
+    self:unschedule()
 end
 
 return ReadTimer
