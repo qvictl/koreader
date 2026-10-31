@@ -97,6 +97,8 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `44_sidecar_copy_io_failure` | Linux child-only file-size limits cause real custom-cover write and buffered custom-metadata close failures; source bytes survive, partial files are removed, unrestricted retry succeeds, and ReaderUI restores the note/title/page |
 | `47_kindle_wifi_failure` | real Wi-Fi TouchMenu, error dismissal, failed/successful retry, delayed disconnect, failed enable cleanup and resume recovery; only Kindle LIPC/hardware boundaries are synthetic and host shell commands are forbidden |
 
+| `49_http_proxy_credentials` | real loopback HTTP proxy and OPDS HEAD/GET catalog parsing with reserved Basic credentials; credential-free absolute targets, origin/explicit/global proxy forms, separate proxy authentication, URL credentials, and reading afterward |
+
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
 
