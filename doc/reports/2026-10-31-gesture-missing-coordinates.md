@@ -45,10 +45,12 @@ tracking-ID-later frames remains covered.
   taps/rotation, Input lifecycle, batching, deadline and protocol handlers.
 - Changed-line unit coverage: **7/7, 100%** under the repository's unchanged
   `--mode diff` gate; whole-repository coverage is not measured.
-- `40_gesture_missing_coordinates`: **37/37** checks, three fresh runs. Real
+- `40_gesture_missing_coordinates`: **55/55** checks, three fresh runs. Real
   protocol-B frames travel through Input/GestureDetector/UIManager/ReaderUI;
-  six malformed-frame sequences still turn exactly one EPUB page each, then
-  close/reopen and an ordinary tap remain functional. Uses an isolated Input
+  six malformed-frame sequences and two late-axis sequences still turn exactly
+  one EPUB page each. In each late-axis case, the same active slot receives only
+  its missing coordinate in a later SYN_REPORT, without another tracking ID;
+  touch/pan/swipe and contact/timer cleanup are asserted. Then close/reopen and an ordinary tap remain functional. Uses an isolated Input
   instance and profile, not a replacement native backend.
 - Related `16_filemanager_input_lifecycle`: **13/13**, three fresh runs.
 - Final combined emulator pass: scenario 02 **13/13**, scenario 03 **10/10**,
@@ -62,6 +64,10 @@ tracking-ID-later frames remains covered.
   fresh runs each, **219/219 checks and 15/15 responsiveness budgets**. On the
   final main tree, scenarios 02/03/16/40/45 pass again: **99/99 checks**, all five
   responsiveness budgets, including the newly merged XMNote compatibility case.
+- Review follow-up: added both late-x and late-y paths through real Input,
+  retaining the original six malformed-slot swipe cases. Three fresh final runs
+  of scenarios 02/03/16/40/45 pass **351/351 checks and 15/15 budgets**. Production
+  code is unchanged from the 146-test and full-suite validations above.
 - Lua lint and whitespace checks pass.
 
 All **158 front unit suites** were also attempted in separate Busted processes
