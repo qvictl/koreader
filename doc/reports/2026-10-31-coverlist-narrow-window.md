@@ -42,12 +42,18 @@ existing authorized native assets were reused, not claimed to be rebuilt.
 |---|---|
 | `4b463ba90cf6ee9c1ce6461d7df918e0a23ff471`, tree `a25a4d5dcbb935c880552745f63e34fba5a119f8` | 263/263 focused unit cases in 16 separate processes; 172/172 checks across integration scenarios 01/02/09/16/18/43/46/49/50/51; applicable response budgets pass; fresh changed-line unit coverage 19/19 (100%) |
 | `dc323c7f194db1c6c4e1536d743d0257f3c26a5f`, tree `057aed4d808ec6bcf8ea55592a4160d22cbe989b` | Test-only History extension and README update; final scenario 51 passes 22/22 with default startup and three fresh 228 × 816 / 96 DPI profiles, 22/22 each; production and unit-test bytes are unchanged |
+| `6136de6788c38a6359fd702e790ff3e7fab18d85`, tree `ba43d249c3aad3fe2540a57ac1d7a95ba2c40e05` | Unit-fixture naming only, after the initial CI pixel-style warning; 263/263 focused unit cases rerun, final scenario 51 rerun 22/22 at default startup, fresh changed-line coverage 19/19; production and integration source unchanged |
 
 The report-only successor does not change source or tests. The 172-check
 combination predates the four additional History checks; it is not presented
 as a rerun of the entire combination on the final test-only snapshot. This is
 selected validation, not a whole-repository or release-suite pass. Final Lua
-lint reports zero warnings/errors and whitespace checks pass. Independent
+lint reports zero warnings/errors and whitespace checks pass. The initial CI
+passed its native/base/frontend tests and coverage, but its separate
+unscaled-size style check flagged intentional literal pixel fixtures. Named
+native-pixel constants now preserve those exact test dimensions and assertions;
+the unchanged repository size-check expressions and Lua lint both pass locally.
+No lint rule, exclusion or production dimension was changed. Independent
 static/log/image review found no remaining blocker; that reviewer did not
 independently execute the runtime.
 
