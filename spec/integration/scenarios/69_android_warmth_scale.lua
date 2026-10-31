@@ -124,6 +124,6 @@ return {
         if #errors > 0 then error(table.concat(errors, "\n"), 0) end
         T:check(Device.powerd == saved.powerd, "original emulator power driver is restored")
         T:repaint()
-        T:check(UIManager:isWidgetShown(T:fileManager()), "the original FileManager remains displayed after close")
+        T:check(T:topWidget() == T:fileManager(), "the original FileManager is topmost after close")
     end,
 }
