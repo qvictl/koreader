@@ -390,16 +390,16 @@ function ReaderWikipedia:initLanguages(word)
     end
 end
 
-function ReaderWikipedia:onLookupWikipedia(word, is_sane, box, get_fullpage, forced_lang, dict_close_callback)
+function ReaderWikipedia:onLookupWikipedia(word, is_sane, box, get_fullpage, forced_lang, dict_close_callback, from_definition)
     -- Wrapped through Trapper, as we may be using Trapper:dismissableRunInSubprocess() in it
     Trapper:wrap(function()
-        self:lookupWikipedia(word, is_sane, box, get_fullpage, forced_lang, dict_close_callback)
+        self:lookupWikipedia(word, is_sane, box, get_fullpage, forced_lang, dict_close_callback, from_definition)
     end)
     return true
 end
 
-function ReaderWikipedia:lookupWikipedia(word, is_sane, box, get_fullpage, forced_lang, dict_close_callback)
-    if NetworkMgr:willRerunWhenOnline(function() self:lookupWikipedia(word, is_sane, box, get_fullpage, forced_lang, dict_close_callback) end) then
+function ReaderWikipedia:lookupWikipedia(word, is_sane, box, get_fullpage, forced_lang, dict_close_callback, from_definition)
+    if NetworkMgr:willRerunWhenOnline(function() self:lookupWikipedia(word, is_sane, box, get_fullpage, forced_lang, dict_close_callback, from_definition) end) then
         -- Not online yet, nothing more to do here, NetworkMgr will forward the callback and run it once connected!
         return
     end
@@ -530,7 +530,7 @@ function ReaderWikipedia:lookupWikipedia(word, is_sane, box, get_fullpage, force
         }
         logger.dbg("dummy result table:", word, results)
     end
-    self:showDict(word, results, box, nil, dict_close_callback)
+    self:showDict(word, results, box, nil, dict_close_callback, nil, from_definition)
 end
 
 function ReaderWikipedia:getWikiLanguages()
