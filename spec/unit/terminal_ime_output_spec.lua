@@ -272,7 +272,7 @@ describe("Terminal output with keyboard input methods", function()
         widget:addChars("n")
         local index = echoPending(1)
         local old_text, old_pos = table.concat(widget.charlist), widget.charpos
-        widget:interpretAnsiSeq("")
+        widget:interpretAnsiSeq("\027[0m")
         assert.equals(old_pos, widget.charpos)
         widget:rightChar() -- User candidate cycling at the same echoed anchor.
         echoPending(index)
