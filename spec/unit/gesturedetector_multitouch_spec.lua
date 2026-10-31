@@ -138,7 +138,7 @@ describe("GestureDetector multitouch", function()
             assert.are.equal(1, h.gd.contact_count)
         end)
 
-        it("keeps a contact in its initial state until coordinates arrive", function()
+        it("waits for coordinates before starting a contact", function()
             local h = newHarness()
             assert.are.same({}, h.frame(0, { slot = 0, id = 3 }))
             assert.are.equal(0, h.pending("hold"))
@@ -570,16 +570,126 @@ describe("GestureDetector multitouch", function()
             assert.are.equal(0, h.gd.contact_count)
         end)
 
-        it("records an initial event for a buddy that came down without coordinates", function()
+        it("waits for both coordinates before adding a buddy contact", function()
             local h = newHarness()
             assert.are.same({}, h.frame(0, { slot = 1, id = 2 }))
             assert.are.same({ "touch" }, names(h.frame(10, down(0, 1, 100, 100))))
-            assert.is_not_nil(h.gd:getContact(1).initial_tev)
+            assert.is_nil(h.gd:getContact(1))
             assert.are.same({ "touch" }, names(h.frame(20, move(1, 200, 100))))
             local g = h.frame(60, up(0), up(1))
             assert.are.same({ "two_finger_tap" }, names(g))
             assertPos(g[1].pos, 150, 100)
             assert.are.equal(100, g[1].span)
+        end)
+    end)
+
+    describe("incomplete input frames", function()
+        for _, first_slot in ipairs({ 0, 1 }) do
+            for _, missing in ipairs({ "both", "x", "y" }) do
+                it("ignores slot " .. first_slot .. " without " .. missing .. " before a buddy pan", function()
+                    local h = newHarness()
+                    local incomplete = { slot = first_slot, id = 10 }
+                    if missing == "x" then incomplete.y = 100 end
+                    if missing == "y" then incomplete.x = 100 end
+                    assert.are.same({}, h.frame(0, incomplete))
+                    local valid_slot = 1 - first_slot
+                    assert.are.same({ "touch" }, names(h.frame(10, down(valid_slot, 20, 200, 200))))
+                    assert.are.same({ "pan" }, names(h.frame(20, move(valid_slot, 300, 200))))
+                    assert.are.same({ "swipe" }, names(h.frame(30, up(valid_slot))))
+                    assert.are.same({}, h.frame(40, up(first_slot)))
+                    assert.are.equal(0, h.gd.contact_count)
+                    assert.are.equal(0, #h.timers)
+                end)
+
+                it("ignores a new slot " .. first_slot .. " without " .. missing .. " beside an existing contact", function()
+                    local h = newHarness()
+                    local valid_slot = 1 - first_slot
+                    h.frame(0, down(valid_slot, 20, 200, 200))
+                    local incomplete = { slot = first_slot, id = 10 }
+                    if missing == "x" then incomplete.y = 100 end
+                    if missing == "y" then incomplete.x = 100 end
+                    assert.are.same({}, h.frame(10, incomplete))
+                    assert.are.same({ "pan" }, names(h.frame(20, move(valid_slot, 300, 200))))
+                    assert.are.same({ "swipe" }, names(h.frame(30, up(valid_slot))))
+                    assert.are.same({}, h.frame(40, up(first_slot)))
+                    assert.are.equal(0, h.gd.contact_count)
+                    assert.are.equal(0, #h.timers)
+                end)
+            end
+        end
+
+        it("does not arm timers or fabricate a hold for a partial slot", function()
+            local h = newHarness()
+            h.frame(0, { slot = 1, id = 10, x = 0 })
+            h.frame(10, down(0, 20, 200, 200))
+            assert.are.equal(1, h.pending("hold"))
+            assert.are.equal("hold", h.fire("hold", 0).ges)
+            assert.are.same({ "hold_release" }, names(h.frame(700, up(0))))
+            assert.are.same({}, h.frame(710, up(1)))
+            assert.are.equal(0, h.gd.contact_count)
+            assert.are.equal(0, #h.timers)
+        end)
+
+        it("admits late zero coordinates and retains ordinary two-finger taps", function()
+            local h = newHarness()
+            h.frame(0, { slot = 1, id = 10, x = 0 })
+            h.frame(10, down(0, 20, 100, 0))
+            assert.are.same({ "touch" }, names(h.frame(20, { slot = 1, y = 0 })))
+            local g = h.frame(30, up(0), up(1))
+            assert.are.same({ "two_finger_tap" }, names(g))
+            assertPos(g[1].pos, 50, 0)
+            assert.are.equal(100, g[1].span)
+            assert.are.equal(0, h.gd.contact_count)
+            assert.are.equal(0, #h.timers)
+        end)
+    end)
+
+    describe("partial frame ordering", function()
+        it("accepts both late contacts in the same frame without phantom gestures", function()
+            local h = newHarness()
+            assert.are.same({}, h.frame(0, down(0, 1), down(1, 2)))
+            assert.are.equal(0, h.gd.contact_count)
+            assert.are.same({ "touch", "touch" }, names(h.frame(10, move(1, 200, 100), move(0, 100, 100))))
+            assert.are.same({ "two_finger_tap" }, names(h.frame(30, up(0), up(1))))
+            assert.are.equal(0, h.gd.contact_count)
+            assert.are.equal(0, #h.timers)
+        end)
+
+        it("does not emit a touch when late coordinates arrive after a skipped lift", function()
+            local h = newHarness()
+            h.frame(0, down(0, 1))
+            h.frame(10, up(0))
+            assert.are.same({}, h.frame(20, move(0, 100, 100)))
+            assert.are.equal(0, h.gd.contact_count)
+            assert.are.equal(0, #h.timers)
+            assert.are.same({ "touch" }, names(h.frame(30, down(0, 2, 100, 100))))
+            assert.are.same({ "tap" }, names(h.frame(40, up(0))))
+            assert.are.equal(0, h.gd.contact_count)
+        end)
+
+        for _, invalid_first in ipairs({ true, false }) do
+            it("keeps mixed-frame pan order safe: " .. tostring(invalid_first), function()
+                local h = newHarness()
+                h.frame(0, down(0, 1, 100, 100))
+                local partial, valid = down(1, 2), move(0, 200, 100)
+                local g
+                if invalid_first then g = h.frame(10, partial, valid)
+                else g = h.frame(10, valid, partial) end
+                assert.are.same({ "pan" }, names(g))
+                assert.are.same({ "swipe" }, names(h.frame(20, up(1), up(0))))
+                assert.are.equal(0, h.gd.contact_count)
+                assert.are.equal(0, #h.timers)
+            end)
+        end
+
+        it("preserves coordinate-first tracking-id-later input", function()
+            local h = newHarness()
+            assert.are.same({}, h.frame(0, move(1, 200, 100)))
+            h.frame(10, down(0, 1, 100, 100))
+            assert.are.same({ "touch" }, names(h.frame(20, { slot = 1, id = 2 })))
+            assert.are.same({ "two_finger_tap" }, names(h.frame(30, up(0), up(1))))
+            assert.are.equal(0, h.gd.contact_count)
+            assert.are.equal(0, #h.timers)
         end)
     end)
 

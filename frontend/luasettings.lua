@@ -270,7 +270,11 @@ end
 function LuaSettings:flush()
     if not self.file then return end
     local directory_updated = self:backup()
-    util.writeToFile(dump(self.data, nil, true), self.file, true, true, directory_updated)
+    local ok, err = util.writeToFile(dump(self.data, nil, true), self.file, true, true, directory_updated)
+    if not ok then
+        logger.warn("LuaSettings: Failed writing", self.file, err)
+        return false, err
+    end
     return self
 end
 

@@ -91,7 +91,10 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `34_footer_delayed_refresh` | real reading-order events followed by immediate document close; old footer tasks canceled, new reader feedback and page turns retained across repeated reopen cycles |
 | `38_dictionary_sparse_history` | missing leading/interior lookup-history records: complete reverse-index display, repeated open/close in the file manager and reader, byte-preserving viewing, and tapping a surviving word for a real dictionary lookup |
 | `39_kosync_invalid_url` | persisted malformed sync URL across book opens, failed pull/push/auth and queue preservation, blank-address UI recovery and valid localhost retry |
+| `40_gesture_missing_coordinates` | real protocol-B frames with partial buddy slots, gesture/timer cleanup, ReaderUI page turns and reopen |
 | `41_calibre_metadata_isolation` | painted Calibre search during synthetic wireless session, received book and metadata persistence, limited deletion, reconnect and EPUB reading |
+| `42_sidecar_migration_failure` | real FileManager renames with blocked main/custom destinations retain source annotations and custom files; explicit retry, shared-sidecar extension rename, and ReaderUI reopen/page turns |
+| `44_sidecar_copy_io_failure` | Linux child-only file-size limits cause real custom-cover write and buffered custom-metadata close failures; source bytes survive, partial files are removed, unrestricted retry succeeds, and ReaderUI restores the note/title/page |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:

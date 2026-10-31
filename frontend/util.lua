@@ -1139,11 +1139,24 @@ function util.writeToFile(data, filepath, force_flush, lua_dofile_ready, directo
     if not file then
         return nil, err
     end
-    file:write(data)
+    local ok
+    ok, err = file:write(data)
+    if not ok then
+        file:close()
+        return nil, err
+    end
     if force_flush then
+        -- Check buffered writes separately: native fsync support remains best
+        -- effort on filesystems that do not implement it.
+        ok, err = file:flush()
+        if not ok then
+            file:close()
+            return nil, err
+        end
         ffiUtil.fsyncOpenedFile(file)
     end
-    file:close()
+    ok, err = file:close()
+    if not ok then return nil, err end
     if directory_updated then
         ffiUtil.fsyncDirectory(filepath)
     end

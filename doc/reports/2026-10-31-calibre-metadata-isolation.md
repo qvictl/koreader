@@ -60,24 +60,29 @@ existing singletons. No network protocol or file-write format is changed.
   Calibre server or real device is contacted.
 - Independent local review: no blocking finding; 23 tests and three additional
   scenario-41 runs pass. Its four added edge cases are incorporated.
-- Rebased onto current main `1d97693`, preserving README scenarios 38/39.
-  All 23 unit cases and three fresh 23/23 scenario-41 runs pass on that tree.
+- Integrated actual merged main `b8c3a285` (sidecar/base helper, collections,
+  XMNote and gesture), retaining README scenarios 38/39/40/42/44.
+  The combined native validation passes **169/169** tests across eight suites
+  (Calibre ownership/collections plus gesture/Input).
+- Final combined emulator validation runs scenarios 02/03/16/40/41/45 three
+  times each: **420/420 checks, 15/15 English/CJK responsiveness budgets**.
+  Scenario 40 includes both retained-slot late-axis cases from gesture review.
 - Lua lint and `git diff --check` pass.
 
-All 152 front suites were attempted in separate Busted processes: 149 suites
-pass, with 2,134 successful test cases. That broader run precedes the four added
-ownership edge cases, all included in the final 23-test pass above. The remaining
-three suites hit unchanged host restrictions: missing `msgfmt`, prohibited
-`getifaddrs`, and four live-Internet translator DNS errors. These restrictions
-were not bypassed. This is not a clean full-suite pass. Required remote
-CI/build/CodeRabbit gates have not run and are not bypassed.
+All **159 front suites** were attempted in separate Busted processes against
+that final production combination: **156 suites pass, with 2,246 successful test
+cases**. Three suites hit unchanged host restrictions: missing `msgfmt`, one
+prohibited `getifaddrs` assertion, and four live-Internet translator DNS errors.
+These restrictions were not bypassed. This is not a clean full-suite pass;
+exact-head required remote CI/build/CodeRabbit gates remain required.
 
 ## Runtime / delivery boundary
 
 All 500 production Lua overlay files are checked against candidate source. Native
 emulator binaries are reused from the existing fork artifact, with unchanged
-base `cc2be6a552998ca3ee379c1eec56db29df53beb9` and the existing isolated SDL3
-3.4.18 library. This is not a fresh native or Kindle build, live Calibre protocol
+native base binaries and all 92 FFI Lua files matching the actually merged
+base `d1b27196eac53e8c810c63762ed6bfb40f226382` (Lua-only helper change). The held
+base PR 36 is not included. SDL3 is the existing isolated 3.4.18 library. This is not a fresh native or Kindle build, live Calibre protocol
 acceptance test, or hardware validation.
 
 No upstream communication, release, device installation or gate change is part
