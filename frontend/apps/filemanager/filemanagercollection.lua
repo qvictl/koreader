@@ -1627,6 +1627,9 @@ function FileManagerCollection:onCloseWidget()
     end
 end
 
+-- Suspend/background flushes must persist edits even while the owner stays open.
+FileManagerCollection.onFlushSettings = FileManagerCollection.onCloseWidget
+
 -- external
 
 function FileManagerCollection:genAddToCollectionButton(file_or_files, caller_pre_callback, caller_post_callback, button_disabled)
