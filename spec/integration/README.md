@@ -113,6 +113,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `64_style_tweak_notifications` | real profile Execute/notification menus, all three style-tweak actions, masked and painted feedback, batched profile execution message, ReaderReady auto-execution across reopen and native page turn |
 | `65_calibre_inbox_initialization` | real Calibre menu and local metadata failure notice, queue/standby cleanup, repeated failed attempts, repaired-inbox handshake/enumeration, disconnect/reconnect and native EPUB reading |
 | `66_opds_literal_credentials` | real catalog menu, HEAD/feed and normal EPUB download through two non-forwarding loopback origins; literal percent credentials, same-/cross-origin redirects and native reading; synthetic credentials only, no OPDS-PSE |
+| `69_android_warmth_scale` | real generic/Android power drivers, painted frontlight Min/Max/Toggle and reopen, queued synthetic gesture-action events, native EPUB reading after cleanup; mocked integer JNI, no Android hardware or native dialog |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:

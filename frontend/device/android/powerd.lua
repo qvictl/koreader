@@ -33,7 +33,6 @@ function AndroidPowerD:init()
     if self.device:hasNaturalLight() then
         self.fl_warmth_min = android.getScreenMinWarmth()
         self.fl_warmth_max = android.getScreenMaxWarmth()
-        self.warm_diff = self.fl_warmth_max - self.fl_warmth_min
 
         -- BasePowerD only sets warmth_scale after init() returns, c.f. KoboPowerD:init.
         self.warmth_scale = 100 / self.fl_warmth_max
@@ -51,7 +50,8 @@ function AndroidPowerD:setWarmthHW(warmth)
 end
 
 function AndroidPowerD:frontlightWarmthHW()
-    return android.getScreenWarmth() * self.warm_diff
+    -- Android returns native units; the public cache stores percentages.
+    return self:fromNativeWarmth(android.getScreenWarmth())
 end
 
 function AndroidPowerD:getCapacityHW()
@@ -83,7 +83,7 @@ function AndroidPowerD:turnOnFrontlightHW(done_callback)
     android.setScreenBrightness(math.floor(self.fl_intensity * self.bright_diff / self.fl_max))
 
     if android.hasStandaloneWarmth() then
-        android.setScreenWarmth(math.floor(self.fl_warmth / self.warm_diff))
+        android.setScreenWarmth(self:toNativeWarmth(self.fl_warmth))
     end
     return false
 end

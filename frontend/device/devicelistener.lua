@@ -155,10 +155,11 @@ if Device:hasFrontlight() then
 
     function DeviceListener:onSetFlWarmth(warmth)
         local powerd = Device:getPowerDevice()
-        if warmth > 100 then
-            warmth = 100
-        elseif warmth < 0 then
-            warmth = 0
+        -- Event values (including gesture deltas) use the native warmth range.
+        if warmth > powerd.fl_warmth_max then
+            warmth = powerd.fl_warmth_max
+        elseif warmth < powerd.fl_warmth_min then
+            warmth = powerd.fl_warmth_min
         end
         powerd:setWarmth(powerd:fromNativeWarmth(warmth))
         return true
