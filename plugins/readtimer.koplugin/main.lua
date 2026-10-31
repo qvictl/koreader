@@ -45,15 +45,13 @@ function ReadTimer:init()
     self._closed = false
     self.settings = G_reader_settings:readSetting(self.settings_key, {})
 
-    self.alarm_callback = function()
+    local alarm_callback = function()
         -- Don't do anything if we were unscheduled
         if self.time == 0 then return end
         -- UI tasks use MONOTONIC time. On platforms falling back to REALTIME,
         -- a clock correction may leave this callback ahead of our deadline.
         local remainder = self:remaining()
         if remainder > 0 then
-            UIManager:unschedule(self.alarm_callback)
-            UIManager:unschedule(self.update_status_bars, self)
             UIManager:scheduleIn(remainder, self.alarm_callback)
             if self.settings.show_value_in_header or self.settings.show_value_in_footer then
                 self:update_status_bars()
@@ -117,6 +115,16 @@ function ReadTimer:init()
             end
             maybeRescheduleInterval()
         end
+    end
+
+    self.alarm_callback = function()
+        if not self:scheduled() then return end
+        -- Both queued and immediate expiry must remove only the old tasks before
+        -- a repeated interval or an expiry profile can schedule a new timer.
+        UIManager:unschedule(self.alarm_callback)
+        UIManager:unschedule(self.update_status_bars, self)
+        alarm_callback()
+        if not self._closed and not self:scheduled() then self:update_status_bars() end
     end
 
     if ReadTimer.restore_scheduled_time then -- previously scheduled instance
@@ -287,12 +295,7 @@ end
 
 function ReadTimer:expireIfDue()
     if self:scheduled() and self:remaining() == 0 then
-        -- Remove only the old tasks before firing: the callback may schedule
-        -- a repeated interval or a profile may start a new timer synchronously.
-        UIManager:unschedule(self.alarm_callback)
-        UIManager:unschedule(self.update_status_bars, self)
         self:alarm_callback()
-        if not self._closed and not self:scheduled() then self:update_status_bars() end
         return true
     end
     return false
@@ -477,10 +480,11 @@ end
 -- Some devices do not emit Resume on every wake (notably Android devices with
 -- brokenLifecycle). Reconcile the elapsed deadline on the next input frame too.
 function ReadTimer:onInputEvent()
-    if self:scheduled() and not self:expireIfDue() then
-        UIManager:unschedule(self.alarm_callback)
-        UIManager:scheduleIn(self:remaining(), self.alarm_callback)
-    end
+    if not self:scheduled() then return end
+    -- The hook runs before this input batch is dispatched. Even when overdue,
+    -- defer the popup so it cannot consume the tap that woke the device.
+    UIManager:unschedule(self.alarm_callback)
+    UIManager:scheduleIn(self:remaining(), self.alarm_callback)
 end
 
 function ReadTimer:onShowAlarm(touchmenu_instance)

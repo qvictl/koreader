@@ -102,7 +102,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `51_coverlist_narrow_window` | real SDL window resize, native EPUB/custom-PNG cover extraction and cached collection/History rows; narrow fallback, wide restoration, repeated resize, page turns and reopening without changing cover preferences |
 | `53_coverimage_format_persistence` | real format-menu checkmarks, saved settings and reader reopening; native RGB PNG cover exports remain color/grayscale BMPs, with mutually exclusive selections and reading progress preserved |
 | `54_autowarmth_native_steps` | real activation menu, UIManager queued callbacks and Generic power conversion with synthetic solar time/light hardware; all 24 native warmth steps, preserved night-flag policy, schedule cancellation and native EPUB reading afterward |
-| `55_readtimer_elapsed_time` | real timer menu/picker, input hooks and UI task queue with a synthetic timer-only elapsed clock; overdue expiry, snooze/repeat, auto-repeat on resume, timer transfer through FileManager/ReaderUI and native EPUB progress |
+| `55_readtimer_elapsed_time` | real timer menu/picker, input hooks and UI task queue with a synthetic timer-only elapsed clock; overdue expiry, snooze/repeat, auto-repeat on resume, timer transfer through FileManager/ReaderUI and native EPUB progress; a same-batch tap reaches the reader before the deferred expiry popup |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:

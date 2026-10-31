@@ -5,6 +5,8 @@ return {
     settings = { language = "en" },
     run = function(T)
         local UIManager = require("ui/uimanager")
+        local Event = require("ui/event")
+        local Geom = require("ui/geometry")
         local TouchMenu = require("ui/widget/touchmenu")
         local WidgetContainer = require("ui/widget/container/widgetcontainer")
         local DataStorage = require("datastorage")
@@ -87,6 +89,7 @@ return {
                 elapsed = elapsed + time.s(421)
                 UIManager.event_hook:execute("InputEvent")
             end)
+            T:waitUntil(function() return events == 1 end, 5, "queued expiry after overdue input")
             T:eq(events, 1, "overdue input emits the actual expiry event without Resume")
             T:check(not plugin:scheduled(), "the expired interval is stopped before showing its choices")
             tapButton(T:topWidget(), "+3 min")
@@ -95,6 +98,7 @@ return {
                 elapsed = elapsed + time.s(181)
                 UIManager.event_hook:execute("InputEvent")
             end)
+            T:waitUntil(function() return events == 2 end, 5, "queued snooze expiry after input")
             T:eq(events, 2, "the snoozed interval expires once")
             tapButton(T:topWidget(), _("Repeat"))
             T:eq(plugin:remaining(), 900, "repeat retains the original fifteen-minute interval")
@@ -142,6 +146,28 @@ return {
             instances[#instances + 1] = assert(ui.readtimer)
             T:eq(ui:getCurrentPage(), page + 1, "timer testing does not lose native reading progress")
             T:check(not ui.readtimer:scheduled(), "a stopped timer is not resurrected on the next view")
+            local batch_timer = ui.readtimer
+            local batch_page = ui:getCurrentPage()
+            T:run(function()
+                batch_timer.settings.show_on_expiry = "message"
+                batch_timer.settings.auto_reschedule_interval = false
+                batch_timer.last_interval_time = 60
+                batch_timer:rescheduleIn(60)
+                elapsed = elapsed + time.s(61)
+                -- Same ordering as UIManager:handleInput: hook, then this batch's tap.
+                UIManager.event_hook:execute("InputEvent")
+                UIManager:handleInputEvent(Event:new("Gesture", {
+                    ges = "tap", time = time.now(),
+                    pos = Geom:new{ x = math.floor(T.screen_w * 0.9),
+                        y = math.floor(T.screen_h * 0.5), w = 0, h = 0 },
+                }))
+            end)
+            T:eq(ui:getCurrentPage(), batch_page + 1, "the wake-up batch tap reaches the original reader")
+            T:waitUntil(function() return not batch_timer:scheduled() end, 5, "deferred expiry after input dispatch")
+            T:check(T:topWidget() ~= ui and T:topWidget().choice1_callback,
+                "the expiry popup survives the same batch's page-turn tap")
+            tapButton(T:topWidget(), _("Done"))
+            T:eq(alarmCount(batch_timer), 0, "dismissing the deferred expiry leaves no alarm task")
             T:closeBook()
             instances[#instances + 1] = assert(T:fileManager().readtimer)
             -- Retain private input through any background-worker/process teardown.
