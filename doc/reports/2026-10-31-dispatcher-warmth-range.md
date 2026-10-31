@@ -88,3 +88,19 @@ modified. A first local coverage-report invocation lacked its LuaCov module path
 the corrected invocation produced the fresh 1/1 result above, not a production
 failure. Normal draft-first publication, exact-head CI, included review and
 merge gates remain required; no paid add-on or gate bypass.
+
+## Accepted-main #96 synchronization
+
+PR #96 passed formal review and the normal gate, then merged as
+`154832db4d4b9941755dfb607e755a3750bec877`. Its actual merge tree equals the
+already tested #96 candidate tree. A normal two-parent merge into this branch
+retains README rows 68/69/70; the only textual merge conflict was the new row 70,
+which is preserved without dropping accepted rows. Local merge `d67aa866` and
+published merge `135fed92` have tree `b38d2721911fa6806e0991245c6f5b570307d21e`,
+identical to the pre-merge report snapshot, with zero content diff.
+
+The focused **17/17 units and 112/112 integration checks** were rerun on that
+synchronized snapshot. All larger combination, repetition, coverage, negative
+and independent results above remain valid for the identical executable/test
+bytes; they are not described as newly rerun full batches. This report-only
+successor introduces no code change. Exact-head CI/review remain separate.
