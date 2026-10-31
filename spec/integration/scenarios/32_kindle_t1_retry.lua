@@ -46,6 +46,7 @@ return {
                     last_action_time = now - time.s(601),
                     last_t1_reset_time = now - time.s(601),
                 }, { __index = AutoSuspend })
+                UIManager.event_hook:registerWidget("InputEvent", as)
                 UIManager.suspend = function()
                     -- Model powerd ignoring the request: no onSuspend event follows.
                     suspends = suspends + 1
@@ -82,7 +83,7 @@ return {
             T:waitUntil(function() return ui:getCurrentPage() == 2 end, 5, "page turn while a t1 retry is pending")
             T:run(function()
                 UIManager:unschedule(as.kindle_task)
-                as:onInputEvent()
+                UIManager.event_hook:execute("InputEvent")
                 as.kindle_task()
                 T:eq(resets, 1, "new user input permits the normal overdue t1 reset")
                 T:eq(countTasks(as.kindle_task), 1, "normal operation leaves one t1 check")
@@ -104,7 +105,7 @@ return {
             UIManager.suspend = original_ui_suspend
             PluginShare.keepalive = original_keepalive
             if heartbeat then UIManager:unschedule(heartbeat) end
-            if as then as:_unschedule_kindle() end
+            if as then as:onCloseWidget() end
         end)
         if not ok then error(err, 0) end
         T:closeBook()
