@@ -117,6 +117,8 @@ function CoverMenu:updateItems(select_number, no_recalculate_dimen)
         end
         -- Launch it at nextTick, so UIManager can render us smoothly
         UIManager:nextTick(function()
+            -- The menu may have closed before this deferred launch ran.
+            if self._covermenu_onclose_done then return end
             local launched = BookInfoManager:extractInBackground(files_to_index)
             if not launched then -- fork failed (never experienced that, but let's deal with it)
                 -- Cancel scheduled update, as it won't get any result
