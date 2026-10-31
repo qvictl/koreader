@@ -83,10 +83,12 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `14_base_archive_serialization` | archive error recovery and packaging/reloading radix-safe serializer output, including infinities and NaN |
 | `15_network_info` | native interface discovery, the network information event/dialog, displayed interface names and MAC addresses, and dismissal without external network requests |
 | `21_font_lifecycle` | native collection preserves page counts and pixels over three real ReaderUI open/turn/close/reopen cycles; optional Linux RSS/PSS and FreeType-finalizer benchmark |
-| `35_native_input_eof` | real Linux native pipe EOF retires the dead producer, preserves final keys through frontend input/UIManager, and leaves reader page turns responsive; requires the Linux-emulator base input-test fixture |
+| `35_native_input_eof` | real Linux native pipe EOF retires the dead producer, clears frontend path aliases before descriptor reuse, preserves final keys through frontend input/UIManager, and leaves reader page turns responsive; requires the Linux-emulator base input-test fixture |
 | `25_async_command_output` | multi-megabyte streaming command output, stdout EOF before shell exit, late descendant writers, cancellation after a prefix without killing the command, bounded background collection, UI heartbeats and pipe/pid cleanup |
 | `27_kosync_default_http` | real localhost Spore HTTP: UI responsiveness, parent authentication, bounded workers, cancellation, failed fork and late progress responses across lifecycle changes |
 | `28_cache_pressure` | byte-based PDF cache pressure eviction, original budget preservation, and real background reflow context cleanup before and after reader closure |
+| `33_kosync_hostname_identity` | real localhost KOSync push, continued reading and manual pull: custom/default names and default-to-custom renaming do not rewind the same device; a different device ID still syncs |
+| `34_footer_delayed_refresh` | real reading-order events followed by immediate document close; old footer tasks canceled, new reader feedback and page turns retained across repeated reopen cycles |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:

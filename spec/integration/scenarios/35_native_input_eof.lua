@@ -13,16 +13,18 @@ return {
         local time = require("ui/time")
         local native = assert(package.loadlib("./libs/libkoreader-input-test.so", "luaopen_input_test"))()
         local input = Input:new{ device = Device, input = native, event_map = { [30] = "LPgFwd" } }
-        local writers = {}
+        local writers, paths = {}, {}
         local original_warn, warnings = logger.warn, 0
         local reader = T:openBook(T:fixture("books/en.epub"))
-        local function pipe()
+        local function pipe(path)
             local fds = ffi.new("int[2]")
             assert(C.pipe(fds) == 0)
             local rd, wr = tonumber(fds[0]), tonumber(fds[1])
             writers[wr] = true
             assert(C.fcntl(rd, C.F_SETFL, ffi.cast("int", C.O_NONBLOCK)) == 0)
-            native.fdopen(rd)
+            assert(Input.opened_devices[path] == nil)
+            input:fdopen(rd, path)
+            paths[path] = true
             return rd, wr
         end
         local function closeWriter(wr)
@@ -31,8 +33,9 @@ return {
         end
         local ok, err = xpcall(function()
             T:run(function()
-                local dead_fd, dead_writer = pipe()
-                local key_fd, key_writer = pipe()
+                local dead_path, key_path = "native-eof/empty", "native-eof/keys"
+                local dead_fd, dead_writer = pipe(dead_path)
+                local key_fd, key_writer = pipe(key_path)
                 closeWriter(dead_writer)
                 local keys = ffi.new("struct input_event[2]")
                 keys[0].type, keys[0].code, keys[0].value = C.EV_KEY, 30, 1
@@ -51,11 +54,19 @@ return {
                 T:eq(error_events[1].handler, "onInputError", "empty producer EOF is reported to the UI")
                 T:eq(error_events[1].args[1], tonumber(C.EPIPE), "the one-shot input error retains EPIPE")
                 T:eq(C.fcntl(dead_fd, C.F_GETFD), -1, "the dead descriptor is actually closed")
+                T:eq(Input.opened_devices[dead_path], nil, "empty EOF forgets the frontend path")
                 local events = input:waitEvent(now, now)
                 T:check(events and #events == 2, "the next producer's final key press and release survive EOF")
                 T:eq(events[1].handler, "onKeyPress", "the native key reaches frontend key handling")
-                for _, event in ipairs(events) do UIManager:sendEvent(event) end
                 T:eq(C.fcntl(key_fd, C.F_GETFD), -1, "the final-event producer is retired too")
+                T:eq(Input.opened_devices[key_path], nil, "final-event EOF forgets the frontend path")
+                local replacement_fd, replacement_writer = pipe("native-eof/replacement")
+                T:eq(replacement_fd, dead_fd, "the OS reuses the retired descriptor number")
+                input:close(dead_path)
+                T:check(C.fcntl(replacement_fd, C.F_GETFD) >= 0, "closing the old path cannot close the replacement input")
+                input:close("native-eof/replacement")
+                closeWriter(replacement_writer)
+                for _, event in ipairs(events) do UIManager:sendEvent(event) end
                 T:eq(input:waitEvent(now, now), nil, "a later empty poll returns normally")
                 T:eq(warnings, 1, "EOF is reported once, without a repeated-warning loop")
                 logger.warn = original_warn
@@ -68,6 +79,7 @@ return {
         end, debug.traceback)
         logger.warn = original_warn
         native.closeAll()
+        for path in pairs(paths) do Input.opened_devices[path] = nil end
         for fd in pairs(writers) do C.close(fd) end
         if not ok then error(err, 0) end
         T:closeBook()

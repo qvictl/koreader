@@ -1589,7 +1589,7 @@ end
 -- in much less common cases, that's the earliest of UIManager.INPUT_TIMEOUT (currently, only KOSync ever sets it) or UIManager.ZMQ_TIMEOUT if there are pending ZMQs).
 function Input:waitEvent(now, deadline)
     -- On the first iteration of the loop, we don't need to update now, we're following closely (a couple ms at most) behind UIManager.
-    local ok, ev
+    local ok, ev, timerfd, retired_fd
     -- Wrapper around the platform-specific input.waitForEvent (which itself is generally poll-like, and supposed to poll *once*).
     -- Speaking of input.waitForEvent, it can return:
     -- * true, ev: When a batch of input events was read.
@@ -1600,6 +1600,8 @@ function Input:waitEvent(now, deadline)
     --                          it returns false, C.ETIME, timerfd; where timerfd is a C pointer (i.e., light userdata)
     --                          to the timerfd node that expired (so as to be able to free it later, c.f., input/timerfd-callbacks.h).
     --                          Otherwise, errno is the actual error code from the backend (e.g., select's errno for the C backend).
+    -- * The optional fourth result identifies an fd retired at EOF, with or without final events.
+    --   The third result stays reserved for timerfd, so older backends/callers remain compatible.
     -- * nil: When something terrible happened (e.g., fatal poll/read failure). We abort in such cases.
     while true do
         if self.timer_callbacks[1] then
@@ -1646,9 +1648,8 @@ function Input:waitEvent(now, deadline)
                     end
                 end
 
-                local timerfd
                 local sec, usec = time.split_s_us(poll_timeout)
-                ok, ev, timerfd = self.input.waitForEvent(sec, usec)
+                ok, ev, timerfd, retired_fd = self.input.waitForEvent(sec, usec)
                 -- We got an actual input event, go and process it
                 if ok then break end
 
@@ -1740,8 +1741,16 @@ function Input:waitEvent(now, deadline)
             end
 
             local sec, usec = time.split_s_us(poll_timeout)
-            ok, ev = self.input.waitForEvent(sec, usec)
+            ok, ev, timerfd, retired_fd = self.input.waitForEvent(sec, usec)
         end -- if #timer_callbacks > 0
+
+        if retired_fd then
+            -- Native already closed this fd. Forget every alias before dispatching final
+            -- events, whose callbacks may open a new input that reuses the same number.
+            for path, fd in pairs(Input.opened_devices) do
+                if fd == retired_fd then Input.opened_devices[path] = nil end
+            end
+        end
 
         -- Handle errors
         if ok then
