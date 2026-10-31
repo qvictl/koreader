@@ -89,6 +89,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `32_news_download_folder_safety` | real folder-selection and deletion confirmations: cancel preserves inert fixtures/settings, accept retains feed configuration, unrelated files/subfolders are deleted only after explicit consent, unreadable selection fails closed |
 | `33_kosync_hostname_identity` | real localhost KOSync push, continued reading and manual pull: custom/default names and default-to-custom renaming do not rewind the same device; a different device ID still syncs |
 | `34_footer_delayed_refresh` | real reading-order events followed by immediate document close; old footer tasks canceled, new reader feedback and page turns retained across repeated reopen cycles |
+| `42_sidecar_migration_failure` | real FileManager renames with blocked main/custom destinations retain source annotations and custom files; explicit retry, shared-sidecar extension rename, and ReaderUI reopen/page turns |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
