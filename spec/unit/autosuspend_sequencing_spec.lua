@@ -387,6 +387,46 @@ describe("AutoSuspend sequencing", function()
             disabled:_schedule_kindle()
             assert.are.equal(0, #tasksFor(disabled.kindle_task))
         end)
+
+        it("defers overdue t1 checks when powerd has not acknowledged suspend", function()
+            local as = new()
+            local last_reset, resets = as.last_t1_reset_time, power.t1_resets
+            now = now + time.s(601)
+            for _ = 1, 3 do
+                scheduled = {}
+                as:_schedule_kindle()
+                assert.are.same({ 240 }, tasksFor(as.kindle_task))
+                assert.are.equal(resets, power.t1_resets)
+                assert.are.equal(last_reset, as.last_t1_reset_time)
+                now = now + time.s(240)
+            end
+            -- New user input makes the old t1 reset eligible again.
+            as:onInputEvent()
+            scheduled = {}
+            as:_schedule_kindle()
+            assert.are.equal(resets + 1, power.t1_resets)
+            assert.are.equal(now, as.last_t1_reset_time)
+            assert.are.same({ 240 }, tasksFor(as.kindle_task))
+        end)
+
+        it("defers a zero t1 delay without extending a still-positive remainder", function()
+            local as = new()
+            local resets = power.t1_resets
+            now = now + time.s(600)
+            as.last_t1_reset_time = now - time.s(240)
+            scheduled = {}
+            as:_schedule_kindle()
+            assert.are.same({ 240 }, tasksFor(as.kindle_task))
+            assert.are.equal(now - time.s(240), as.last_t1_reset_time)
+            assert.are.equal(resets, power.t1_resets)
+
+            as.last_t1_reset_time = now - time.s(100)
+            scheduled = {}
+            as:_schedule_kindle()
+            assert.are.same({ 140 }, tasksFor(as.kindle_task))
+            assert.are.equal(now - time.s(100), as.last_t1_reset_time)
+            assert.are.equal(resets, power.t1_resets)
+        end)
     end)
 
     describe("menus", function()
