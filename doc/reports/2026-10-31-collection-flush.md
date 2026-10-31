@@ -63,6 +63,9 @@ last expression in a chain; successful return compatibility is tested.
   widgets and waits for cover metadata workers before deleting their input files.
   A local error-injection variant verifies the same cleanup after an exception;
   that deliberately failed run is not counted as a passed integration scenario.
+  An additional body-error plus worker-timeout injection confirms settings/global
+  restoration still runs when worker cleanup fails, inputs remain for a possibly
+  active worker, and both original and cleanup errors remain visible.
 - The native libraries are reused from the authorized fork emulator; runtime
   Lua is overlaid from the tested source. This is not a native rebuild or a
   PocketBook hardware/power-loss durability test. The reproduction establishes

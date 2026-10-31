@@ -110,7 +110,7 @@ return {
             T:check(manager.coll_list.dimen ~= nil, "refreshed parent collection list is painted")
             T:run(function() manager.coll_list.close_callback() end)
         end)
-        local cleanup_ok, cleanup_err = pcall(function()
+        local workers_ok, workers_err = pcall(function()
             if writes then writes.restore() end
             T:run(function()
                 -- Close any scenario widget left behind by a failed assertion.
@@ -127,6 +127,10 @@ return {
                 T:waitUntil(function() return not bookinfo:isExtractingInBackground() end,
                     15, "cover metadata workers to finish before removing fixtures")
             end
+        end)
+        -- Restore globals/settings even if waiting for a worker fails. Its input
+        -- EPUBs must remain until a successful wait proves they are no longer used.
+        local restore_ok, restore_err = pcall(function()
             T:run(function()
                 ReadCollection.coll = saved.coll
                 ReadCollection.coll_settings = saved.coll_settings
@@ -141,11 +145,17 @@ return {
                         os.remove(entry[1])
                     end
                 end
-                ffiUtil.purgeDir(base)
+                if workers_ok then ffiUtil.purgeDir(base) end
             end)
         end)
+        if not workers_ok or not restore_ok then
+            local errors = {}
+            if not ok then errors[#errors + 1] = tostring(type(err) == "table" and err.msg or err) end
+            if not workers_ok then errors[#errors + 1] = "worker cleanup: " .. tostring(type(workers_err) == "table" and workers_err.msg or workers_err) end
+            if not restore_ok then errors[#errors + 1] = "state restoration: " .. tostring(type(restore_err) == "table" and restore_err.msg or restore_err) end
+            error(table.concat(errors, "\n"), 0)
+        end
         if not ok then error(err, 0) end
-        if not cleanup_ok then error(cleanup_err, 0) end
         T:eq(ReadCollection.last_read_time, saved.last_read_time, "collection read timestamp is restored")
         T:eq(readFile(settings_path), saved.current, "original collection settings bytes are restored")
         T:eq(lfs.attributes(base), nil, "private collection book fixtures are removed")
