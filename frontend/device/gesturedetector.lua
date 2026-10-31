@@ -233,19 +233,25 @@ function GestureDetector:feedEvent(tevs)
     for _, tev in ipairs(tevs) do
         local slot = tev.slot
         local contact = self:getContact(slot)
-        if not contact then
-            contact = self:newContact(slot)
-            -- NOTE: tev is actually a simple reference to Input's self.ev_slots[slot],
-            --       which means a Contact's current_tev doesn't actually point to the *previous*
-            --       input frame for a given slot, but always points to the *current* input frame for that slot!
-            --       Meaning the tev we feed the state function *always* matches that Contact's current_tev.
-            --       Compare to initial_tev below, which does create a copy...
-            -- This is what allows us to only do this once on contact creation ;).
-            contact.current_tev = tev
-        end
-        local ges = contact.state(contact)
-        if ges then
-            table.insert(gestures, ges)
+        -- A slot may arrive before either coordinate. Keep its data in Input,
+        -- but do not expose a partial contact to the buddy state machine:
+        -- its recovery snapshots and MT gesture arithmetic require both axes.
+        -- Once coordinates arrive, the same slot can start a normal contact.
+        if contact or (tev.x ~= nil and tev.y ~= nil) then
+            if not contact then
+                contact = self:newContact(slot)
+                -- NOTE: tev is actually a simple reference to Input's self.ev_slots[slot],
+                --       which means a Contact's current_tev doesn't actually point to the *previous*
+                --       input frame for a given slot, but always points to the *current* input frame for that slot!
+                --       Meaning the tev we feed the state function *always* matches that Contact's current_tev.
+                --       Compare to initial_tev below, which does create a copy...
+                -- This is what allows us to only do this once on contact creation ;).
+                contact.current_tev = tev
+            end
+            local ges = contact.state(contact)
+            if ges then
+                table.insert(gestures, ges)
+            end
         end
     end
     return gestures

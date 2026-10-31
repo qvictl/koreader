@@ -91,6 +91,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `34_footer_delayed_refresh` | real reading-order events followed by immediate document close; old footer tasks canceled, new reader feedback and page turns retained across repeated reopen cycles |
 | `38_dictionary_sparse_history` | missing leading/interior lookup-history records: complete reverse-index display, repeated open/close in the file manager and reader, byte-preserving viewing, and tapping a surviving word for a real dictionary lookup |
 | `39_kosync_invalid_url` | persisted malformed sync URL across book opens, failed pull/push/auth and queue preservation, blank-address UI recovery and valid localhost retry |
+| `40_gesture_missing_coordinates` | real protocol-B frames with partial buddy slots, gesture/timer cleanup, ReaderUI page turns and reopen |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
