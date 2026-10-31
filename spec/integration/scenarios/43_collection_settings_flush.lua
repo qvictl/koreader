@@ -106,7 +106,7 @@ return {
             T:run(function() manager.coll_folder_list.close_callback() end)
             T:repaint()
             T:eq(manager.coll_list.item_table[1].mandatory,
-                manager.getCollListItemMandatory("favorites"), "parent count and folder marker refresh after flush")
+                "\u{F114} 3", "parent count and folder marker refresh after flush")
             T:check(manager.coll_list.dimen ~= nil, "refreshed parent collection list is painted")
             T:run(function() manager.coll_list.close_callback() end)
         end)
@@ -120,7 +120,7 @@ return {
             end)
             -- A cover-browser launch may already be queued for the next tick.
             -- Drain it while fixtures exist, then let its normal reaper finish.
-            T:wait(0.05)
+            T:wait() -- allow the queued nextTick launch to run
             local bookinfo = package.loaded.bookinfomanager
             if bookinfo then
                 T:run(function() bookinfo:terminateBackgroundJobs() end)
