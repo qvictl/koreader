@@ -111,6 +111,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `62_pdf_current_zoom_factor` | real PDF zoom picker arrows, default confirmation Cancel/Save, Apply and unapplied Close, native tap page turns, overlap-only updates and repeated reopen; current book scale stays separate from the global default |
 | `63_wikipedia_metadata_language` | native EPUB ISO metadata, actual Wikipedia result and language settings dialogs, Cancel/Save and remembered explicit editions; automatic normalization/deduplication preserves manual domains; synthetic API only |
 | `64_style_tweak_notifications` | real profile Execute/notification menus, all three style-tweak actions, masked and painted feedback, batched profile execution message, ReaderReady auto-execution across reopen and native page turn |
+| `66_opds_literal_credentials` | real catalog menu, HEAD/feed and normal EPUB download through two non-forwarding loopback origins; literal percent credentials, same-/cross-origin redirects and native reading; synthetic credentials only, no OPDS-PSE |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:

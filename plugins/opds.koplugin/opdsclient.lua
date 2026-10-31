@@ -1,4 +1,5 @@
 local http = require("socket.http")
+local mime = require("mime")
 local socket = require("socket")
 local socketutil = require("socketutil")
 local url = require("socket.url")
@@ -44,14 +45,22 @@ function OPDSClient:request(request)
 
     for _ = 1, 5 do
         local headers = {}
+        local has_authorization = false
         for name, value in pairs(original_headers) do
             if name:lower() ~= "cookie" then headers[name] = value end
+            if name:lower() == "authorization" then has_authorization = true end
         end
         local cookies = self.cookie_jar:headerFor(request_url)
         if cookies then headers.Cookie = cookies end
 
         local request_origin = url.parse(request_url)
         local same_origin = isSameOrigin(request_origin, original_origin)
+        if same_origin and request.username and request.password and not has_authorization then
+            -- Catalog form fields are literal strings, not URL userinfo. LuaSocket
+            -- unescapes its password field, so override only the generated header.
+            -- Build it per hop: never add origin credentials to other origins.
+            headers.Authorization = "Basic " .. mime.b64(request.username .. ":" .. request.password)
+        end
         local function makeRequest()
             return socket.skip(1, http.request {
                 url = request_url,
