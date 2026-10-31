@@ -44,13 +44,55 @@ Two independently confirmed review findings are fixed before delivery:
   next reopen loses earlier lookups and can produce a sparse history table.
   Missing/non-file current paths now take the complete-snapshot flush path.
 
-Final native unit validation is 19/19. The pre-review candidate fails all five
+Initial review-fix native unit validation is 19/19. The pre-review candidate fails all five
 new tests: blocked backup rename, blocked current-file rename, snapshot-open
 failure, recovered-history append, and recovered-setting save/delete. These use
 real temporary directories and files, not simulated rename results. Final
 scenario 37 passes 8/8: it additionally performs a real dictionary lookup after
 recovery and reopens the on-disk history, verifying both the recovered entry and
 the new lookup. The pre-review candidate fails this retained-entry check.
+
+## Recovery-write performance limitation
+
+The first append when the current file is missing persists the complete current
+in-memory state synchronously. After that snapshot is successfully written and
+the current path is a regular file, later appends are incremental again. A failed
+write that leaves the path missing/non-file causes later appends to retry the
+complete snapshot, potentially repeating synchronous I/O and UI pauses. This branch
+does **not** rotate backups: `flush` rotates only when the current file is a
+regular file. It is nevertheless not a bounded/nonblocking I/O implementation.
+
+Three fresh-process Linux x86-64 samples per synthetic history size measured
+the first recovered append with `socket.gettime()` and `/proc/self/status`.
+Current RSS uses `VmRSS`; the high-water column uses `VmHWM`, not `VmRSS`:
+
+| Entries | Backup / new snapshot bytes | First append wall time | `VmHWM` after append |
+| --- | --- | --- | --- |
+| 1,000 | 105,923 / 189,021 | 2.1–4.2 ms | 3,476–3,520 KiB |
+| 10,000 | 1,068,923 / 1,908,023 | 24.8–37.7 ms | 14,760–15,220 KiB |
+| 30,000 | 3,228,923 / 5,768,023 | 84.9–122.8 ms | 34,836–36,020 KiB |
+
+Each record has a synthetic book title (including non-ASCII text), timestamp
+and lookup word. For 30,000 entries, pre-append RSS was 14,380–14,432 KiB and
+Lua heap grew from 6,677 KiB to 32,653–34,279 KiB before a subsequent collection.
+These fast-host results demonstrate real transient allocation and synchronous
+latency; they are **not** a Kindle latency or memory-safety guarantee. A 100,000
+entry fixture exceeded the LuaJIT loader's constant limit and was rejected;
+its timings are invalid and excluded rather than counted as a performance pass.
+
+A local, unpublished 8 KiB backup-copy-plus-delta prototype reduced the need to
+serialize the current table, but failed two data-integrity negative controls:
+it lost an earlier in-memory append after a blocked write and retry, and used
+different data when the numbered backup changed after recovery. Retaining the
+complete current in-memory snapshot passes both cases. They are now permanent
+unit regressions, bringing the focused suite to 21/21. The prototype is not
+part of this change.
+
+An asynchronous or streaming serializer would need separate writer ordering,
+current-state ownership, failure/retry and exit-lifecycle design. This repair
+deliberately retains immediate persistence semantics rather than accepting
+those demonstrated data-loss regressions. Large-history UI pauses remain a
+known limitation, not a claim that synchronous serialization is free.
 
 Validation reuses fork emulator native libraries with candidate runtime Lua and
 a temporary SDL3 dependency. It is not a native rebuild, Kindle/PocketBook
