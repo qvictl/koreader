@@ -154,3 +154,40 @@ matching source and no scenario-owned directory left behind. The unchanged unit
 suite was not independently rerun for this test-only revision.
 The final revision requires normal exact-head CI and review acceptance; the
 author does not manually resolve the review thread or bypass the gate.
+
+## Accepted-main #95 and final UI postcondition
+
+Accepted main advanced to HTTP-308 companion #95
+`aab4147b855825502b555d59e9aa8d8bdbda784b`, with base
+`d59a3cb108e7b1c90b851a4d7a2120f0c272951e`. The normal merge preserves
+README rows 67, 68 and 69 without conflicts. Local merge `fa42506d` and
+published merge `8dec4267` have tree `7ce287d02ae256fee8da117ee9a5f7db5c7fefd6`.
+The base delta changes LuaSocket's patch list, the 308 patch and a unit suite;
+it contains no native C/FFI change. The reused runtime now includes the exact
+regenerated HTTP Lua module, SHA-256
+`6278e306ea1e04473ff1143bcbad999e235af49aab5a775d5d795c8f5b93317c`.
+This is not a native rebuild.
+
+CodeRabbit resolved the original artifact thread, then correctly noted that
+`isWidgetShown` proves presence rather than topmost state. The final scenario
+captures and asserts the initial nonnil FileManager, then checks that the exact
+same instance is the top widget after repaint. This excludes an obscuring widget,
+a replacement FileManager and a vacuous nil comparison, without restoring the
+unrelated EPUB smoke test or creating files.
+
+Final test code `91249452ea4f6b698b145669e1f20154213ca328` and published code
+`582a6dac493b1ea5e44c216caba0c665ee83d5fa` have tree
+`30886b340748542f73125e18a7e64f9a3e38c06e`. The synchronized main-95 runtime
+passed **316/316 units in 15 nonempty suites** before this assertion-only change;
+production and unit bytes did not change afterward. The final scenario passed
+**3 x 24/24** and the final related integration selection passed **832/832 in
+17 scenarios**, including proxy-auth scenario 49 and HTTP-308 scenario 68.
+Applicable budgets pass; lint and whitespace checks are clean.
+
+The independent reviewer reran the exact final scenario: **24/24**, and checked
+its source hash before and after the run. That private runtime retained the
+previous HTTP module, so this independently validates the warmth scenario, not
+the main-95 HTTP combination. Earlier coverage, negative controls and independent
+unit evidence retain their original unchanged-code attribution. The report-only
+successor still requires exact-head CI and formal review; no thread is manually
+resolved by the author.
