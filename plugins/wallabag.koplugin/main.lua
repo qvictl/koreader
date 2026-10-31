@@ -794,7 +794,9 @@ end
 -- @treturn nil Failed to download the article.
 function Wallabag:downloadArticle(article)
     logger.dbg("Wallabag:downloadArticle: article.title =", article.title)
-    local title = util.getSafeFilename(article.title, self.directory, 230, 0)
+    -- JSON null is a truthy function, not nil. Keep the entry ID as the filename fallback.
+    local title = type(article.title) == "string" and article.title or ""
+    title = util.getSafeFilename(title, self.directory, 230, 0)
     logger.dbg("Wallabag:downloadArticle: local title =", title)
     local file_ext = ".epub"
     local item_url = "/api/entries/" .. article.id .. "/export.epub"
@@ -805,7 +807,7 @@ function Wallabag:downloadArticle(article)
     -- We can simplify that to 'not a string'.
     local mimetype = type(article.mimetype) == "string" and util.trim(article.mimetype:match("^[^;]*")) or nil
 
-    if self.download_original_document then
+    if self.download_original_document and type(article.url) == "string" then
         logger.dbg("Wallabag:downloadArticle: local mimetype =", mimetype)
         logger.dbg("Wallabag:downloadArticle: article.url =", article.url)
         if mimetype == "text/html" then
