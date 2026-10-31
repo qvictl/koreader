@@ -104,6 +104,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `54_autowarmth_native_steps` | real activation menu, UIManager queued callbacks and Generic power conversion with synthetic solar time/light hardware; all 24 native warmth steps, preserved night-flag policy, schedule cancellation and native EPUB reading afterward |
 | `55_readtimer_elapsed_time` | real timer menu/picker, input hooks and UI task queue with a synthetic timer-only elapsed clock; overdue expiry, snooze/repeat, auto-repeat on resume, timer transfer through FileManager/ReaderUI and native EPUB progress; a same-batch tap reaches the reader before the deferred expiry popup |
 | `56_vocabulary_context_provenance` | native EPUB selected-word context, real sdcv and rendered-definition long-press, manual/automatic SQLite vocabulary capture, root versus nested edits, popup closure and reader reopen; no network |
+| `57_keyboard_pdf_zoom` | native synthetic PDF, real keyboard dispatch, paging/panning, manual scale, bottom menu, flipping and close/reopen; skim modal uses explicit ReaderUI key dispatch (not physical modal routing); continuous/reflow and regional-free unit controls |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
