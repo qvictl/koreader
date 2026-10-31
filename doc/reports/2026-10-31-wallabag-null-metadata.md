@@ -167,3 +167,40 @@ contains no further source/test change. Fresh validation on this combination:
 
 These are the latest combination results; the earlier 271/156 and 199/152
 figures remain historical, not duplicated or added into the final totals.
+
+### Review-driven update-path limitation
+
+This PR only fixes title and URL metadata type handling. **Same-ID updates after
+renaming or changing formats, and migration of their reading state, remain
+unresolved when dateparser is enabled.** The null guard lets an input that used
+to crash complete its initial download; it does not make later updates safe.
+
+A separate private characterization used the real date parser, a future
+`updated_at` of `2099-01-01T00:00:00Z`, actual `callAPI`/ltn12 file sinks,
+synthetic HTTP responses, ordinary private files and real DocSettings:
+
+- Both main `0531bd8a` and the candidate produce a second file for a legal empty
+  string title becoming `Renamed`, or `Original` becoming `Renamed`. The old
+  file and sidecar bytes remain, but the new inventory path has neither the
+  original annotation nor the saved 40% reading progress.
+- The candidate's JSON-null-to-`Renamed` case reaches the same existing defect;
+  main instead fails on the initial null title's function/string operation.
+- A private simulation of simply substituting the old destination path, without
+  changing production, loses the previously successful file on HTTP 503:
+  `io.open(..., "w")` truncates it and failed-download cleanup removes it.
+  Directly reusing an old path is therefore not an acceptable fix.
+
+The candidate's four characterization cases observed these expected defects and
+counterexamples; main observed the same three existing behaviors and the null
+case's initial error. These are **not passing guarantees of update integrity**,
+are separate from the 294-unit/184-integration validation above, and used no live
+service or user article. Native EPUB reading was not part of this characterization.
+
+A follow-on update transaction needs independently validated streaming temporary
+output, success confirmation and safe same-format replacement, with failed
+requests retaining existing files and metadata. Format changes require an
+explicit policy: PDF bytes must not be stored under an old `.epub` extension,
+and retained sidecars do not establish cross-format anchor compatibility.
+No such transaction, migration or production path-reuse change is included here.
+Formal review accepted this limited scope but normal latest-head approval and
+required checks remain separate gates.
