@@ -12,8 +12,9 @@ return {
         local original_kind, original_suspend = Device.isKindle, Device.canSuspend
         local original_power = Device.getPowerDevice
         local original_schedule = UIManager.scheduleIn
+        local original_ui_suspend = UIManager.suspend
         local original_keepalive = PluginShare.keepalive
-        local resets, calls, beats = 0, 0, 0
+        local resets, calls, beats, suspends = 0, 0, 0, 0
         local as, heartbeat
         local function countTasks(action)
             local count = 0
@@ -45,6 +46,12 @@ return {
                     last_action_time = now - time.s(601),
                     last_t1_reset_time = now - time.s(601),
                 }, { __index = AutoSuspend })
+                UIManager.suspend = function()
+                    -- Model powerd ignoring the request: no onSuspend event follows.
+                    suspends = suspends + 1
+                end
+                as:_schedule()
+                T:eq(suspends, 1, "the suspend producer issues the unacknowledged request")
                 as.kindle_task = function()
                     calls = calls + 1
                     as:_schedule_kindle()
@@ -79,7 +86,13 @@ return {
                 as.kindle_task()
                 T:eq(resets, 1, "new user input permits the normal overdue t1 reset")
                 T:eq(countTasks(as.kindle_task), 1, "normal operation leaves one t1 check")
-                as:onSuspend()
+                as.last_action_time = UIManager:getElapsedTimeSinceBoot() - time.s(601)
+                UIManager.suspend = function()
+                    suspends = suspends + 1
+                    as:onSuspend()
+                end
+                as:_schedule()
+                T:eq(suspends, 2, "the suspend producer delivers the acknowledged request")
                 T:eq(countTasks(as.kindle_task), 0, "an acknowledged suspend cancels the deferred timer")
             end)
             T:metric("ui_heartbeats_during_retry", beats, "count")
@@ -88,6 +101,7 @@ return {
             Device.isKindle, Device.canSuspend = original_kind, original_suspend
             Device.getPowerDevice = original_power
             UIManager.scheduleIn = original_schedule
+            UIManager.suspend = original_ui_suspend
             PluginShare.keepalive = original_keepalive
             if heartbeat then UIManager:unschedule(heartbeat) end
             if as then as:_unschedule_kindle() end

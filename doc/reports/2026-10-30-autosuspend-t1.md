@@ -16,7 +16,9 @@ unacknowledged checks, positive remaining time and recovery after input.
 `32_kindle_t1_retry` uses the real reader and UI task queue with a synthetic
 Kindle powerd to check heartbeats, page turns and timer cancellation. Its guard
 rejects an unsafe delay before enqueueing it, rather than intentionally hanging
-the emulator on the old code.
+the emulator on the old code. Both ignored and acknowledged suspend requests
+originate in `AutoSuspend:_schedule()` and use a controlled `UIManager.suspend`
+callback; only the acknowledged request delivers `onSuspend()`.
 
 This is a host-testable scheduling invariant, not a measured battery saving or
 Kindle hardware verification. Required CI, current-head AI review and unresolved
