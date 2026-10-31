@@ -79,8 +79,9 @@ function NetworkMgr:requestToTurnOnWifi(wifi_cb, interactive)
     return self:turnOnWifi(wifi_cb, interactive)
 end
 
--- Share the connection guard with interactive requests while async restoration
--- owns the backend. The existing connectivity poll releases it on completion.
+-- Share the connection guard with interactive requests during this awake
+-- lifecycle. This is Lua request ownership, not cross-suspend process ownership.
+-- The existing connectivity poll releases it on completion.
 function NetworkMgr:requestToRestoreWifi()
     if self.pending_connection then return EBUSY end
     self.pending_connection = true

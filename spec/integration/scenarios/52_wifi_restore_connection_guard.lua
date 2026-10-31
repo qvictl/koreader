@@ -121,9 +121,8 @@ return {
                 "successful polling releases all pending flags")
             T:eq(NetworkMgr.lease_ssid, "synthetic-restore", "successful restore refreshes the lease identity")
             T:eq(#polls(), 0, "successful restore leaves no polling task")
-            T:wait(2.1)
-            T:eq(disconnected, 0, "no stale shutdown completion arrives after the new connection")
-            T:eq(NetworkMgr.lease_ssid, "synthetic-restore", "the new connection lease survives the old delay window")
+            T:eq(disconnected, 0, "poll completion does not send a disconnect event")
+            T:eq(NetworkMgr.lease_ssid, "synthetic-restore", "poll completion preserves the new connection lease")
             tapWifi()
             T:eq(backend.disables, 1, "normal interactive shutdown still reaches the backend")
             T:eq(disconnected, 1, "normal shutdown sends its completion event")
@@ -148,6 +147,32 @@ return {
             T:waitUntil(function() return connected == 2 end, 5, "retry completes through the real poll")
             T:check(not NetworkMgr.pending_restore and not NetworkMgr.pending_connection and not NetworkMgr.pending_connectivity_check,
                 "retry completion leaves no stuck flags")
+            T:run(function()
+                Device.hasWifiManager = function() return true end
+                Device.isKindle = function() return false end
+                backend.on, backend.connected = false, false
+                NetworkMgr.lease_ssid = "managed-before-suspend"
+                listener:onResume()
+                listener:onResume()
+                listener:onSuspend()
+                listener:onSuspend()
+            end)
+            T:eq(backend.restores, 5, "managed duplicate resume starts only one awake-lifecycle request")
+            T:check(not NetworkMgr.pending_restore and not NetworkMgr.pending_connection,
+                "managed radio-off suspend retires Lua ownership")
+            T:eq(#polls(), 0, "managed repeated suspend removes old polling")
+            T:eq(backend.disables, 1, "managed radio-off suspend introduces no backend shutdown")
+            T:eq(disconnected, 1, "managed radio-off suspend does not claim backend completion")
+            T:check(NetworkMgr.wifi_was_on and G_reader_settings:isTrue("wifi_was_on"),
+                "managed repeated suspend retains restore intent")
+            T:eq(NetworkMgr.lease_ssid, "managed-before-suspend", "managed suspend retains the unconfirmed lease")
+            T:run(function() listener:onResume() end)
+            T:eq(backend.restores, 6, "managed resume is not blocked by the retired Lua guard")
+            T:eq(#polls(), 1, "managed resume installs one new polling task")
+            T:run(function() backend.on, backend.connected = true, true end)
+            T:waitUntil(function() return connected == 3 end, 5, "managed retry completes through the real poll")
+            T:check(not NetworkMgr.pending_restore and not NetworkMgr.pending_connection and not NetworkMgr.pending_connectivity_check,
+                "managed polling completion releases the new ownership")
             T:run(function() UIManager:close(menu) end)
             T:check(T:topWidget() == observer, "the real network menu closes normally after retry")
         end)

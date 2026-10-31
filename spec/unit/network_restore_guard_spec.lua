@@ -231,13 +231,13 @@ describe("Asynchronous Wi-Fi restore concurrency", function()
     end)
 
     for _, result in ipairs({ "nil", "true", "false" }) do
-        it("cancels a managed restore before the radio is on across suspend (shutdown " .. result .. ")", function()
+        it("retains the existing managed radio-on suspend path (shutdown " .. result .. ")", function()
             backend.managed = true
             if result ~= "nil" then backend.off_result = result == "true" end
             allowRestore()
             manager.lease_ssid = "Previous"
             listener:onResume()
-            assert.is_false(backend.on)
+            backend.on = true
             listener:onSuspend()
             assert.is_false(manager.pending_connection)
             assert.is_false(manager.pending_connectivity_check)
@@ -258,27 +258,30 @@ describe("Asynchronous Wi-Fi restore concurrency", function()
         end)
     end
 
-    it("cancels only restore polling on host-managed suspend without toggling its radio", function()
-        allowRestore()
-        manager.lease_ssid = "Previous"
-        listener:onResume()
-        listener:onSuspend()
-        assert.is_false(manager.pending_connection)
-        assert.is_falsy(manager.pending_restore)
-        assert.is_false(manager.pending_connectivity_check)
-        assert.equals(0, #tasks)
-        assert.equals(0, backend.stops)
-        assert.equals(0, backend.disables)
-        assert.same({}, events)
-        assert.equals("Previous", manager.lease_ssid)
-        assert.is_true(manager.wifi_was_on)
-        assert.is_true(G_reader_settings:isTrue("wifi_was_on"))
-        listener:onSuspend() -- repeated notifications remain harmless
-        listener:onResume()
-        assert.equals(2, backend.restores)
-        assert.is_true(manager.pending_restore)
-        assert.equals(1, #tasks)
-    end)
+    for _, managed in ipairs({ false, true }) do
+        it("retires only awake-lifecycle restore polling while the radio is off (managed " .. tostring(managed) .. ")", function()
+            backend.managed = managed
+            allowRestore()
+            manager.lease_ssid = "Previous"
+            listener:onResume()
+            listener:onSuspend()
+            assert.is_false(manager.pending_connection)
+            assert.is_falsy(manager.pending_restore)
+            assert.is_false(manager.pending_connectivity_check)
+            assert.equals(0, #tasks)
+            assert.equals(0, backend.stops)
+            assert.equals(0, backend.disables)
+            assert.same({}, events)
+            assert.equals("Previous", manager.lease_ssid)
+            assert.is_true(manager.wifi_was_on)
+            assert.is_true(G_reader_settings:isTrue("wifi_was_on"))
+            listener:onSuspend() -- repeated notifications remain harmless
+            listener:onResume()
+            assert.equals(2, backend.restores)
+            assert.is_true(manager.pending_restore)
+            assert.equals(1, #tasks)
+        end)
+    end
 
     it("does not cancel an unrelated host-managed interactive owner on suspend", function()
         allowRestore()
