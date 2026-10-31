@@ -1,3 +1,5 @@
+local io = require("io")
+
 describe("Settings write failure propagation", function()
     local DataStorage, LuaSettings, ReadCollection, ffiUtil, util
     local saved_open, saved_settings_open, saved_write, saved_coll, saved_coll_settings
