@@ -274,7 +274,11 @@ Source (print edition):
             self.custom_doc_settings = nil
             self.custom_book_cover = nil
             if self.prop_updated then
-                UIManager:broadcastEvent(Event:new("InvalidateMetadataCache", file))
+                -- A text metadata edit can update the cached field without discarding
+                -- the cover or the user's independent ignore-cover/metadata choices.
+                UIManager:broadcastEvent(Event:new("InvalidateMetadataCache", file,
+                    self.prop_updated.metadata_key_updated,
+                    self.prop_updated.doc_props[self.prop_updated.metadata_key_updated]))
                 UIManager:broadcastEvent(Event:new("BookMetadataChanged", self.prop_updated))
             end
             if self.summary_updated then -- refresh file browser, sdr folder may appear

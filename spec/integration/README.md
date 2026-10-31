@@ -114,6 +114,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `64_style_tweak_notifications` | real profile Execute/notification menus, all three style-tweak actions, masked and painted feedback, batched profile execution message, ReaderReady auto-execution across reopen and native page turn |
 | `65_calibre_inbox_initialization` | real Calibre menu and local metadata failure notice, queue/standby cleanup, repeated failed attempts, repaired-inbox handshake/enumeration, disconnect/reconnect and native EPUB reading |
 | `66_opds_literal_credentials` | real catalog menu, HEAD/feed and normal EPUB download through two non-forwarding loopback origins; literal percent credentials, same-/cross-origin redirects and native reading; synthetic credentials only, no OPDS-PSE |
+| `67_cover_ignore_metadata` | native EPUB/PNG cache, real Ignore/Unignore and Book information dialogs, custom title/author Save/Cancel and Reset confirmation, exact cover preservation, DB reopen and native reading/reopen |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:

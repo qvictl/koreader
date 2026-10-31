@@ -797,8 +797,12 @@ function CoverBrowser.getDocProps(file)
     return BookInfoManager:getDocProps(file)
 end
 
-function CoverBrowser:onInvalidateMetadataCache(file)
-    BookInfoManager:deleteBookInfo(file)
+function CoverBrowser:onInvalidateMetadataCache(file, metadata_key, metadata_value)
+    if metadata_key and metadata_key ~= "cover" then
+        BookInfoManager:setBookInfoProperties(file, { [metadata_key] = metadata_value or false })
+    else
+        BookInfoManager:deleteBookInfo(file)
+    end
     return true
 end
 
