@@ -102,3 +102,22 @@ runtime files were restored and compared with the candidate afterward.
 
 Normal exact-head CI, included review and merge gates remain separate. No
 upstream write, version bump, release, paid review add-on or gate bypass.
+
+## Accepted-main #94 synchronization
+
+While this PR was still draft, accepted main advanced to metadata-preference
+fix #94 `dc94b7d6a966c53ee6a52d43f97784f641a2042b`. A normal two-parent merge
+preserves both adjacent README rows 67 and 69; there is no production conflict.
+Local combination `55578420135deba5e85787ac2bd222241ec27d10` and published
+combination `184778a202beedf1252a55d3c5839ccd8e2931c6` have identical tree
+`225f2876119fb22654747de6d22ffcebebe748d0`.
+
+The two warmth production files, its unit suite and scenario 69 are unchanged
+from the original code tree. The synchronized runtime passed **316/316 in 15
+nonempty unit suites** and **776/776 in 15 integration scenarios**, adding the
+37-case metadata-preference suite and scenario 67's 106 checks. Applicable
+budgets pass. Original negative controls, three repetitions, fresh coverage
+and independent 17+25 retain their original snapshot attribution.
+
+The original draft head `23cc602c` passed CI 41220837586; the synchronized
+report-only successor still requires its own exact-head CI and formal review.
