@@ -47,7 +47,7 @@ successor; it does not change the executable/test snapshot below.
 | Check | Result |
 |---|---|
 | Focused credentials unit suite | **33/33** |
-| Selected related suites, separate processes | **300/300 across 18 runs** |
+| Selected related suites, separate processes | **300/300 in 16 nonempty suites; 18 invocations** |
 | Real emulator integration combination | **732/732 across 16 scenarios** |
 | Scenario 66, fresh profiles | **3 × 23/23** |
 | Changed-line unit coverage, fresh statistics | **5/5**, 100% |
@@ -55,10 +55,12 @@ successor; it does not change the executable/test snapshot below.
 | Python fixture syntax | pass |
 | Independent isolated runtime | **33/33 units + 23/23 scenario 66**, matching source |
 
-The related unit selection includes credentials, OPDS, HTTP client, Spore,
-network manager/settings/flows, Wallabag sink/null metadata, Wikipedia languages,
+The related unit selection covers credentials, OPDS, network manager/settings/flows,
+Wallabag sink/null metadata, Wikipedia languages,
 DocSettings/location, document registry, ReaderUI lifecycle/password cancellation,
-dispatcher, button and menu sorting. The known host-only loopback-address case in
+dispatcher, button and menu sorting. HTTP client and Spore were also invoked but
+ran **zero tests** under the default exclusions; they are not validated by this
+selection. The known host-only loopback-address case in
 `networkmgr_flows_spec` is explicitly excluded; this is not an unfiltered full
 suite or whole-repository pass. No new host defect is claimed from that exclusion.
 
