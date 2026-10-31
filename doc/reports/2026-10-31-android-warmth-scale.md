@@ -37,7 +37,7 @@ The fix uses the existing `fromNativeWarmth` for Android reads and
 native minimum/maximum. The unused `warm_diff` field is removed. No launcher,
 firmware, brightness scaling, saved-setting format or generic rounding changes.
 
-## Validation and attribution
+## Initial validation and attribution
 
 Base: actual accepted main #93 `406307dfe9346db2d9f39199cdc822c900d8d9f4`.
 Local code `759e4e6be4390fe0f7fea1967b262438ef2375e4` and published code
@@ -66,12 +66,13 @@ this is not a full-repository unit run. Integration includes scenarios
 The new tests use real generic/Android power driver construction and conversion,
 mocked integer JNI, native maxima 10/24/100/255, stored-setting initialization,
 read-only state queries, no-natural-light and standalone/non-standalone controls.
-Scenario 69 paints and taps the actual frontlight Min/Max/Toggle widgets,
+The initial scenario 69 paints and taps the actual frontlight Min/Max/Toggle widgets,
 closes/reopens them, dispatches synthetic gesture-action events through
 UIManager, then restores the emulator and opens/turns a real EPUB. It does not
 exercise physical touch recognition or the Android native light dialog.
 Module/capability/power/settings boundaries are restored even on failure;
-widget and reader cleanup are independent, and owned reader inputs are retained.
+widget and reader cleanup are independent. This initial version retained an
+owned reader input; the review-driven revision below removes that extra smoke test.
 
 An independent reviewer read the production/tests and reran 17 units plus
 25 integration checks in an isolated native runtime, verifying all four final
@@ -121,3 +122,35 @@ and independent 17+25 retain their original snapshot attribution.
 
 The original draft head `23cc602c` passed CI 41220837586; the synchronized
 report-only successor still requires its own exact-head CI and formal review.
+
+## Review-driven test artifact correction
+
+CodeRabbit identified the retained EPUB copy in the scenario's final, unrelated
+reading smoke test as a test-artifact cleanup issue. Instead of introducing
+file deletion while a cover worker might still use the input, remove that smoke
+test and do not create the unnecessary copy. This is not an assertion that
+closing ReaderUI proves every background worker has stopped.
+
+All warmth assertions remain: initial scale, native display, painted Min/Max,
+event-driven increase/decrease, standalone off/on, repeated widget close/reopen
+and restoration of the original emulator. The final check repaints and verifies
+that FileManager is displayed; no native EPUB reading is claimed for the revised
+scenario. It creates no temporary file or directory, and no cleanup worker or
+new hardware/mock boundary is introduced. README now reflects this narrower scope.
+
+Test-only local code `99f4c4aca62e6ac8ba6ca34044af267bc5bb3fc8` and published code
+`6bf134547afe7a5f3e51ab63f5f15d4aaff521f6` have identical tree
+`868a216d87a2fd263c93cecf71829e392da313f7`. Both production files and the 17-case
+unit suite are unchanged. The final selection passes **316/316 units in 15
+suites**, **775/775 checks in 15 integration scenarios**, and **3 x 24/24** fresh
+scenario-69 repetitions. The three profile directories contain no scenario-owned
+`it-android-warmth` directory. Lint is zero, size and whitespace checks pass.
+
+The original 6/6 coverage and negative controls still belong to their stated
+unchanged production/unit snapshot. Earlier 25-check scenario evidence and the
+initial independent 17+25 result remain historical, not final-scenario claims.
+The independent reviewer separately reran the final scenario: **24/24**, with
+matching source and no scenario-owned directory left behind. The unchanged unit
+suite was not independently rerun for this test-only revision.
+The final revision requires normal exact-head CI and review acceptance; the
+author does not manually resolve the review thread or bypass the gate.
