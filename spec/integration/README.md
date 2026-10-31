@@ -98,6 +98,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `47_kindle_wifi_failure` | real Wi-Fi TouchMenu, error dismissal, failed/successful retry, delayed disconnect, failed enable cleanup and resume recovery; only Kindle LIPC/hardware boundaries are synthetic and host shell commands are forbidden |
 | `48_pocketbook_bootlogo_preference` | real ReaderUI and native cover export across reader-ready/rotation hooks; synthetic PocketBook settings permit boot-logo commands only for the explicit cover choice, fail safely, recover, and preserve reading after close/reopen |
 | `49_http_proxy_credentials` | real loopback HTTP proxy and OPDS HEAD/GET catalog parsing with reserved Basic credentials; credential-free absolute targets, origin/explicit/global proxy forms, separate proxy authentication, URL credentials, and reading afterward |
+| `50_readerstatus_stale_navigation` | real native PDF next/previous navigation, repeated queued requests, Home and replacement interruptions, duplicate confirmations, Cancel and FileManager confirmation compatibility |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
