@@ -168,13 +168,13 @@ function TermInputText:_helperVT52VT100(cmd, mode, param1, param2, param3)
     elseif cmd == "C" then -- cursor right
         param1 = param1 == 0 and 1 or param1
         for i = 1, param1 do
-            TermInputText.rightChar(self, true, true)
+            TermInputText.rightChar(self, true, i == 1)
         end
         return true
     elseif cmd == "D" then -- cursor left
         param1 = param1 == 0 and 1 or param1
         for i = 1, param1 do
-            TermInputText.leftChar(self, true, true)
+            TermInputText.leftChar(self, true, i == 1)
         end
         return true
     elseif cmd == "H" then -- cursor home

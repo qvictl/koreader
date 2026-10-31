@@ -28,9 +28,9 @@ keyboard-wrapped instance method:
   terminal methods with `skip_callback=true`.
 
 User keyboard methods are still wrapped. The initial routing fix changed no
-keyboard implementation. The review-driven follow-up below adds a narrow Japanese
-external-cursor notification; no shared method-wrapper helper, complete IME state
-machine or temporary global callback suppression is introduced. The intentional VT52 identification reply remains
+keyboard implementation. The review-driven follow-ups below add narrow, reversible external-cursor
+notifications for stateful layouts; no shared method-wrapper helper, complete IME
+state machine or temporary global callback suppression is introduced. The intentional VT52 identification reply remains
 an outgoing response. Other parser operations have no overlap with the inspected
 keyboard wrappers and are unchanged.
 
@@ -123,9 +123,10 @@ combination. Native-asset, physical-device, shell and coverage limitations above
 remain unchanged. Exact-head CI and normal formal review are separate gates.
 
 
-## Review-driven Japanese tap-cycle correction
+## First review: Japanese tap-cycle correction (historical)
 
-The formal review found a real gap in the initial class-call solution: Japanese
+This section records the first correction, later refined by the explicit-command
+versus BS contract below. The formal review found a real gap in the initial class-call solution: Japanese
 left/right wrappers also end the keitai multi-tap window. Bypassing that state
 notification lets a subsequent tap replace an earlier displayed kana by sending
 backspace plus a cycled character. This was not covered by the initial 24 cases.
@@ -172,7 +173,7 @@ The historical 24/267/249 and 24/280/277 results remain separately attributed, n
 relabeled or combined into these final totals. Formal review and exact-head CI
 remain necessary gates.
 
-## Final accepted main-87 combination
+## First corrected main-87 combination (historical)
 
 Accepted base is `edb652a5c5ffd023e1db85caffa1c5df34b538d3`. README rows 58/59/60
 all remain. Published merge/code `f609346ca4cefd266b38b657e809d11f12aa1014` has tree
@@ -193,3 +194,74 @@ full-combination rerun is claimed. The subsequent report-only commit changes no
 production/tests. Earlier negative controls retain their original exact-head
 attribution. Native-assets/device/shell limitations and normal CI/review gates
 remain unchanged.
+
+
+## Second review: composition state and deterministic tests
+
+Korean and Vietnamese state also survived the initial navigation bypass. Exact
+controls confirmed the same stale-anchor deletion for Chinese pinyin and stroke.
+After explicit cursor movement, a subsequent key could send backspace and replace
+text belonging to the old composition. The old Chinese test checked only that the
+candidate changed, not that its anchor remained valid; it was insufficient.
+
+Blindly clearing state on every received backspace is also wrong. With ordinary
+per-key synthetic echo, the first correction turns Japanese `あ → あ → あ` into
+`いあ` rather than `う`: its own replacement BS clears the tap window. Korean and
+Vietnamese replacements need their BS echo to preserve composition too. Current
+fork `Terminal:transmit` schedules refresh; it does **not** synchronously refresh.
+An additional synchronous callback probe was a private reentrancy stress test,
+not a claim about the real backend. Published units and integration use captured
+bytes delivered after each key instead.
+
+### Bounded final contract
+
+- Only explicit received **VT52/CSI left/right commands** request the optional
+  state notification, including no-op commands at a boundary. Received **BS** is
+  treated as display editing/possible replacement echo and does not notify.
+- Japanese clears its tap timestamp, Korean clears its FSM, and Vietnamese plus
+  both Chinese layouts clear their composition stack. These notifications do not
+  send deletion keys or invoke `separate`. Existing callbacks and nil/non-nil
+  unwrapping are preserved. Ordinary keyboard/navigation wrappers remain active.
+- Already displayed candidate hints are not retrospectively erased at a moved
+  cursor. Tests with hints enabled check that notification itself emits nothing,
+  leaves displayed bytes alone, and subsequent fresh input sends no stale delete.
+- This is not recognition of every shell repaint origin. Applications may also
+  use CSI commands to redraw; arbitrary repaint/fragmented ANSI streams and full
+  terminal composition semantics remain outside this contract. There is no echo
+  prediction queue, shell/PTY execution or physical-device certification.
+
+The real Japanese UI test now checks that the first tap creates state and explicit
+navigation immediately clears it, then verifies the next real tap sends a fresh
+character. It has no wall-clock deadline assertion: the old timestamp does not
+become nil merely because a slow runner waits. Unit-only multi-tap controls load a
+private Japanese layout with a fixed clock; the shared `ui/time` and UIManager
+clock are untouched, with global `now` identity checked during cleanup. This
+supersedes the historical ten-second UI assertion.
+
+### Final validation on accepted main-87
+
+Code object `f0e10992b71ed1333690ee192aa2b5dd3dcc60bb` has tree
+`19a05b7164cf7900e755d5b2fe3517b354a7cf22`, equal to local tested code
+`250fcf88ce54ff7eb023649f8bf918d3cb391276`. The report-only successor contains no
+further executable/test changes.
+
+- **59/59** focused units; **329/329 in the same 19 selected suites**.
+- **391/391** checks in the same twelve emulator scenarios; applicable budgets
+  pass, with scenario 59 **3 × 116/116** in fresh profiles.
+- Fresh changed-line unit coverage **18/18 across six production files**;
+  configuration-aware lint **0**, original size and whitespace checks pass.
+- Exact prior head `d9a715fd`: **36 pass / 23 failures**, covering stale state,
+  hook installation and the over-broad Japanese BS reset, not 23 device bugs.
+  The real UI control fails on Korean input after received navigation because it
+  sends stale deletion. Candidate files are restored and compared afterward.
+- Independent review separately passed **59/59 units and 116/116 UI checks** on
+  the same production implementation. It is not a full-combination rerun or a
+  native rebuild. The final IT local-variable rename is behavior-neutral; the
+  author's final combined/repeated runs include it.
+
+The earlier 30-unit/69-check and 300/344 evidence is historical, not relabeled as
+this revision. Fixture refinements also corrected a right-motion setup to provide
+an actual trailing destination and allowed Chinese candidate length to change;
+the final controls check the real anchor and protected prefix rather than assume
+all candidates have one character. All earlier device/native-assets/coverage
+limitations and required normal CI/formal-review gates continue to apply.

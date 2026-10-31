@@ -178,14 +178,14 @@ describe("Terminal output with keyboard input methods", function()
         setLayout("ja")
         TermInputText.addChars(widget, "あああ", true)
         widget:addChars("あ")
-        widget:interpretAnsiSeq("\027D")
+        widget:interpretAnsiSeq("\027[2D")
         assert.is_nil(widget._ja_last_tap_time)
         assert.equals(1, moved)
         assert.same({"あ"}, transmitted)
         unwrap()
         unwrap = nil
         assert.equals(previous, widget.onExternalCursorMove)
-        widget:interpretAnsiSeq("\027D")
+        widget:interpretAnsiSeq("\027[2D")
         assert.equals(2, moved)
     end)
 
@@ -252,11 +252,16 @@ describe("Terminal output with keyboard input methods", function()
             local previous = function() count = count + 1 end
             widget.onExternalCursorMove = previous
             setLayout(item[1])
-            widget:interpretAnsiSeq("\027D")
+            -- Empty display: even a boundary no-op notifies once per command.
+            widget:interpretAnsiSeq("\027[2D")
             assert.equals(1, count)
+            widget:interpretAnsiSeq("\027[2C")
+            assert.equals(2, count)
             unwrap()
             unwrap = nil
             assert.equals(previous, widget.onExternalCursorMove)
+            widget:interpretAnsiSeq("\027[2D")
+            assert.equals(3, count)
         end)
     end
 
