@@ -19,20 +19,22 @@ This is eight added production lines across two files. It does not redesign gene
 
 ## Exact validation attribution
 
-All final code/test results below apply to snapshot `9a64d72284e75f9427f0fff997b694d79de8f59b`, tree `b37de5c077ed2649c2173ef826cb1fdeb89eef9e`, over accepted main `5cdadae4878534edd393031dd36de12164e7e32c`. The remote tree was verified to equal the tested local code/test tree. This report is a subsequent documentation-only addition.
+Final-combination results below apply to snapshot `3686b080a25e294bd6014a21c6f95b1901d7547f`, tree `74914a6827c35dc7bca2da17fe29c2f00af3b156`, incorporating accepted main `4e220d167c8ae21f30ba50974c62382b9fd18bb2` and its base pin `fcdb4d77`. The remote tree was verified to equal the tested local tree. The next commit changes only this report.
+
+The earlier main-75 snapshot `9a64d72284e75f9427f0fff997b694d79de8f59b` (tree `b37de5c077ed2649c2173ef826cb1fdeb89eef9e`, base `5cdadae48`) passed 296 unit cases and 98 integration checks. Its scenario-50 repeat run is attributed separately below. The candidate production and test files are unchanged in the newer combination; the merge preserved README rows 48/49/50, added the accepted proxy fixture and updated the base pin.
 
 | Check | Result |
 | --- | --- |
 | New unit suite | 16/16 passed |
 | Related suites on the final main combination | 296/296 passed across 17 separate processes |
 | Changed executable coverage, fresh unit-only statistics | 4/4, 100%; whole-repository coverage unmeasured |
-| Native PDF lifecycle scenario 50 | 3 fresh profiles, 36/36 checks each |
-| Final main combination, scenarios 01/02/09/16/18/48/50 | 98/98 checks; applicable existing budgets passed |
+| Native PDF lifecycle scenario 50, earlier main-75 repeat run | 3 fresh profiles, 36/36 checks each |
+| Final main-74 combination, scenarios 01/02/09/16/18/48/49/50 | 141/141 checks; applicable existing budgets passed |
 | Lua lint | zero warnings/errors |
 | Whitespace validation | `git diff --check` passed |
 | Independent review | static source/log review found no remaining blocker; no independent native rerun claimed |
 
-The 17 related suites cover ReaderStatus, the newly accepted PocketBook cover preference, ReaderUI/core lifecycle/password cancellation, FileManager/core operations/window cleanup, FileChooser/core sorting, BookList, document registry/document, DocSettings/core locations, Dispatcher and UIManager. These are focused regression suites, not a full repository test run.
+The 17 related suites cover ReaderStatus, the newly accepted PocketBook cover preference, ReaderUI/core lifecycle/password cancellation, FileManager/core operations/window cleanup, FileChooser/core sorting, BookList, document registry/document, DocSettings/core locations, Dispatcher and UIManager. These are focused regression suites, not a full repository test run. The final combination also executes the accepted real-loopback HTTP proxy scenario 49. Its LuaSocket module was copied into the private runtime after verifying SHA-256 `d0e02b15f926cfff7989dbf3f6ed0d26a3f939f9fe1d40f9f3d2520e788da579`, matching the generated module from the accepted base pin. Native engine binaries were not rebuilt or changed.
 
 ### Negative controls
 
