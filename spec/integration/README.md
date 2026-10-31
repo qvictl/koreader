@@ -89,7 +89,10 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `32_news_download_folder_safety` | real folder-selection and deletion confirmations: cancel preserves inert fixtures/settings, accept retains feed configuration, unrelated files/subfolders are deleted only after explicit consent, unreadable selection fails closed |
 | `33_kosync_hostname_identity` | real localhost KOSync push, continued reading and manual pull: custom/default names and default-to-custom renaming do not rewind the same device; a different device ID still syncs |
 | `34_footer_delayed_refresh` | real reading-order events followed by immediate document close; old footer tasks canceled, new reader feedback and page turns retained across repeated reopen cycles |
+| `38_dictionary_sparse_history` | missing leading/interior lookup-history records: complete reverse-index display, repeated open/close in the file manager and reader, byte-preserving viewing, and tapping a surviving word for a real dictionary lookup |
+| `39_kosync_invalid_url` | persisted malformed sync URL across book opens, failed pull/push/auth and queue preservation, blank-address UI recovery and valid localhost retry |
 | `42_sidecar_migration_failure` | real FileManager renames with blocked main/custom destinations retain source annotations and custom files; explicit retry, shared-sidecar extension rename, and ReaderUI reopen/page turns |
+| `44_sidecar_copy_io_failure` | Linux child-only file-size limits cause real custom-cover write and buffered custom-metadata close failures; source bytes survive, partial files are removed, unrestricted retry succeeds, and ReaderUI restores the note/title/page |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
