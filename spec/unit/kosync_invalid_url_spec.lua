@@ -8,10 +8,15 @@ package.path = saved_path
 local UIManager = require("ui/uimanager")
 local time = require("ui/time")
 local gettext = require("gettext")
+local Persist = require("persist")
 
 describe("KOSync malformed server recovery", function()
     local shown, saved_looper, new_stub
+    local saved_queue, queue_path
     before_each(function()
+        saved_queue = { persist = Queue._persist, draining = Queue._draining, generation = Queue._generation }
+        queue_path = os.tmpname()
+        Queue._persist = Persist:new{ path = queue_path, codec = "dump" }
         Queue:clear()
         shown, saved_looper = {}, UIManager.looper
         stub(UIManager, "show", function(_, widget) shown[#shown + 1] = widget end)
@@ -25,6 +30,9 @@ describe("KOSync malformed server recovery", function()
         UIManager.getElapsedTimeSinceBoot:revert()
         UIManager.looper = saved_looper
         Queue:clear()
+        Queue._persist, Queue._draining, Queue._generation =
+            saved_queue.persist, saved_queue.draining, saved_queue.generation
+        os.remove(queue_path)
     end)
     local function client(url)
         return Client:new{ custom_url = url, service_spec = "plugins/kosync.koplugin/api.json" }
