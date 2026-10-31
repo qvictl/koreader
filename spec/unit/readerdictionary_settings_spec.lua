@@ -339,7 +339,7 @@ describe("ReaderDictionary settings", function()
             fm_rd:onLookupWord("Harbor,")
             -- wait for the Trapper coroutine to run
             assert.stub(lookup).was_called_with(match.is_ref(fm_rd), "Harbor", fm_rd.enabled_dict_names, false,
-                nil, nil, nil)
+                nil, nil, nil, nil)
             fm_rd.stardictLookup:revert()
         end)
 

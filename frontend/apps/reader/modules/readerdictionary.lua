@@ -868,7 +868,7 @@ function ReaderDictionary:showPreferredDictsDialog(touchmenu_instance)
     UIManager:show(dialog)
 end
 
-function ReaderDictionary:onLookupWord(word, is_sane, boxes, highlight, link, dict_close_callback)
+function ReaderDictionary:onLookupWord(word, is_sane, boxes, highlight, link, dict_close_callback, from_definition)
     logger.dbg("dict lookup word:", word, boxes)
     -- escape quotes and other funny characters in word
     word = self:cleanSelection(word, is_sane)
@@ -888,7 +888,7 @@ function ReaderDictionary:onLookupWord(word, is_sane, boxes, highlight, link, di
 
     -- Wrapped through Trapper, so that the sdcv lookup in it can be interrupted
     Trapper:wrap(function()
-        self:stardictLookup(word, self.enabled_dict_names, not disable_fuzzy_search, boxes, link, dict_close_callback)
+        self:stardictLookup(word, self.enabled_dict_names, not disable_fuzzy_search, boxes, link, dict_close_callback, from_definition)
     end)
     return true
 end
@@ -927,7 +927,7 @@ function ReaderDictionary:onHtmlDictionaryLinkTapped(dictionary, link)
 
     -- Wrapped through Trapper, so that the sdcv lookup in it can be interrupted
     Trapper:wrap(function()
-        self:stardictLookup(word, {dictionary}, false, {link_box}, nil)
+        self:stardictLookup(word, {dictionary}, false, {link_box}, nil, nil, true)
     end)
 end
 
@@ -1221,7 +1221,7 @@ function ReaderDictionary:onShowDictionaryLookup(selection)
     return true
 end
 
-function ReaderDictionary:showSearchWithPresetDialog(preset_names, input_dialog, word, boxes, link, dict_close_callback)
+function ReaderDictionary:showSearchWithPresetDialog(preset_names, input_dialog, word, boxes, link, dict_close_callback, from_definition)
     if not preset_names then
         preset_names = Presets.getPresets(self.preset_obj)
     end
@@ -1240,7 +1240,7 @@ function ReaderDictionary:showSearchWithPresetDialog(preset_names, input_dialog,
                         function()
                             self:loadPreset(current_dict_state, true)
                             if dict_close_callback then dict_close_callback() end
-                        end
+                        end, from_definition
                     )
                 end,
             }
@@ -1990,11 +1990,11 @@ function ReaderDictionary:cancelBackgroundLookup(lookup)
     end
 end
 
-function ReaderDictionary:stardictLookup(word, dict_names, fuzzy_search, boxes, link, dict_close_callback)
+function ReaderDictionary:stardictLookup(word, dict_names, fuzzy_search, boxes, link, dict_close_callback, from_definition)
     local book_title = self.ui.doc_props and self.ui.doc_props.display_title or _("Dictionary lookup")
 
     -- Event for plugin to catch lookup with book title
-    self.ui:handleEvent(Event:new("WordLookedUp", word, book_title))
+    self.ui:handleEvent(Event:new("WordLookedUp", word, book_title, nil, from_definition))
     if not self.disable_lookup_history then
         local history_item = {
             book_title = book_title,
@@ -2046,7 +2046,7 @@ function ReaderDictionary:stardictLookup(word, dict_names, fuzzy_search, boxes, 
                 lookup_cancelled = false,
             }
         }
-        self:showDict(word, nope, boxes, link, dict_close_callback)
+        self:showDict(word, nope, boxes, link, dict_close_callback, nil, from_definition)
         return
     end
 
@@ -2081,22 +2081,24 @@ function ReaderDictionary:stardictLookup(word, dict_names, fuzzy_search, boxes, 
     end
     -- Intercept "No results" to offer alternative search methods (e.g., fuzzy search to non-fussy people)
     if results and results[1].no_result then
-        local handled = self:showNoResultsDialog(word, dict_names, fuzzy_search, boxes, link, dict_close_callback, lookupCancelled)
+        local handled = self:showNoResultsDialog(word, dict_names, fuzzy_search, boxes, link, dict_close_callback, lookupCancelled, from_definition)
         if handled then return end
     end
 
-    self:showDict(word, tidyMarkup(results), boxes, link, dict_close_callback, background_lookup ~= nil)
+    self:showDict(word, tidyMarkup(results), boxes, link, dict_close_callback, background_lookup ~= nil, from_definition)
     if background_lookup then
         self:continueLookupInBackground(background_lookup, self.dict_window)
     end
 end
 
-function ReaderDictionary:showDict(word, results, boxes, link, dict_close_callback, results_pending)
+function ReaderDictionary:showDict(word, results, boxes, link, dict_close_callback, results_pending, from_definition)
     if results and results[1] then
         logger.dbg("showing quick lookup window", #DictQuickLookup.window_list+1, ":", word, results)
         self.dict_window = DictQuickLookup:new{
             ui = self.ui,
             highlight = self.highlight,
+            -- Lookup provenance is independent of ownership of the book highlight.
+            from_definition = from_definition,
             dialog = self.dialog,
             -- original lookup word
             word = word,
@@ -2147,7 +2149,7 @@ function ReaderDictionary:showDict(word, results, boxes, link, dict_close_callba
     end
 end
 
-function ReaderDictionary:showNoResultsDialog(word, dict_names, fuzzy_search, boxes, link, dict_close_callback, lookupCancelled)
+function ReaderDictionary:showNoResultsDialog(word, dict_names, fuzzy_search, boxes, link, dict_close_callback, lookupCancelled, from_definition)
     self:dismissLookupInfo() -- Close the "Searching..." message
     local preset_names = Presets.getPresets(self.preset_obj)
     local has_presets = preset_names and #preset_names > 0
@@ -2158,7 +2160,7 @@ function ReaderDictionary:showNoResultsDialog(word, dict_names, fuzzy_search, bo
         callback = function(dialog)
             local new_word = dialog:getInputText()
             if new_word == "" or new_word:match("^%s*$") then return end
-            self:showSearchWithPresetDialog(preset_names, dialog, new_word, boxes, link, dict_close_callback)
+            self:showSearchWithPresetDialog(preset_names, dialog, new_word, boxes, link, dict_close_callback, from_definition)
         end,
     } or nil
 
@@ -2176,7 +2178,7 @@ function ReaderDictionary:showNoResultsDialog(word, dict_names, fuzzy_search, bo
                 -- Re-run the lookup with the (possibly edited) word and fuzzy enabled.
                 -- Wrapped through Trapper, so that the sdcv lookup in it can be interrupted
                 Trapper:wrap(function()
-                    self:stardictLookup(new_word, dict_names, true, boxes, link, dict_close_callback)
+                    self:stardictLookup(new_word, dict_names, true, boxes, link, dict_close_callback, from_definition)
                 end)
             end,
         }

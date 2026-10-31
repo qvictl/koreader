@@ -1371,9 +1371,9 @@ function DictQuickLookup:setTemporaryLargeWindowMode()
     }
     -- Re-trigger the lookup, and close this instance _after_ the new one is created.
     if self.is_wiki then
-        self.ui:handleEvent(Event:new("LookupWikipedia", self.word, self.is_sane_word, self.word_boxes, false, self.lang, function() self:onClose(true) end))
+        self.ui:handleEvent(Event:new("LookupWikipedia", self.word, self.is_sane_word, self.word_boxes, false, self.lang, function() self:onClose(true) end, self.from_definition))
     else
-        self.ui:handleEvent(Event:new("LookupWord", self.word, true, self.word_boxes, self.highlight, nil, function() self:onClose(true) end))
+        self.ui:handleEvent(Event:new("LookupWord", self.word, true, self.word_boxes, self.highlight, nil, function() self:onClose(true) end, self.from_definition))
     end
     return true
 end
@@ -1982,7 +1982,7 @@ function DictQuickLookup:lookupInputWord(hint)
                     if text ~= "" then
                         UIManager:close(self.input_dialog)
                         self.is_wiki = false
-                        self.ui:handleEvent(Event:new("LookupWord", text, true))
+                        self.ui:handleEvent(Event:new("LookupWord", text, true, nil, nil, nil, nil, self.from_definition))
                     end
                 end,
             },
@@ -2010,7 +2010,7 @@ function DictQuickLookup:lookupInputWord(hint)
                                     function()
                                         -- Restore original preset _after_ lookup is complete
                                         self.ui.dictionary:loadPreset(current_dict_state, true)
-                                    end
+                                    end, self.from_definition
                                 ))
                             end
                         }
@@ -2035,7 +2035,8 @@ function DictQuickLookup:lookupInputWord(hint)
     self.input_dialog:onShowKeyboard()
 end
 
-function DictQuickLookup:lookupWikipedia(get_fullpage, word, is_sane, lang, dict_close_callback)
+function DictQuickLookup:lookupWikipedia(get_fullpage, word, is_sane, lang, dict_close_callback, from_definition)
+    if from_definition == nil then from_definition = self.from_definition end
     if not lang then
         -- Use the language of the current or nearest is_wiki DictQuickLookup.
         -- Otherwise, LookupWikipedia will use wiki_last_language
@@ -2060,7 +2061,7 @@ function DictQuickLookup:lookupWikipedia(get_fullpage, word, is_sane, lang, dict
         end
     end
     -- Keep providing self.word_boxes so new windows keep being positioned to not hide it
-    self.ui:handleEvent(Event:new("LookupWikipedia", word, is_sane, self.word_boxes, get_fullpage, lang, dict_close_callback))
+    self.ui:handleEvent(Event:new("LookupWikipedia", word, is_sane, self.word_boxes, get_fullpage, lang, dict_close_callback, from_definition))
 end
 
 function DictQuickLookup:onShowResultsMenu()
@@ -2088,7 +2089,7 @@ function DictQuickLookup:onShowResultsMenu()
                 end,
                 hold_callback = function()
                     -- Allow doing another lookup with this result word
-                    self.ui:handleEvent(Event:new("LookupWord", result.word))
+                    self.ui:handleEvent(Event:new("LookupWord", result.word, nil, nil, nil, nil, nil, self.from_definition))
                 end,
             },
             {
@@ -2175,7 +2176,7 @@ function DictQuickLookup:showResultsAltMenu()
             is_single_result = true
             hold_callback = function()
                 -- Allow doing another lookup with this result word
-                self.ui:handleEvent(Event:new("LookupWord", first_result.word))
+                self.ui:handleEvent(Event:new("LookupWord", first_result.word, nil, nil, nil, nil, nil, self.from_definition))
             end
         else
             text = T(_("%1 results"), #results)
@@ -2210,7 +2211,7 @@ function DictQuickLookup:showResultsAltMenu()
                     end,
                     hold_callback = function()
                         -- Allow doing another lookup with this result word
-                        self.ui:handleEvent(Event:new("LookupWord", self.results[results[res]].word))
+                        self.ui:handleEvent(Event:new("LookupWord", self.results[results[res]].word, nil, nil, nil, nil, nil, self.from_definition))
                     end,
                 }})
             end
@@ -2587,9 +2588,9 @@ function DictQuickLookup:lookupDictionaryOrWikipedia(selected_text, switch_domai
     local use_wiki = self.is_wiki
     if switch_domain then use_wiki = not use_wiki end
     if use_wiki then
-        self:lookupWikipedia(false, selected_text, nil, nil, new_dict_close_callback)
+        self:lookupWikipedia(false, selected_text, nil, nil, new_dict_close_callback, true)
     else
-        self.ui:handleEvent(Event:new("LookupWord", selected_text, nil, nil, nil, nil, new_dict_close_callback))
+        self.ui:handleEvent(Event:new("LookupWord", selected_text, nil, nil, nil, nil, new_dict_close_callback, true))
     end
     return true
 end

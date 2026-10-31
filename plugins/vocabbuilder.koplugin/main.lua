@@ -2003,7 +2003,7 @@ function VocabBuilder:registerDictButtons()
             if is_adding then
                 dict_popup._vocabbuilder_action_state = false
                 local book_title = (dict_popup.ui.doc_props and dict_popup.ui.doc_props.display_title) or _("Dictionary lookup")
-                dict_popup.ui:handleEvent(Event:new("WordLookedUp", dict_popup.lookupword, book_title, true)) -- is_manual: true
+                dict_popup.ui:handleEvent(Event:new("WordLookedUp", dict_popup.lookupword, book_title, true, dict_popup.from_definition)) -- is_manual: true
                 button:setText(_("Remove from vocabulary builder"), button.width)
                 UIManager:setDirty(dict_popup, function()
                     return "ui", button.dimen
@@ -2104,13 +2104,15 @@ function VocabBuilder:onSyncVocabBuilder(interactive)
 end
 
 -- Event sent by readerdictionary "WordLookedUp"
-function VocabBuilder:onWordLookedUp(word, title, is_manual)
+function VocabBuilder:onWordLookedUp(word, title, is_manual, from_definition)
     if not settings.enabled and not is_manual then return end
     if self.widget and self.widget.current_lookup_word == word then return true end
     local prev_context
     local next_context
     local highlight
-    if settings.with_context and self.ui.highlight then
+    -- Editing a book lookup may change the word, but still needs its original context.
+    -- A word selected inside a definition must not borrow that book selection.
+    if from_definition ~= true and settings.with_context and self.ui.highlight then
         prev_context, next_context = self.ui.highlight:getSelectedWordContext(15)
         if self.ui.highlight.selected_text and self.ui.highlight.selected_text.text then
             highlight = util.cleanupSelectedText(self.ui.highlight.selected_text.text)
