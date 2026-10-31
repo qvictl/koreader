@@ -4,6 +4,7 @@ return {
     timeout = 60,
     settings = { language = "en" },
     run = function(T)
+        local BD = require("ui/bidi")
         local DataStorage = require("datastorage")
         local DownloadMgr = require("ui/downloadmgr")
         local UIManager = require("ui/uimanager")
@@ -11,7 +12,7 @@ return {
         local lfs = require("libs/libkoreader-lfs")
         local _ = require("gettext")
         local fm = T:fileManager()
-        local plugin = fm.news_downloader
+        local plugin = fm.newsdownloader
         T:check(plugin, "the news downloader plugin is attached")
         T:run(function() plugin:lazyInitialization() end)
         local old_dir = plugin.download_dir
@@ -33,14 +34,15 @@ return {
             T:run(function() plugin:setCustomDownloadDirectory() end)
             DownloadMgr.chooseDir = old_choose
         end
-        local function confirmation(label)
+        local function confirmation(label, path)
             local dialog = T:waitUntil(function()
                 local widget = T:topWidget()
                 return widget and widget.ok_text == _(label) and widget
             end, 5, label .. " confirmation")
             T:repaint()
             T:check(dialog.dimen and dialog.dimen.w > 0, label .. " confirmation paints")
-            T:check(dialog.text:find(selected, 1, true), "confirmation identifies the selected folder")
+            T:check(dialog.text:find(BD.dirpath(path or selected), 1, true),
+                "confirmation identifies the selected folder")
             return dialog
         end
         local function press(dialog, label)
@@ -50,9 +52,10 @@ return {
             T:tapWidget(button, label)
         end
         local function deleteEntry()
+            local delete_label = _("Delete all items in download folder")
             for _, menu in ipairs(plugin:getSubMenuItems()) do
                 for _, item in ipairs(menu.sub_item_table or {}) do
-                    if item.text == _("Delete all items in download folder") then return item end
+                    if item.text == delete_label then return item end
                 end
             end
             error("truthfully named delete entry not found")
@@ -87,7 +90,7 @@ return {
             T:eq(read(selected .. "/nested/keep.txt"), "nested sentinel", "choosing a folder never deletes its content")
 
             T:run(function() deleteEntry().callback() end)
-            local deletion = confirmation("Delete")
+            local deletion = confirmation("Delete", plugin.download_dir)
             T:check(deletion.text:find("feed_config.lua", 1, true), "deletion names the configuration exception")
             T:check(deletion.text:find("ALL", 1, true), "deletion explicitly warns about all contents")
             press(deletion, "Cancel")
@@ -95,7 +98,7 @@ return {
             T:eq(read(selected .. "/nested/keep.txt"), "nested sentinel", "delete cancellation preserves subfolders")
 
             T:run(function() deleteEntry().callback() end)
-            deletion = confirmation("Delete")
+            deletion = confirmation("Delete", plugin.download_dir)
             press(deletion, "Delete")
             T:check(not lfs.attributes(selected .. "/unrelated.txt"), "confirmed deletion removes unrelated fixture file")
             T:check(not lfs.attributes(selected .. "/nested"), "confirmed deletion removes fixture subfolders")
