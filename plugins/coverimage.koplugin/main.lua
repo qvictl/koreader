@@ -113,6 +113,21 @@ end
 
 function CoverImage:updatePocketBookBootLogo()
     if Device.isPocketBook() then
+        -- Updating the exported cover must not override another firmware boot-logo choice.
+        -- This optional feature should also leave the existing logo alone if its
+        -- preference cannot be read (e.g., an unavailable SDK symbol).
+        local ok, bootlogo = pcall(function()
+            local inkview = require("ffi/inkview")
+            local config = inkview.GetGlobalConfig()
+            if config == nil then return end
+            local value = inkview.ReadString(config, "bootlogo", "@default_boot_logo")
+            if value ~= nil then return require("ffi").string(value) end
+        end)
+        if not ok or bootlogo == nil then
+            logger.warn("CoverImage: unable to read PocketBook boot-logo preference", bootlogo)
+            return
+        end
+        if bootlogo ~= "@cover_logo" then return end
         logger.dbg("CoverImage: updating PocketBook boot logo from", self.cover_image_path)
         os.execute("sync")
         -- iv2sh is run in background because it can be very slow and would block KOReader.
