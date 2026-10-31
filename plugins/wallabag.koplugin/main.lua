@@ -1241,7 +1241,6 @@ function Wallabag:uploadStatuses(local_articles, quiet)
                     logger.dbg("Wallabag:uploadStatuses: - archiving/deleting on remote…")
 
                     if self:archiveArticle(entry_path) then
-                        local_articles[local_id] = nil
                         count_remote = count_remote + 1
                         logger.dbg("Wallabag:uploadStatuses: - archived/deleted on remote")
                     else
@@ -1251,6 +1250,10 @@ function Wallabag:uploadStatuses(local_articles, quiet)
 
                     if skip then
                         logger.dbg("Wallabag:uploadStatuses: - skipping local archiving/deleting")
+                    elseif not self.sync_remote_archive then
+                        -- Uploading a status is not permission to remove the local
+                        -- article and its annotations. Keep its inventory entry too.
+                        logger.dbg("Wallabag:uploadStatuses: - keeping local article")
                     else
                         if self.use_local_archive then
                             logger.dbg("Wallabag:uploadStatuses: - archiving locally as well")
