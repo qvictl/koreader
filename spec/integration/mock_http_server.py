@@ -36,7 +36,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             payload = json.loads(raw) if raw else {}
         except ValueError:
             payload = {}
-        safe = {key: payload[key] for key in ("username", "document", "progress", "percentage") if key in payload}
+        safe = {key: payload[key] for key in
+                ("username", "document", "progress", "percentage", "device", "device_id") if key in payload}
         write(job / "received.json", {"method": self.command, "path": self.path,
               "username": self.headers.get("x-auth-user"), "payload": safe,
               "unexpected": plan.get("unexpected", False)})
