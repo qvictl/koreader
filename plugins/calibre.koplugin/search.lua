@@ -3,7 +3,7 @@
 --]]
 
 local BookList = require("ui/widget/booklist")
-local CalibreMetadata = require("metadata")
+local CalibreMetadata = require("metadata"):new()
 local ConfirmBox = require("ui/widget/confirmbox")
 local DataStorage = require("datastorage")
 local Device = require("device")
