@@ -159,7 +159,10 @@ describe("luadata module", function()
         end)
         after_each(function()
             os.remove(file)
-            for i = 1, 10 do os.remove(file .. ".old." .. i) end
+            for i = 1, 10 do
+                os.remove(file .. ".old." .. i)
+                lfs.rmdir(file .. ".old." .. i)
+            end
         end)
 
         local function snapshots(count)
@@ -215,6 +218,66 @@ describe("luadata module", function()
             assert.equals(3, generation(".old.2"))
             assert.is_nil(lfs.attributes(file .. ".old.3"))
             assert.equals(1, generation(".old.4"))
+        end)
+
+        it("stops before overwriting recoverable files when a backup rename fails", function()
+            snapshots(4)
+            assert(lfs.mkdir(file .. ".old.4"))
+            assert.is_false(data:reset{ generation = 5 })
+            assert.equals(4, generation(""))
+            assert.equals(3, generation(".old.1"))
+            assert.equals(2, generation(".old.2"))
+            assert.equals(1, generation(".old.3"))
+            assert.equals("directory", lfs.attributes(file .. ".old.4", "mode"))
+        end)
+
+        it("does not truncate the current file when moving it to the first backup fails", function()
+            snapshots(1)
+            assert(lfs.mkdir(file .. ".old.1"))
+            assert.is_false(data:reset{ generation = 2 })
+            assert.equals(1, generation(""))
+            assert.equals("directory", lfs.attributes(file .. ".old.1", "mode"))
+        end)
+
+        it("reports failure if a new snapshot cannot be opened", function()
+            data.file = file .. "/missing-parent/history.lua"
+            assert.is_false(data:reset{ generation = 1 })
+            assert.is_nil(lfs.attributes(data.file))
+        end)
+
+        it("persists recovered history together with the next appended lookup", function()
+            data:reset{ history = { "oldest", "newer" }, other = "preserved" }
+            data:flush() -- keep a complete recoverable snapshot
+            local f = assert(io.open(file, "w"))
+            f:write("not valid Lua !!!")
+            f:close()
+            data = Settings:open(file, "Generation")
+            assert.is_nil(lfs.attributes(file))
+            data:addTableItem("history", "latest")
+            local reopened = Settings:open(file, "Generation")
+            assert.same({ "oldest", "newer", "latest" }, reopened:readSetting("history"))
+            assert.equals("preserved", reopened:readSetting("other"))
+        end)
+
+        it("keeps all recovered settings when the next operation saves or deletes a key", function()
+            for _, operation in ipairs({ "save", "delete" }) do
+                data:reset{ preserved = "keep", removed = "remove" }
+                data:flush()
+                assert(os.remove(file))
+                data = Settings:open(file, "Generation")
+                if operation == "save" then
+                    data:saveSetting("added", "new")
+                else
+                    data:delSetting("removed")
+                end
+                local reopened = Settings:open(file, "Generation")
+                assert.equals("keep", reopened:readSetting("preserved"))
+                if operation == "save" then
+                    assert.equals("new", reopened:readSetting("added"))
+                else
+                    assert.is_nil(reopened:readSetting("removed"))
+                end
+            end
         end)
     end)
 end)
