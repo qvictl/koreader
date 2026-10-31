@@ -306,3 +306,20 @@ Earlier 329/391 results and their exact prior-head negative controls remain
 historical. The finite command/BS-echo contract, real asynchronous backend versus
 synthetic echo distinction, no shell/PTY execution, native-asset reuse, hardware
 limitations and formal exact-head CI/review requirements remain unchanged.
+
+
+### Final review test-strengthening correction
+
+The next review correctly noted that the unchanged-anchor control fed an empty
+string, so that call did not exercise receive parsing. It now feeds explicit
+`"\027[0m"`, the existing non-moving CSI graphics-mode path. No production or
+integration source changed. Code `1c04b240c34faf9138c9c2a4ee7dd4dbd4c505b8`
+corresponds to local `f0e73b1f57836990b842860105fdcd5cdae09f4d`, identical tree
+`ae871af77f13fbb99a4e745740055ad8f4e77675`.
+
+Fresh rerun: **59/59 focused, 344/344 across the same twenty selected suites,
+116/116 in scenario 59**, fresh changed-line coverage **18/18**, lint **0** and
+whitespace clean. The preceding 516-check combination and three repeats retain
+their earlier exact-head attribution. This strengthens one unit control rather
+than claiming an additional product fix. Exact-head CI and formal review remain
+required.
