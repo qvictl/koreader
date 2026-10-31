@@ -1,6 +1,7 @@
 local UIManager = require("ui/uimanager")
 local logger = require("logger")
 local socketutil = require("socketutil")
+local _ = require("gettext")
 
 -- Push/Pull
 local PROGRESS_TIMEOUTS = { 2,  5 }
@@ -22,9 +23,17 @@ end
 
 function KOSyncClient:init()
     local Spore = require("Spore")
-    self.client = Spore.new_from_spec(self.service_spec, {
+    local ok, client = pcall(Spore.new_from_spec, self.service_spec, {
         base_url = self.custom_url,
     })
+    if not ok then
+        -- Saved malformed URLs must not abort ReaderReady or queue/auth callbacks.
+        self.client = nil
+        self.init_error = _("Invalid progress sync server address.")
+        logger.warn("KOSyncClient: initialization failed:", client)
+        return
+    end
+    self.client, self.init_error = client, nil
     package.loaded["Spore.Middleware.GinClient"] = {}
     require("Spore.Middleware.GinClient").call = function(_, req)
         req.headers["accept"] = "application/vnd.koreader.v1+json"
@@ -63,6 +72,7 @@ function KOSyncClient:init()
 end
 
 function KOSyncClient:register(username, password)
+    if self.init_error then return false, { message = self.init_error } end
     self.client:reset_middlewares()
     self.client:enable("Format.JSON")
     self.client:enable("GinClient")
@@ -83,6 +93,7 @@ function KOSyncClient:register(username, password)
 end
 
 function KOSyncClient:authorize(username, password)
+    if self.init_error then return false, { message = self.init_error } end
     self.client:reset_middlewares()
     self.client:enable("Format.JSON")
     self.client:enable("GinClient")
@@ -224,6 +235,7 @@ function KOSyncClient:update_progress(
         device,
         device_id,
         callback)
+    if self.init_error then callback(false, nil, nil); return end
     if not UIManager.looper then
         self:_runInSubprocess(function()
             return self:_syncProgress("update_progress", username, password, {
@@ -273,6 +285,7 @@ function KOSyncClient:get_progress(
         password,
         document,
         callback)
+    if self.init_error then callback(false, nil); return end
     if not UIManager.looper then
         self:_runInSubprocess(function()
             return self:_syncProgress("get_progress", username, password, { document = document })
