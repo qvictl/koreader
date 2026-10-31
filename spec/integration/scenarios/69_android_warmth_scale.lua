@@ -10,7 +10,7 @@ return {
         local UIManager = require("ui/uimanager")
         local FrontLightWidget = require("ui/widget/frontlightwidget")
         local WidgetContainer = require("ui/widget/container/widgetcontainer")
-        T:fileManager()
+        local fm = assert(T:fileManager(), "scenario starts with a FileManager")
         local saved = { powerd = Device.powerd, android = package.loaded.android,
             scale = rawget(BasePowerD, "warmth_scale"), warmth = G_reader_settings:readSetting("frontlight_warmth"), caps = {} }
         local cap_names = { "hasFrontlight", "hasNaturalLight", "hasNaturalLightApi", "hasNaturalLightMixer" }
@@ -124,6 +124,6 @@ return {
         if #errors > 0 then error(table.concat(errors, "\n"), 0) end
         T:check(Device.powerd == saved.powerd, "original emulator power driver is restored")
         T:repaint()
-        T:check(T:topWidget() == T:fileManager(), "the original FileManager is topmost after close")
+        T:check(T:topWidget() == fm, "the original FileManager is topmost after close")
     end,
 }
