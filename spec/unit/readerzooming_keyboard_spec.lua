@@ -1,6 +1,6 @@
 describe("ReaderZooming keyboard zoom", function()
     local DataStorage, DocumentRegistry, Event, ReaderUI, Screen, UIManager, lfs
-    local ui, root, serial, owns_root, PluginLoader, saved_plugins
+    local ui, root, serial, owns_root, PluginLoader, saved_plugins, saved_disable_double_tap
     local files = {}
 
     setup(function()
@@ -39,6 +39,7 @@ describe("ReaderZooming keyboard zoom", function()
     end)
 
     before_each(function()
+        saved_disable_double_tap = rawget(require("device").input, "disable_double_tap")
         serial = serial + 1
         local file = root .. "/" .. serial .. ".pdf"
         files[#files + 1] = file
@@ -73,6 +74,7 @@ describe("ReaderZooming keyboard zoom", function()
     end)
 
     after_each(function()
+        require("device").input.disable_double_tap = saved_disable_double_tap
         if ui then
             ui:closeDocument()
             ui:onClose()
@@ -96,7 +98,7 @@ describe("ReaderZooming keyboard zoom", function()
 
     it("keeps a valid configuration genus after keyboard zoom", function()
         ui.zooming:onZoom("out")
-        assert.is_number(ui.document.configurable.zoom_mode_genus)
+        assert.are.equal(0, ui.document.configurable.zoom_mode_genus)
     end)
 
     it("preserves full-page manual geometry when cropping is disabled", function()
@@ -139,10 +141,13 @@ describe("ReaderZooming keyboard zoom", function()
 
     for _, rotation in ipairs({ 90, 270 }) do
         it("uses the rotated manual width at " .. rotation .. " degrees", function()
+            ui.document.configurable.trim_page = 3
             ui.zooming:onRotationUpdate(rotation)
             local zoom = ui.zooming.zoom
             ui.zooming:onZoom("out")
             assert.are.near(zoom * 0.75, ui.zooming.zoom, 1e-6)
+            assert.are.near(ui.zooming.zoom * 792 / ui.zooming.dimen.w,
+                ui.doc_settings:readSetting("kopt_zoom_factor"), 1e-6)
         end)
     end
 
@@ -170,6 +175,93 @@ describe("ReaderZooming keyboard zoom", function()
         UIManager:show(ui)
         assert.are.equal("manual", ui.zooming.zoom_mode)
         assert.are.near(zoom, ui.zooming.zoom, 1e-6)
+        ui.paging:onGotoPageRel(1)
+        assert.are.equal(3, ui.paging.current_page)
+    end)
+
+    for _, toggle in ipairs({ "onTogglePageFlipping", "onToggleBookmarkFlipping" }) do
+        it("preserves continuous view across " .. toggle .. " and reopen", function()
+            ui.document.configurable.page_scroll = 1
+            ui:handleEvent(Event:new("SetScrollMode", true))
+            assert.are.equal(1, ui.document.configurable.page_scroll)
+            ui.paging[toggle](ui.paging)
+            ui.zooming:onZoom("out")
+            ui.paging[toggle](ui.paging)
+            assert.is_true(ui.view.page_scroll)
+            assert.are.equal(1, ui.document.configurable.page_scroll)
+            local file = ui.document.file
+            ui:closeDocument()
+            ui:onClose()
+            ui = ReaderUI:new{ dimen = Screen:getSize(), document = DocumentRegistry:openDocument(file) }
+            UIManager:show(ui)
+            assert.is_true(ui.view.page_scroll)
+            assert.are.equal(1, ui.document.configurable.page_scroll)
+        end)
+    end
+
+    it("does not overwrite the normal manual factor while page flipping", function()
+        ui:handleEvent(Event:new("SetZoomMode", "manual"))
+        ui:handleEvent(Event:new("SetZoomPan", { kopt_zoom_factor = 1.3, zoom_mode = "manual" }))
+        assert.are.equal("manual", ui.view.zoom_mode)
+        local zoom = ui.zooming.zoom
+        ui.paging:onTogglePageFlipping()
+        ui.zooming:onZoom("out")
+        ui.paging:onTogglePageFlipping()
+        assert.are.near(1.3, ui.document.configurable.zoom_factor, 1e-6)
+        assert.are.near(1.3, ui.doc_settings:readSetting("kopt_zoom_factor"), 1e-6)
+        assert.are.near(zoom, ui.zooming.zoom, 1e-6)
+    end)
+
+    it("does not replace the normal Kopt mode while skimming", function()
+        ui.zooming:setZoomMode("content", true)
+        ui.paging:enterSkimMode()
+        assert.truthy(ui.paging.skim_backup)
+        ui.zooming:onZoom("out")
+        ui.paging:exitSkimMode()
+        assert.are.equal("content", ui.koptlistener.normal_zoom_mode)
+        ui.koptlistener:onRestoreZoomMode()
+        assert.are.equal("content", ui.zooming.zoom_mode)
+        ui.zooming:onZoom("out")
+        assert.are.equal("manual", ui.zooming.zoom_mode)
+    end)
+
+    it("does not overwrite the normal manual factor while skimming", function()
+        ui:handleEvent(Event:new("SetZoomMode", "manual"))
+        ui:handleEvent(Event:new("SetZoomPan", { kopt_zoom_factor = 1.3, zoom_mode = "manual" }))
+        assert.are.equal("manual", ui.view.zoom_mode)
+        local zoom = ui.zooming.zoom
+        ui.paging:enterSkimMode()
+        ui.zooming:onZoom("out")
+        ui.paging:exitSkimMode()
+        assert.are.near(1.3, ui.document.configurable.zoom_factor, 1e-6)
+        assert.are.near(1.3, ui.doc_settings:readSetting("kopt_zoom_factor"), 1e-6)
+        assert.are.near(zoom, ui.zooming.zoom, 1e-6)
+    end)
+
+    it("retains continuous view when closing during page flipping", function()
+        ui.document.configurable.page_scroll = 1
+        ui:handleEvent(Event:new("SetScrollMode", true))
+        ui.paging:onTogglePageFlipping()
+        ui.zooming:onZoom("out")
+        local file = ui.document.file
+        ui:closeDocument()
+        ui:onClose()
+        ui = ReaderUI:new{ dimen = Screen:getSize(), document = DocumentRegistry:openDocument(file) }
+        UIManager:show(ui)
+        assert.is_true(ui.view.page_scroll)
+        assert.are.equal("page", ui.zooming.zoom_mode)
+        ui:handleEvent(Event:new("SetScrollMode", false))
+        ui.zooming:onZoom("out")
+        assert.are.equal("manual", ui.zooming.zoom_mode)
+    end)
+
+    it("uses normal page-view semantics when skim creates no temporary state", function()
+        ui.paging:enterSkimMode()
+        assert.is_nil(ui.paging.skim_backup)
+        ui.zooming:onZoom("out")
+        assert.are.equal("manual", ui.zooming.zoom_mode)
+        ui.paging:exitSkimMode()
+        assert.are.equal("manual", ui.zooming.zoom_mode)
         ui.paging:onGotoPageRel(1)
         assert.are.equal(3, ui.paging.current_page)
     end)

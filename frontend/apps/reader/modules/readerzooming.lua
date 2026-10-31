@@ -336,7 +336,8 @@ function ReaderZooming:onZoom(direction)
     elseif direction == "out" then
         zoom = zoom * 0.75
     end
-    if not self.view.page_scroll and self.document.configurable.text_wrap == 0 then
+    if not self.view.page_scroll and self.document.configurable.text_wrap == 0
+        and not self.orig_zoom_mode and not self.ui.paging.skim_backup then
         -- Free zoom is a temporary regional view that disables page navigation.
         -- Use manual zoom for non-reflowed page view, deriving its scale only
         -- after the mode switch has applied its crop and rotation geometry.
@@ -344,7 +345,7 @@ function ReaderZooming:onZoom(direction)
         local _, zoom_w = self:getZoom(self.current_page)
         self.ui:handleEvent(Event:new("SetZoomPan", { kopt_zoom_factor = zoom / zoom_w, zoom_mode = "manual" }))
     else
-        -- Preserve the existing continuous-view and reflow behavior.
+        -- Preserve continuous/reflow behavior and temporary flipping/skim state.
         self.zoom = zoom
         self:onSetZoomMode("free")
         self.view:onZoomUpdate(self.zoom)
