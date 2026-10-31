@@ -3,7 +3,7 @@
 -- without deliberately wedging the emulator in an immediate-task loop.
 return {
     name = "An unacknowledged Kindle suspend keeps the reader responsive",
-    timeout = 30,
+    timeout = 180, -- Includes the driver's startup and open-book waits.
     run = function(T)
         local Device = require("device")
         local UIManager = require("ui/uimanager")
