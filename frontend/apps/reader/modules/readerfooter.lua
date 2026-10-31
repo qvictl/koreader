@@ -2716,10 +2716,18 @@ function ReaderFooter:onOutOfScreenSaver()
 end
 
 ReaderFooter.onSuspend       = ReaderFooter.unscheduleFooterAutoRefresh
-ReaderFooter.onCloseDocument = ReaderFooter.unscheduleFooterAutoRefresh
+
+function ReaderFooter:onCloseDocument()
+    self:unscheduleFooterAutoRefresh()
+    if self._delayed_footer_refresh then
+        UIManager:unschedule(self._delayed_footer_refresh)
+    end
+end
 
 -- Used by event handlers that can trip without direct UI interaction...
 function ReaderFooter:maybeUpdateFooter()
+    -- A delayed event may outlive the reader that owns this footer.
+    if not self.ui.document then return end
     -- ...so we need to avoid stomping over unsuspecting widgets (usually, ScreenSaver).
     self:onUpdateFooter(self:shouldBeRepainted())
 end
@@ -2738,9 +2746,13 @@ ReaderFooter.onNetworkDisconnected = ReaderFooter.onNetworkConnected
 
 function ReaderFooter:onSwapPageTurnButtons()
     if self.settings.page_turning_inverted then
+        if not self._delayed_footer_refresh then
+            -- Keep cancellation local to this footer, not the shared method.
+            self._delayed_footer_refresh = function() self:maybeUpdateFooter() end
+        end
         -- We may receive the event *before* DeviceListener, so delay this to make sure it had a chance to actually swap the settings.
         -- Also delay it further to avoid screwing with TouchMenu highlights...
-        UIManager:scheduleIn(0.5, self.maybeUpdateFooter, self)
+        UIManager:scheduleIn(0.5, self._delayed_footer_refresh)
     end
 end
 ReaderFooter.onToggleReadingOrder = ReaderFooter.onSwapPageTurnButtons
@@ -2776,6 +2788,7 @@ function ReaderFooter:onRefreshAdditionalContent()
 end
 
 function ReaderFooter:onCloseWidget()
+    self:onCloseDocument()
     self:free()
 end
 

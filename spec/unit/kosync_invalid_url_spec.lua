@@ -10,7 +10,7 @@ local time = require("ui/time")
 local gettext = require("gettext")
 
 describe("KOSync malformed server recovery", function()
-    local shown, saved_looper
+    local shown, saved_looper, new_stub
     before_each(function()
         Queue:clear()
         shown, saved_looper = {}, UIManager.looper
@@ -19,6 +19,7 @@ describe("KOSync malformed server recovery", function()
         stub(Client, "_runInSubprocess", function() error("invalid server must not start HTTP") end)
     end)
     after_each(function()
+        if new_stub then new_stub:revert(); new_stub = nil end
         Client._runInSubprocess:revert()
         UIManager.show:revert()
         UIManager.getElapsedTimeSinceBoot:revert()
@@ -125,5 +126,23 @@ describe("KOSync malformed server recovery", function()
         assert.is_nil(sync.settings.custom_server)
         assert.is_true(sync.updated)
         assert.is_table(client(sync.settings.custom_server).client)
+    end)
+    it("passes the restored default server through the production queue drain", function()
+        local sync, options, sent = plugin()
+        new_stub = stub(Client, "new", function(_, opts)
+            options = opts
+            return { update_progress = function(_, _, _, _, _, _, _, _, _, callback)
+                callback(true, 200)
+            end }
+        end)
+        sync:setCustomServer("")
+        Queue:push{ document = "book", progress = "pending", percentage = 0.5,
+            device = "Reader", device_id = "local-device" }
+        sync:drainQueue(function(count) sent = count end)
+        assert.is_table(options)
+        assert.is_nil(options.custom_url)
+        assert.are.equal("plugins/kosync.koplugin/api.json", options.service_spec)
+        assert.are.equal(1, sent)
+        assert.are.equal(0, Queue:count())
     end)
 end)

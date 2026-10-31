@@ -1137,7 +1137,7 @@ describe("ReaderFooter modes, menu and refresh scheduling", function()
             assert.is.same(n + 1, #UIManager._task_queue)
             local found = false
             for _, t in ipairs(UIManager._task_queue) do
-                if t.action == footer.maybeUpdateFooter then found = true end
+                if t.action == footer._delayed_footer_refresh then found = true end
             end
             assert.is_true(found)
         end)
