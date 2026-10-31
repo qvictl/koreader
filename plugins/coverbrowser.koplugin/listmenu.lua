@@ -131,6 +131,8 @@ function ListMenuItem:update()
     -- We will be a distinctive widget whether we are a directory,
     -- a known file with image / without image, or a not yet known file
     local widget
+    local show_cover_image = false
+    local has_cover_image
 
     -- we'll add a VerticalSpan of same size as underline container for balance
     local dimen = Geom:new{
@@ -291,9 +293,6 @@ function ListMenuItem:update()
                             wimage,
                         }
                     }
-                    -- Let menu know it has some item with images
-                    self.menu._has_cover_images = true
-                    self._has_cover_image = true
                 else
                     local fake_cover_w = max_img_w * 0.6
                     local fake_cover_h = max_img_h
@@ -317,6 +316,7 @@ function ListMenuItem:update()
                     }
                 end
             end
+            show_cover_image = wleft ~= nil
             -- In case we got a blitbuffer and didn't use it (ignore_cover), free it
             if bookinfo.cover_bb and not cover_bb_used then
                 bookinfo.cover_bb:free()
@@ -426,6 +426,23 @@ function ListMenuItem:update()
             end
             local wmain_right_padding = Screen:scaleBySize(10) -- used only for next calculation
             local wmain_width = dimen.w - wleft_width - wmain_left_padding - wmain_right_padding - wright_width - wright_right_padding
+            if wmain_width <= 0 then
+                -- A narrow desktop window may not fit the cover and info columns.
+                -- Keep a readable title instead of passing a non-positive width to XText.
+                -- The left widget owns any decoded cover; do not reuse/free cover_bb again.
+                if wleft then wleft:free() end
+                if wright then wright:free() end
+                wleft, wright = nil, nil
+                wleft_width, wright_right_padding = 0, 0
+                show_cover_image = false
+                wmain_left_padding = math.min(Screen:scaleBySize(10), math.floor((dimen.w - 1) / 2))
+                wmain_right_padding = wmain_left_padding
+                wmain_width = dimen.w - wmain_left_padding - wmain_right_padding
+            end
+            if cover_bb_used and show_cover_image then
+                self.menu._has_cover_images = true
+                has_cover_image = true
+            end
 
             local fontname_title = "cfont"
             local fontname_authors = "cfont"
@@ -578,7 +595,7 @@ function ListMenuItem:update()
             widget = OverlapGroup:new{
                 dimen = dimen:copy(),
             }
-            if self.do_cover_image then
+            if show_cover_image then
                 -- add left widget
                 if wleft then
                     -- no need for left padding, as cover image, most often in
@@ -616,7 +633,7 @@ function ListMenuItem:update()
             end
 
             -- Start the underline past the cover or the shortcut square, so a focus-only repaint doesn't slice them.
-            local line_left = (self.do_cover_image and wleft_width or shortcut_width) + wmain_left_padding
+            local line_left = (show_cover_image and wleft_width or shortcut_width) + wmain_left_padding
             self._underline_container.line_x_offset = line_left
             self._underline_container.line_width = math.max(dimen.w - corner_mark_size - Screen:scaleBySize(6) - line_left, 0)
 
@@ -713,6 +730,9 @@ function ListMenuItem:update()
         end
     end
 
+    self._show_cover_image = show_cover_image
+    self._has_cover_image = has_cover_image
+
     -- Fill container with our widget
     if self._underline_container[1] then
         -- There is a previous one, that we need to free()
@@ -770,7 +790,7 @@ function ListMenuItem:paintTo(bb, x, y)
         local target =  self[1][1][2]
         local d_w = Screen:scaleBySize(3)
         local d_h = math.ceil(target.dimen.h / 4)
-        if self.do_cover_image and target[1][1][1] then
+        if self._show_cover_image and target[1][1][1] then
             -- it has an image, align it on image's framecontainer's right border
             target = target[1][1]
             local ix
