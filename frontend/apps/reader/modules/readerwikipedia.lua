@@ -3,6 +3,7 @@ local DataStorage = require("datastorage")
 local DictQuickLookup = require("ui/widget/dictquicklookup")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
+local IsoLanguage = require("ui/data/isolanguage")
 local KeyValuePage = require("ui/widget/keyvaluepage")
 local LuaData = require("luadata")
 local NetworkMgr = require("ui/network/manager")
@@ -366,6 +367,7 @@ function ReaderWikipedia:initLanguages(word)
                 lang = lang:match("([^_-]+)") or lang
                 if lang == "C" then lang="en" end
                 lang = lang:lower()
+                lang = IsoLanguage:getBCPLanguageTag(lang)
                 if not self.seen_lang[lang] then
                     table.insert(self.wiki_languages, lang)
                     self.seen_lang[lang] = true
