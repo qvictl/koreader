@@ -324,7 +324,16 @@ function CalibreWireless:connect()
         self.invalid_password = false
         self.disconnected_by_server = false
         if pcall(self.initCalibreMQ, self, host, port) then
-            CalibreMetadata:init(inbox_dir)
+            local initialized, init_err = pcall(CalibreMetadata.init, CalibreMetadata, inbox_dir)
+            if not initialized then
+                logger.warn("calibre: cannot initialize inbox", inbox_dir, init_err)
+                -- This is a local metadata failure, not a server/handshake error.
+                -- Retire the transport before displaying a message that may yield.
+                self:disconnect(true)
+                Trapper:info(T(_("Cannot initialize calibre inbox at %1. Please check the folder and its calibre metadata files."),
+                    BD.dirpath(inbox_dir)))
+                return
+            end
             -- And wait for initial requests: GET_INITIALIZATION_INFO, followed by
             -- GET_DEVICE_INFORMATION (or a specific DISPLAY_MESSAGE on password error).
             for _, timeout in ipairs{5, 1} do
