@@ -279,5 +279,31 @@ describe("luadata module", function()
                 end
             end
         end)
+
+        it("retains earlier unsaved recovered entries when a later append retries persistence", function()
+            data:reset{ history = { "old" } }
+            data:flush()
+            assert(os.remove(file))
+            data = Settings:open(file, "Generation")
+            assert(lfs.mkdir(file)) -- block the first snapshot write
+            data:addTableItem("history", "first-unsaved")
+            assert(lfs.rmdir(file))
+            data:addTableItem("history", "second")
+            assert.same({ "old", "first-unsaved", "second" },
+                Settings:open(file, "Generation"):readSetting("history"))
+        end)
+
+        it("persists the recovered in-memory state even if the numbered backup later changes", function()
+            data:reset{ history = { "recovered" } }
+            data:flush()
+            assert(os.remove(file))
+            data = Settings:open(file, "Generation")
+            local f = assert(io.open(file .. ".old.1", "w"))
+            f:write('GenerationEntry{history={"different"}}')
+            f:close()
+            data:addTableItem("history", "next")
+            assert.same({ "recovered", "next" },
+                Settings:open(file, "Generation"):readSetting("history"))
+        end)
     end)
 end)
