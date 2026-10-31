@@ -961,7 +961,7 @@ function NewsDownloader:setCustomDownloadDirectory()
                 apply()
             else
                 UIManager:show(ConfirmBox:new{
-                    text = T(_("This folder is not empty:\n\n%1\n\nUsing it as the download folder means that deleting all items in the download folder will delete ALL files and subfolders, including files not downloaded by this plugin. Only %2 will be kept."),
+                    text = T(_("This folder is not empty:\n\n%1\n\nIf it already contains %2, that file will be overwritten with the current feed configuration.\n\nUsing it as the download folder means that deleting all items in the download folder will delete ALL files and subfolders, including files not downloaded by this plugin. Only %2 will be kept."),
                         BD.dirpath(path), self.feed_config_file),
                     ok_text = _("Use folder"),
                     ok_callback = apply,

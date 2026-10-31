@@ -71,6 +71,9 @@ return {
 
             choose(selected)
             local warning = confirmation("Use folder")
+            T:check(warning.text:find("If it already contains feed_config.lua", 1, true)
+                and warning.text:find("will be overwritten with the current feed configuration", 1, true),
+                "selection warns that an existing feed configuration will be replaced")
             T:eq(plugin.download_dir, old_dir, "nonempty selection is not applied before confirmation")
             T:eq(plugin.settings:readSetting(plugin.config_key_custom_dl_dir), old_custom,
                 "pending warning does not persist the selection")
@@ -108,8 +111,12 @@ return {
 
             choose(root .. "/missing")
             T:repaint()
-            T:check(T:topWidget() ~= fm and T:topWidget().ok_text == nil,
-                "unreadable selection shows an error rather than an acceptance dialog")
+            local top = T:topWidget()
+            T:check(top and top ~= fm and top.ok_text == nil
+                and type(top.text) == "string"
+                and top.text:find(BD.dirpath(root .. "/missing"), 1, true)
+                and top.text:find("Cannot read folder", 1, true),
+                "unreadable selection shows the folder-read error for the selected path")
             T:eq(plugin.download_dir, selected .. "/", "unreadable selection fails closed")
             T:eq(plugin.settings:readSetting(plugin.config_key_custom_dl_dir), selected .. "/",
                 "unreadable selection does not persist settings")
