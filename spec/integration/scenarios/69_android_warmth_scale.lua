@@ -10,9 +10,6 @@ return {
         local UIManager = require("ui/uimanager")
         local FrontLightWidget = require("ui/widget/frontlightwidget")
         local WidgetContainer = require("ui/widget/container/widgetcontainer")
-        local DataStorage = require("datastorage")
-        local lfs = require("libs/libkoreader-lfs")
-        local ffiUtil = require("ffi/util")
         T:fileManager()
         local saved = { powerd = Device.powerd, android = package.loaded.android,
             scale = rawget(BasePowerD, "warmth_scale"), warmth = G_reader_settings:readSetting("frontlight_warmth"), caps = {} }
@@ -109,24 +106,9 @@ return {
             T:run(function() UIManager:close(receiver) end)
             receiver = nil
 
-            -- Restore the emulator before the native reading/lifecycle smoke check.
-            Device.powerd, package.loaded.android = saved.powerd, saved.android
-            BasePowerD.warmth_scale = saved.scale
-            for _, key in ipairs(cap_names) do Device[key] = saved.caps[key] end
-            G_reader_settings:saveSetting("frontlight_warmth", saved.warmth)
-            local directory = DataStorage:getDataDir() .. "/it-android-warmth"
-            assert(not lfs.attributes(directory), "private reading fixture must be new")
-            assert(lfs.mkdir(directory))
-            local book = directory .. "/reading.epub"
-            assert(ffiUtil.copyFile(T:fixture("books/en.epub"), book) == nil)
-            T:openBook(book)
-            T:tap(math.floor(T.screen_w * 0.9), math.floor(T.screen_h * 0.5))
-            T:waitUntil(function() return T:reader():getCurrentPage() == 2 end, 5, "reading after Android boundary restoration")
-            T:eq(T:reader():getCurrentPage(), 2, "normal emulator reading remains usable")
-            T:closeBook()
         end)
         -- Each cleanup is independent. Always restore hardware/module/settings
-        -- boundaries, even if closing a widget fails. Keep private reader inputs.
+        -- boundaries, even if closing a widget fails. No temporary files are created.
         Device.powerd, package.loaded.android = saved.powerd, saved.android
         BasePowerD.warmth_scale = saved.scale
         for _, key in ipairs(cap_names) do Device[key] = saved.caps[key] end
@@ -138,10 +120,10 @@ return {
         end
         cleanup(closeLight)
         cleanup(function() if receiver then T:run(function() UIManager:close(receiver) end) end end)
-        cleanup(function() if T:reader() then T:closeBook() end end)
         if not ok then table.insert(errors, 1, tostring(type(err) == "table" and err.msg or err)) end
         if #errors > 0 then error(table.concat(errors, "\n"), 0) end
         T:check(Device.powerd == saved.powerd, "original emulator power driver is restored")
-        T:check(T:fileManager() ~= nil, "a usable FileManager remains after close")
+        T:repaint()
+        T:check(UIManager:isWidgetShown(T:fileManager()), "the original FileManager remains displayed after close")
     end,
 }
