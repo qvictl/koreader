@@ -100,6 +100,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `49_http_proxy_credentials` | real loopback HTTP proxy and OPDS HEAD/GET catalog parsing with reserved Basic credentials; credential-free absolute targets, origin/explicit/global proxy forms, separate proxy authentication, URL credentials, and reading afterward |
 | `50_readerstatus_stale_navigation` | real native PDF next/previous navigation, repeated queued requests, Home and replacement interruptions, duplicate confirmations, Cancel and FileManager confirmation compatibility |
 | `51_coverlist_narrow_window` | real SDL window resize, native EPUB/custom-PNG cover extraction and cached collection/History rows; narrow fallback, wide restoration, repeated resize, page turns and reopening without changing cover preferences |
+| `53_coverimage_format_persistence` | real format-menu checkmarks, saved settings and reader reopening; native RGB PNG cover exports remain color/grayscale BMPs, with mutually exclusive selections and reading progress preserved |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:

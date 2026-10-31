@@ -639,6 +639,8 @@ function CoverImage:menuEntrySetPath(key, title, help, info, default, folder_onl
 end
 
 function CoverImage:menuEntryFormat(title, format, grayscale)
+    -- Match the boolean read by init(), including color formats with no argument.
+    grayscale = grayscale == true
     return {
         text = title,
         checked_func = function()
