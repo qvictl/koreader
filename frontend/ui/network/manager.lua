@@ -77,6 +77,21 @@ function NetworkMgr:requestToTurnOnWifi(wifi_cb, interactive)
     return self:turnOnWifi(wifi_cb, interactive)
 end
 
+-- Share the connection guard with interactive requests while async restoration
+-- owns the backend. The existing connectivity poll releases it on completion.
+function NetworkMgr:requestToRestoreWifi()
+    if self.pending_connection then return EBUSY end
+    self.pending_connection = true
+    local ok, status = pcall(self.restoreWifiAsync, self)
+    if not ok or status == false then
+        self.pending_connection = false
+        if not ok then logger.warn("NetworkMgr: async Wi-Fi restore failed:", status) end
+        return false
+    end
+    self:scheduleConnectivityCheck()
+    return true
+end
+
 -- Used after restoreWifiAsync() and the turn_on beforeWifiAction to make sure we eventually send a NetworkConnected event,
 -- as quite a few things rely on it (KOSync, c.f. #5109; the network activity check, c.f., #6424).
 function NetworkMgr:connectivityCheck(iter, callback, widget)
@@ -156,9 +171,7 @@ function NetworkMgr:init()
         -- Attempt to restore wifi in the background if necessary
         if Device:hasWifiRestore() and self.wifi_was_on and G_reader_settings:isTrue("auto_restore_wifi") then
             logger.dbg("NetworkMgr: init will restore Wi-Fi in the background")
-            if self:restoreWifiAsync() ~= false then
-                self:scheduleConnectivityCheck()
-            end
+            self:requestToRestoreWifi()
         end
     end
 
