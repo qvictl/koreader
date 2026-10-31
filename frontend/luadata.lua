@@ -138,6 +138,11 @@ end
 --- Appends settings to disk.
 function LuaData:append(data)
     if not self.file then return end
+    -- Recovery may have removed an invalid current file. An incremental entry
+    -- alone cannot reconstruct the recovered state when opened again.
+    if lfs.attributes(self.file, "mode") ~= "file" then
+        return self:flush()
+    end
     local f_out = io.open(self.file, "a")
     if f_out ~= nil then
         -- NOTE: This is a function call, with a table as its single argument. Parentheses are elided.
@@ -152,7 +157,7 @@ end
 --- Replaces existing settings with table.
 function LuaData:reset(table)
     self.data = table
-    self:flush()
+    if self:flush() == false then return false end
     return self
 end
 
@@ -161,26 +166,37 @@ function LuaData:flush()
     if not self.file then return end
 
     if lfs.attributes(self.file, "mode") == "file" then
-        for i=1, self.max_backups, 1 do
+        -- Rotate older snapshots first, without overwriting a newer snapshot
+        -- before it has moved. Recovery reads .old.1 before the older backups.
+        for i=self.max_backups - 1, 1, -1 do
             if lfs.attributes(self.file..".old."..i, "mode") == "file" then
                 logger.dbg("LuaData: Rename", self.file .. ".old." .. i, "to", self.file .. ".old." .. i+1)
-                os.rename(self.file, self.file .. ".old." .. i+1)
-            else
-                break
+                local ok, err = os.rename(self.file .. ".old." .. i, self.file .. ".old." .. i+1)
+                if not ok then
+                    logger.err("LuaData: Failed to rotate backup", self.file .. ".old." .. i, err)
+                    return false
+                end
             end
         end
         logger.dbg("LuaData: Rename", self.file, "to", self.file .. ".old.1")
-        os.rename(self.file, self.file .. ".old.1")
+        local ok, err = os.rename(self.file, self.file .. ".old.1")
+        if not ok then
+            logger.err("LuaData: Failed to back up", self.file, err)
+            return false
+        end
     end
 
     logger.dbg("LuaData: Write to", self.file)
-    local f_out = io.open(self.file, "w")
+    local f_out, err = io.open(self.file, "w")
     if f_out ~= nil then
         f_out:write("-- we can read Lua syntax here!\n")
         f_out:write(self.name.."Entry")
         f_out:write(dump(self.data))
         f_out:write("\n")
         f_out:close()
+    else
+        logger.err("LuaData: Failed to write", self.file, err)
+        return false
     end
     return self
 end

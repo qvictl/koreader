@@ -43,7 +43,14 @@ return {
         T:eq(ReadCollection.coll.favorites[second].order, 1, "manual sorting updates the in-memory order")
         T:eq(diskOrder(second), 2, "sorting is pending until settings are flushed")
         T:check(T:fileManager() == fm, "closing favorites does not close the file manager")
-        T:run(function() UIManager:flushSettings() end)
+        local writes = T:spy(ReadCollection, "write")
+        T:run(function()
+            UIManager:flushSettings()
+            UIManager:flushSettings() -- no new edits between these events
+        end)
+        writes.restore()
+        T:eq(writes.calls, 1, "a second flush without edits does not write collections again")
+        T:eq(next(manager.updated_collections), nil, "successful persistence clears pending collection edits")
         T:eq(diskOrder(second), 1, "settings flush persists the reordered favorite")
         T:eq(diskOrder(first), 2, "settings flush persists the other favorite's new order")
         T:check(T:fileManager() == fm, "file manager remains open after persistence")
@@ -56,5 +63,31 @@ return {
         T:eq(manager.booklist_menu.item_table[1].file, second, "reopened collection displays the persisted order")
         T:check(manager.booklist_menu.dimen ~= nil, "reopened collection is painted")
         T:run(function() manager.booklist_menu.close_callback() end)
+
+        -- A flush can occur while the connected-folder menu is still open.
+        -- Its parent list must refresh even after persistence clears dirty flags.
+        local connected = base .. "/connected"
+        T:run(function()
+            util.makePath(connected)
+            assert(not ffiUtil.copyFile(T:fixture("books/en.epub"), connected .. "/third.epub"))
+            manager:onShowCollList()
+            manager:showCollFolderList{ name = "favorites", text = "Favorites", idx = 1 }
+            manager:showAddCollFolderDialog()
+        end)
+        local chooser = T:topWidget()
+        T:run(function()
+            chooser.onConfirm(connected)
+            UIManager:close(chooser)
+        end)
+        T:eq(util.tableSize(ReadCollection.coll.favorites), 3, "connected folder adds a third book")
+        T:eq(manager.coll_list.item_table[1].mandatory, 2, "parent collection count awaits folder-menu close")
+        T:run(function() UIManager:flushSettings() end)
+        T:eq(next(manager.updated_collections), nil, "mid-menu flush commits folder edits")
+        T:run(function() manager.coll_folder_list.close_callback() end)
+        T:repaint()
+        T:eq(manager.coll_list.item_table[1].mandatory,
+            manager.getCollListItemMandatory("favorites"), "parent count and folder marker refresh after flush")
+        T:check(manager.coll_list.dimen ~= nil, "refreshed parent collection list is painted")
+        T:run(function() manager.coll_list.close_callback() end)
     end,
 }

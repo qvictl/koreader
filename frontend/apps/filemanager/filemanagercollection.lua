@@ -1162,10 +1162,14 @@ function FileManagerCollection:showCollFolderList(item)
     self.coll_folder_list.close_callback = function()
         UIManager:close(self.coll_folder_list)
         self.coll_folder_list = nil
-        if self.coll_list and self.updated_collections[coll_name] then
+        if self.coll_list then
             -- folder has been connected, new books added to collection
-            self.coll_list.item_table[item.idx].mandatory = self.getCollListItemMandatory(item.name)
-            self:updateCollListItemTable()
+            -- Persistence may already have cleared updated_collections.
+            local mandatory = self.getCollListItemMandatory(coll_name)
+            if self.coll_list.item_table[item.idx].mandatory ~= mandatory then
+                self.coll_list.item_table[item.idx].mandatory = mandatory
+                self:updateCollListItemTable()
+            end
         end
     end
     self:updateCollFolderListItemTable()
@@ -1623,7 +1627,13 @@ end
 
 function FileManagerCollection:onCloseWidget()
     if next(self.updated_collections) then
-        ReadCollection:write(self.updated_collections)
+        if ReadCollection:write(self.updated_collections) then
+            self.updated_collections = {}
+        else
+            -- A failed write may have truncated the file. Rebuild every
+            -- collection from memory instead of merging only the last edits.
+            self.updated_collections[1] = true
+        end
     end
 end
 
