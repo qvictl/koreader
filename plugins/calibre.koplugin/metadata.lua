@@ -77,6 +77,13 @@ local CalibreMetadata = {
     books = rapidjson.array({}),
 }
 
+-- Search and wireless transfers must not share mutable library state.
+function CalibreMetadata:new()
+    local o = setmetatable({}, { __index = self })
+    o:clean()
+    return o
+end
+
 --- loads driveinfo from JSON file
 function CalibreMetadata:loadDeviceInfo(file)
     if not file then file = self.driveinfo end
