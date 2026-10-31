@@ -770,9 +770,7 @@ function ReaderStyleTweak:onToggleStyleTweak(tweak_id, item, no_notification)
     end
     self:updateCssText(true) -- apply it immediately
     if not no_notification then
-        UIManager:show(Notification:new{
-            text = text,
-        })
+        Notification:notify(text)
     end
     return true
 end
@@ -793,9 +791,7 @@ function ReaderStyleTweak:onToggleStyleTweaks(no_notification)
         else
             text = _("Disabled style tweaks.")
         end
-        UIManager:show(Notification:new{
-            text = text,
-        })
+        Notification:notify(text)
     end
 end
 
@@ -812,9 +808,7 @@ function ReaderStyleTweak:onToggleBookTweak(touchmenu_instance, no_notification)
             else
                 text = T(C_("Style tweak", "Off: %1"), text)
             end
-            UIManager:show(Notification:new{
-                text = text,
-            })
+            Notification:notify(text)
         end
     else
         -- No tweak defined: launch editor
