@@ -19,6 +19,7 @@ return {
         local last = base .. "/[w-id_103] Last.epub"
         local menu, summary, infos, requests, exports = nil, nil, {}, 0, {}
         local fail_export = true
+        local sink_fault, handles = nil, {}
         local restores, plugin_restores = {}, {}
         local original_config = plugin.wb_settings:readSetting("wallabag")
         local original_server, original_directory = plugin.server_url, plugin.directory
@@ -82,6 +83,30 @@ return {
                 return real_show(manager, widget, ...)
             end)
             override(NetworkMgr, "runWhenOnline", function(_, callback) callback() end)
+            local real_open = io.open
+            override(io, "open", function(path, mode)
+                if path ~= untitled or mode ~= "w" or not sink_fault then return real_open(path, mode) end
+                local handle = assert(real_open(path, mode))
+                local state = { handle = handle, closes = 0 }
+                handles[#handles + 1] = state
+                return {
+                    write = function(_, bytes)
+                        if sink_fault == "write" then
+                            assert(handle:write(bytes:sub(1, 2)))
+                            assert(handle:flush())
+                            return nil, "synthetic write ENOSPC"
+                        end
+                        return handle:write(bytes)
+                    end,
+                    close = function()
+                        state.closes = state.closes + 1
+                        local closed, close_err = handle:close()
+                        state.closed = true
+                        if sink_fault == "close" then return nil, "synthetic close EIO" end
+                        return closed, close_err
+                    end,
+                }
+            end)
             override(http, "request", function(request)
                 assert(request.method == "GET" and type(request.url) == "string")
                 assert(request.headers.Authorization == "Bearer synthetic-not-sent")
@@ -98,9 +123,12 @@ return {
                     assert(id, "unexpected synthetic request: " .. request.url)
                     exports[id] = (exports[id] or 0) + 1
                     if id == "102" and fail_export then bytes, code = "synthetic failure", 503 end
+                    if id == "102" and sink_fault == "connect" then return nil, "synthetic connection failure" end
                 end
-                assert(request.sink(bytes))
-                assert(request.sink(nil))
+                local written, write_err = request.sink(bytes)
+                if not written then return nil, write_err end
+                local ended, end_err = request.sink(nil)
+                if not ended then return nil, end_err end
                 return 1, code, {}, "synthetic HTTP response"
             end)
             sync()
@@ -115,15 +143,27 @@ return {
             local sidecar = assert(DocSettings:findSidecarFile(first))
             local sidecar_bytes = assert(util.readFromFile(sidecar))
             fail_export = false
+            for _, fault in ipairs({ "connect", "write", "close" }) do
+                sink_fault = fault
+                sync()
+                T:check(summary.text:find("- failed: 1", 1, true), fault .. " failure is not reported as downloaded")
+                T:check(handles[#handles].closed and handles[#handles].closes == 1,
+                    fault .. " failure closes its owned file exactly once before returning")
+                T:eq(lfs.attributes(untitled), nil, fault .. " failure removes only the unsuccessful export")
+                T:check(assert(util.readFromFile(first)) == epub and assert(util.readFromFile(last)) == epub,
+                    fault .. " failure does not overwrite earlier successful entries")
+                T:eq(assert(util.readFromFile(sidecar)), sidecar_bytes, fault .. " failure preserves previous annotations")
+            end
+            sink_fault = nil
             sync()
-            T:eq(requests, 6, "retry lists once and downloads only the missing entry")
+            T:eq(requests, 12, "retry lists once and downloads only the missing entry")
             T:eq(exports["101"], 1, "retry does not overwrite the first success")
-            T:eq(exports["102"], 2, "retry uses the untitled entry's unique ID")
+            T:eq(exports["102"], 5, "retry uses the untitled entry's unique ID")
             T:eq(exports["103"], 1, "retry does not overwrite the later success")
             T:check(assert(util.readFromFile(untitled)) == epub, "null title and URL produce a valid EPUB export")
             T:eq(assert(util.readFromFile(sidecar)), sidecar_bytes, "retry preserves prior annotations byte-for-byte")
             sync()
-            T:eq(requests, 7, "another sync only lists and skips all saved entries")
+            T:eq(requests, 13, "another sync only lists and skips all saved entries")
             T:eq(plugin:getLocalArticles()["102"], untitled, "rescanned inventory recognizes the untitled entry")
             T:run(function() plugin:onFlushSettings() end)
             T:check(plugin.wb_settings:readSetting("wallabag") == original_config,
@@ -160,6 +200,12 @@ return {
         end))
         record("reader cleanup", pcall(function() T:closeBook() end))
         for i = #restores, 1, -1 do restores[i]() end
+        for _, state in ipairs(handles) do
+            if not state.closed then
+                record("file cleanup", pcall(function() state.handle:close() end))
+                state.closed = true
+            end
+        end
         -- Keep private books until process teardown for queued native work.
         if #errors > 0 then error(table.concat(errors, "\n")) end
         T:check(not T:reader() and T:topWidget() == T:fileManager(), "returns to a usable FileManager")

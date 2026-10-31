@@ -36,7 +36,6 @@ local http = require("socket.http")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local ltn12 = require("ltn12")
-local socket = require("socket")
 local socketutil = require("socketutil")
 local util = require("util")
 local _ = require("gettext")
@@ -887,6 +886,7 @@ function Wallabag:callAPI(method, url, headers, body, filepath, quiet)
     quiet = quiet or false
 
     local sink = {}
+    local file
     local request = {
         method = method
     }
@@ -905,7 +905,18 @@ function Wallabag:callAPI(method, url, headers, body, filepath, quiet)
     end
 
     if filepath ~= nil then
-        request.sink = ltn12.sink.file(io.open(filepath, "w"))
+        local open_err
+        file, open_err = io.open(filepath, "w")
+        if not file then
+            logger.err("Wallabag:callAPI: cannot open download", open_err)
+            return false, "network_error"
+        end
+        -- Keep ownership here: LTN12 does not send EOF after every failure,
+        -- and its file sink ignores close errors. Close once after the request.
+        request.sink = function(chunk)
+            if chunk then return file:write(chunk) end
+            return 1
+        end
         socketutil:set_timeout(self.file_block_timeout, self.file_total_timeout)
     else
         request.sink = ltn12.sink.table(sink)
@@ -918,8 +929,25 @@ function Wallabag:callAPI(method, url, headers, body, filepath, quiet)
 
     logger.dbg("Wallabag:callAPI:", request.method, request.url)
 
-    local code, resp_headers, status = socket.skip(1, http.request(request))
+    local request_ok, request_result, code, resp_headers, status = pcall(http.request, request)
     socketutil:reset_timeout()
+    local close_ok, close_err = true
+    if file then
+        local called
+        called, close_ok, close_err = pcall(file.close, file)
+        if not called then close_err, close_ok = close_ok, nil end
+    end
+    if not request_ok then
+        -- Preserve unexpected errors, but do not leak our file or timeout state.
+        error(request_result, 0)
+    end
+    if not close_ok then
+        logger.err("Wallabag:callAPI: cannot close download", close_err)
+        if code == 200 and resp_headers ~= nil then
+            self:removeFailedDownload(filepath)
+            return false, "file_error"
+        end
+    end
 
     -- Raise error if network is unavailable
     if resp_headers == nil then
