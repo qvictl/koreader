@@ -22,6 +22,7 @@ return {
             coll = ReadCollection.coll, settings = ReadCollection.coll_settings,
             perpage = BookInfoManager:getSetting("files_per_page"),
             mode = BookInfoManager:getSetting("collection_display_mode"),
+            history_mode = BookInfoManager:getSetting("history_display_mode"),
             chooser_perpage = rawget(FileChooser, "files_per_page"),
             instance_perpage = T:fileManager().file_chooser.files_per_page,
         }
@@ -126,6 +127,19 @@ return {
             ui = T:openBook(file)
             T:eq(ui:getCurrentPage(), page + 1, "normal reopening retains reading position")
             T:closeBook()
+
+            -- The original report entered the same cached-row renderer via History.
+            setupMode("history", "list_image_meta")
+            resize(228, 1200)
+            T:run(function()
+                T:fileManager().history:onShowHist()
+                menu = T:fileManager().history.booklist_menu
+            end)
+            row = cachedRow()
+            T:eq(row._show_cover_image, false, "History's date column also falls back safely")
+            T:check(row.do_cover_image, "History keeps its requested cover mode")
+            closeMenu()
+            T:check(T:topWidget() == T:fileManager(), "narrow History closes normally")
         end)
         -- Keep private inputs until process teardown, even if worker cleanup fails.
         -- Restore independent state despite failures in closing a widget or worker.
@@ -146,6 +160,7 @@ return {
             BookInfoManager:saveSetting("files_per_page", saved.perpage)
         end))
         record("display preference: ", pcall(function() setupMode("collections", saved.mode) end))
+        record("history preference: ", pcall(function() setupMode("history", saved.history_mode) end))
         record("window: ", pcall(function() resize(saved.width, saved.height) end))
         if #errors > 0 then error(table.concat(errors, "\n")) end
     end,
