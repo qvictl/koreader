@@ -278,8 +278,15 @@ function ReaderDictionary:addToMainMenu(menu_items)
             local lookup_history_table = lookup_history:readSetting("lookup_history")
             local kv_pairs = {}
             local previous_title
-            for i = #lookup_history_table, 1, -1 do
-                local value = lookup_history_table[i]
+            -- An incomplete append log may leave holes, so # is not a reliable
+            -- upper bound. Visit every surviving record in reverse index order.
+            local indices = {}
+            for index in pairs(lookup_history_table) do
+                table.insert(indices, index)
+            end
+            table.sort(indices)
+            for i = #indices, 1, -1 do
+                local value = lookup_history_table[indices[i]]
                 if value.book_title ~= previous_title then
                     table.insert(kv_pairs, { value.book_title..":", "" })
                 end
