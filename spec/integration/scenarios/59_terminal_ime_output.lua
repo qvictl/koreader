@@ -4,7 +4,8 @@ return {
     name = "Terminal output does not become IME keyboard input",
     timeout = 45,
     settings = { language = "en", keyboard_layout = "en", keyboard_layout_default = "en",
-        virtual_keyboard_enabled = true, keyboard_japanese_keitai_tap_interval = 10 },
+        virtual_keyboard_enabled = true, keyboard_chinese_pinyin_settings = {show_candi = false},
+        keyboard_chinese_stroke_show_candidates = false },
     run = function(T)
         local UIManager = require("ui/uimanager")
         local InputDialog = require("ui/widget/inputdialog")
@@ -48,6 +49,24 @@ return {
             T:tapWidget(button, "close terminal fixture")
             dialog = nil
             T:check(T:topWidget() == T:fileManager(), "closing terminal returns to usable FileManager")
+        end
+        local function tapKey(char)
+            local key = T:findWidget(dialog._input_widget.keyboard, function(w)
+                return w.key == char and w.callback
+            end)
+            T:tapWidget(key, "real keyboard key " .. char)
+        end
+        local function echoCaptured(index)
+            -- Deliver captured bytes after each key, as a synthetic terminal echo.
+            T:run(function()
+                while index <= #sent do
+                    assert(index < 80, "bounded synthetic terminal echo")
+                    dialog._input_widget:interpretAnsiSeq(sent[index])
+                    index = index + 1
+                end
+            end)
+            T:repaint()
+            return index
         end
         local ok, err = pcall(function()
             for _, name in ipairs(modules) do package.loaded[name] = nil end
@@ -102,13 +121,53 @@ return {
             T:check(first_tap ~= nil, "first Japanese tap starts the composing window")
             T:run(function() dialog._input_widget:interpretAnsiSeq("\027[D") end)
             T:eq(#sent, 1, "received cursor motion does not send Japanese input")
+            T:check(dialog._input_widget._ja_last_tap_time == nil,
+                "explicit navigation clears the Japanese tap state regardless of elapsed time")
             T:tapWidget(kana_key, "same Japanese kana key after received cursor move")
-            T:check(require("ui/time").since(first_tap) < require("ui/time").s(10),
-                "second real tap is inside the configured composing interval")
             T:eq(#sent, 2, "cursor movement prevents a stale replacement backspace")
             T:eq(sent[2], "あ", "second Japanese tap is a new character, not the old cycle")
             T:eq(dialog:getInputText(), "ああ", "captured user input never edits received display locally")
             closeDialog()
+
+            for _, item in ipairs({
+                { "ko_KR", {"ㄱ", "ㅏ", "ㄴ"}, "간" },
+                { "vi", {"a", "w", "s"}, "ắ" },
+            }) do
+                openDialog(item[1])
+                local index = 1
+                for _, char in ipairs(item[2]) do
+                    tapKey(char)
+                    index = echoCaptured(index)
+                end
+                T:eq(dialog:getInputText(), item[3], item[1] .. " composition survives its own BS echo")
+                closeDialog()
+            end
+            for _, item in ipairs({
+                { "ko_KR", {"ㄱ"}, "ㅏ" },
+                { "vi", {"a", "w"}, "s" },
+                { "zh_CN", {"n"}, "i" },
+                { "zh", {"㇐"}, "㇑" },
+            }) do
+                openDialog(item[1])
+                T:run(function() dialog._input_widget:interpretAnsiSeq("PREFIX") end)
+                local index = 1
+                for _, char in ipairs(item[2]) do
+                    tapKey(char)
+                    index = echoCaptured(index)
+                end
+                local before_count = #sent
+                T:run(function() dialog._input_widget:interpretAnsiSeq("\027[D") end)
+                T:eq(#sent, before_count, item[1] .. " external navigation sends no input")
+                tapKey(item[3])
+                local no_deletion = true
+                for i = before_count + 1, #sent do
+                    if sent[i]:find("\008", 1, true) then no_deletion = false end
+                end
+                T:check(#sent > before_count and no_deletion, item[1] .. " starts fresh input without stale deletion")
+                echoCaptured(index)
+                T:eq(dialog:getInputText():sub(1, 6), "PREFIX", item[1] .. " leaves unrelated text intact")
+                closeDialog()
+            end
             local no_new_children = true
             for _, pid in ipairs(T:children()) do
                 if not children[pid] then no_new_children = false end

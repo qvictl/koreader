@@ -1,6 +1,6 @@
 describe("Terminal output with keyboard input methods", function()
     local TermInputText
-    local widget, unwrap, transmitted, saved_modules, saved_settings
+    local widget, unwrap, transmitted, saved_modules, saved_settings, saved_now
     local stateful_modules = {
         "ui/data/keyboardlayouts/ko_KR_helper",
         "ui/data/keyboardlayouts/generic_ime",
@@ -20,6 +20,7 @@ describe("Terminal output with keyboard input methods", function()
             package.loaded[name] = nil
         end
         saved_settings = G_reader_settings
+        saved_now = require("ui/time").now
         G_reader_settings = require("luasettings"):wrap{
             keyboard_layout = "en", keyboard_layout_default = "en",
         }
@@ -46,13 +47,32 @@ describe("Terminal output with keyboard input methods", function()
             package.loaded[name] = saved_modules[name]
         end
         G_reader_settings = saved_settings
+        assert.equals(saved_now, require("ui/time").now)
         widget, unwrap, transmitted = nil, nil, nil
         assert(unwrap_ok, unwrap_err)
         assert(free_ok, free_err)
     end)
 
     local function setLayout(lang)
-        local layout = dofile("frontend/ui/data/keyboardlayouts/" .. lang .. "_keyboard.lua")
+        local path = "frontend/ui/data/keyboardlayouts/" .. lang .. "_keyboard.lua"
+        local layout
+        if lang == "ja" then
+            -- Only this private layout sees a fixed clock; UIManager time is untouched.
+            local real_time = require("ui/time")
+            local now = real_time.s(100)
+            local clock = setmetatable({
+                now = function() return now end,
+                since = function(start) return now - start end,
+            }, { __index = real_time })
+            local chunk = assert(loadfile(path))
+            setfenv(chunk, setmetatable({ require = function(name)
+                if name == "ui/time" then return clock end
+                return require(name)
+            end }, { __index = _G }))
+            layout = chunk()
+        else
+            layout = dofile(path)
+        end
         if layout.wrapInputBox then unwrap = layout.wrapInputBox(widget) end
     end
 
@@ -129,7 +149,6 @@ describe("Terminal output with keyboard input methods", function()
     end)
 
     for _, movement in ipairs({
-        { "backspace", "\008", 4 },
         { "VT52 left", "\027D", 4 },
         { "VT52 right", "\027C", 1 },
         { "CSI left", "\027[2D", 4 },
@@ -143,6 +162,7 @@ describe("Terminal output with keyboard input methods", function()
             assert.is_not_nil(widget._ja_last_tap_time)
             assert.same({"あ"}, transmitted)
             widget:interpretAnsiSeq(movement[2])
+            assert.is_nil(widget._ja_last_tap_time)
             assert.same({"あ"}, transmitted)
             widget:addChars("あ")
             assert.same({"あ", "あ"}, transmitted)
@@ -170,20 +190,132 @@ describe("Terminal output with keyboard input methods", function()
     end)
 
 
-    it("does not flush a Chinese candidate on received cursor movement", function()
+    local function echoPending(index)
+        while index <= #transmitted do
+            assert.is_true(index < 80, "bounded synthetic echo")
+            widget:interpretAnsiSeq(transmitted[index])
+            index = index + 1
+        end
+        return index
+    end
+
+    for _, item in ipairs({
+        { "ja", {"あ", "あ", "あ"}, "う" },
+        { "ko_KR", {"ㄱ", "ㅏ", "ㄴ"}, "간" },
+        { "vi", {"a", "w", "s"}, "ắ" },
+    }) do
+        it("preserves normal " .. item[1] .. " composition across its own BS echo", function()
+            setLayout(item[1])
+            local index = 1
+            for _, key in ipairs(item[2]) do
+                widget:addChars(key)
+                index = echoPending(index)
+            end
+            assert.equals(item[3], table.concat(widget.charlist))
+        end)
+    end
+
+    for _, item in ipairs({
+        { "ko_KR", {"ㄱ"}, "ㅏ" },
+        { "vi", {"a", "w"}, "s" },
+        { "zh_CN", {"n"}, "i" },
+        { "zh", {"㇐"}, "㇑" },
+    }) do
+        for _, movement in ipairs({ "\027D", "\027C", "\027[1D", "\027[1C" }) do
+            it("starts new " .. item[1] .. " input after explicit movement " .. movement, function()
+                G_reader_settings:saveSetting("keyboard_chinese_pinyin_settings", {show_candi = false})
+                G_reader_settings:saveSetting("keyboard_chinese_stroke_show_candidates", false)
+                setLayout(item[1])
+                TermInputText.addChars(widget, "PREFIX", true)
+                local index = 1
+                for _, key in ipairs(item[2]) do
+                    widget:addChars(key)
+                    index = echoPending(index)
+                end
+                -- Supply trailing cells so right movement has a valid destination.
+                TermInputText.addChars(widget, "__", true)
+                widget.charpos = #widget.charlist - 1
+                local old_count = #transmitted
+                widget:interpretAnsiSeq(movement)
+                assert.equals(old_count, #transmitted)
+                widget:addChars(item[3])
+                assert.is_true(#transmitted > old_count)
+                for i = old_count + 1, #transmitted do
+                    assert.is_nil(transmitted[i]:find("\008", 1, true))
+                end
+                echoPending(index)
+                assert.equals("PREFIX", table.concat(widget.charlist):sub(1, 6))
+            end)
+        end
+        it("restores a prior external-move callback after " .. item[1] .. " unwrapping", function()
+            local count = 0
+            local previous = function() count = count + 1 end
+            widget.onExternalCursorMove = previous
+            setLayout(item[1])
+            widget:interpretAnsiSeq("\027D")
+            assert.equals(1, count)
+            unwrap()
+            unwrap = nil
+            assert.equals(previous, widget.onExternalCursorMove)
+        end)
+    end
+
+    it("preserves Chinese candidate cycling while its echoed anchor is unchanged", function()
+        G_reader_settings:saveSetting("keyboard_chinese_pinyin_settings", {show_candi = false})
         setLayout("zh_CN")
+        TermInputText.addChars(widget, "PREFIX", true)
         widget:addChars("n")
-        local first = transmitted[#transmitted]
-        assert.is_not_nil(first)
-        TermInputText.addChars(widget, first, true)
-        local sent_count = #transmitted
-        widget:interpretAnsiSeq("\027[D\027[C")
-        assert.equals(sent_count, #transmitted)
-        widget:rightChar() -- user next-candidate key, not terminal cursor input
-        local second = transmitted[#transmitted]
-        assert.is_not.equals(first, second)
-        assert.is_not.equals("\027[C", second)
+        local index = echoPending(1)
+        local old_text, old_pos = table.concat(widget.charlist), widget.charpos
+        widget:interpretAnsiSeq("")
+        assert.equals(old_pos, widget.charpos)
+        widget:rightChar() -- User candidate cycling at the same echoed anchor.
+        echoPending(index)
+        assert.equals(#widget.charlist + 1, widget.charpos)
+        assert.equals("PREFIX", table.concat(widget.charlist):sub(1, 6))
+        assert.is_not.equals(old_text, table.concat(widget.charlist))
     end)
+
+    for _, item in ipairs({
+        {"zh_CN", {"n", "i"}, "i"},
+        {"zh", {"㇐", "㇑"}, "㇒"},
+    }) do
+        it("does not erase displayed " .. item[1] .. " candidate hints on external movement", function()
+            G_reader_settings:saveSetting("keyboard_chinese_pinyin_settings", {show_candi = true})
+            G_reader_settings:saveSetting("keyboard_chinese_stroke_show_candidates", true)
+            setLayout(item[1])
+            TermInputText.addChars(widget, "PREFIX", true)
+            local index = 1
+            for _, key in ipairs(item[2]) do
+                widget:addChars(key)
+                index = echoPending(index)
+            end
+            local old_text, old_count = table.concat(widget.charlist), #transmitted
+            assert.is_not_nil(old_text:find("[", 1, true))
+            widget:interpretAnsiSeq("\027[D")
+            assert.equals(old_count, #transmitted)
+            assert.equals(old_text, table.concat(widget.charlist))
+            widget:addChars(item[3])
+            for i = old_count + 1, #transmitted do
+                assert.is_nil(transmitted[i]:find("\008", 1, true))
+            end
+            echoPending(index)
+            assert.equals("PREFIX", table.concat(widget.charlist):sub(1, 6))
+        end)
+    end
+
+    for _, lang in ipairs({"ja", "ko_KR", "vi", "zh_CN", "zh"}) do
+        it("removes its private external-move hook when " .. lang .. " is unwrapped", function()
+            assert.is_nil(rawget(widget, "onExternalCursorMove"))
+            setLayout(lang)
+            assert.is_not_nil(rawget(widget, "onExternalCursorMove"))
+            unwrap()
+            unwrap = nil
+            assert.is_nil(rawget(widget, "onExternalCursorMove"))
+            widget:interpretAnsiSeq("\027D")
+            assert.same({}, transmitted)
+        end)
+    end
 
     it("renders CRLF output like the unwrapped terminal", function()
         local output = "first\r\nsecond\r\n第三行"

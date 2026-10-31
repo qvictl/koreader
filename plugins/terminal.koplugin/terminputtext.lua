@@ -168,13 +168,13 @@ function TermInputText:_helperVT52VT100(cmd, mode, param1, param2, param3)
     elseif cmd == "C" then -- cursor right
         param1 = param1 == 0 and 1 or param1
         for i = 1, param1 do
-            TermInputText.rightChar(self, true)
+            TermInputText.rightChar(self, true, true)
         end
         return true
     elseif cmd == "D" then -- cursor left
         param1 = param1 == 0 and 1 or param1
         for i = 1, param1 do
-            TermInputText.leftChar(self, true)
+            TermInputText.leftChar(self, true, true)
         end
         return true
     elseif cmd == "H" then -- cursor home
@@ -276,6 +276,7 @@ function TermInputText:interpretAnsiSeq(text)
                 TermInputText.addChars(self, text:sub(pos, printable_ends), true, true)
                 pos = printable_ends
             elseif next_byte == backspace then
+                -- BS also echoes input-method replacement edits; do not end composition.
                 TermInputText.leftChar(self, true)
             end
         elseif self.sequence_state == "esc" then
@@ -285,9 +286,9 @@ function TermInputText:interpretAnsiSeq(text)
             elseif next_byte == "B" then -- cursor down
                 self:moveCursorDown(true)
             elseif next_byte == "C" then -- cursor right
-                TermInputText.rightChar(self, true)
+                TermInputText.rightChar(self, true, true)
             elseif next_byte == "D" then -- cursor left
-                TermInputText.leftChar(self, true)
+                TermInputText.leftChar(self, true, true)
             elseif next_byte == "F" then -- enter graphics mode
                 logger.dbg("Terminal: enter graphics mode not supported")
             elseif next_byte == "G" then -- exit graphics mod
@@ -703,8 +704,10 @@ end
 --              overridden InputText methods                    --
 ------------------------------------------------------------------
 
-function TermInputText:leftChar(skip_callback)
-    if skip_callback and self.onExternalCursorMove then self:onExternalCursorMove() end
+-- Only explicit received cursor commands request notification. A received BS
+-- may be an input method's own replacement echo and must preserve composition.
+function TermInputText:leftChar(skip_callback, notify_input_method)
+    if notify_input_method and self.onExternalCursorMove then self:onExternalCursorMove() end
     if self.charpos == 1 then return end
     if self.strike_callback and not skip_callback then
         self.strike_callback(esc_seq.cursor_left)
@@ -718,8 +721,8 @@ function TermInputText:leftChar(skip_callback)
     self.charpos = self.charpos - 1
 end
 
-function TermInputText:rightChar(skip_callback)
-    if skip_callback and self.onExternalCursorMove then self:onExternalCursorMove() end
+function TermInputText:rightChar(skip_callback, notify_input_method)
+    if notify_input_method and self.onExternalCursorMove then self:onExternalCursorMove() end
     if self.strike_callback and not skip_callback then
         self.strike_callback(esc_seq.cursor_right)
         return
