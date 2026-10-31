@@ -86,3 +86,26 @@ picker but searched for an Apply button; that existing picker labels it Set.
 These failed fixture attempts are excluded from the passing evidence. An initial
 lint command lacked the separate luacheck source path; the corrected configuration-
 aware command is the zero-warning result above.
+
+## Review correction
+
+The first normal CodeRabbit review identified a valid test-isolation issue:
+`after_each` restored `Input.disable_double_tap` before `ui:onClose`, while
+`UIManager:close` sets that field again. Commit
+`5dfda9202226616c5d12c88a60bc6f70fe939c91` moves the restoration after ReaderUI
+closes. Production code and scenario 62 are unchanged.
+
+A private same-suite sentinel wrapper sets the input field before all 15 cases
+and checks it after teardown. The corrected suite preserves nil, false and true
+in three separate runs (15/15 each). The previous test ordering passes its 15
+cases but fails the final false sentinel, observing true. An initial two-file
+probe was invalid because Busted isolates module/global state between files;
+only the same-suite wrapper results establish the cleanup behavior.
+
+After the one-line test change: **221/221** related unit cases, **153/153** checks
+in scenarios 57 and 62, fresh **4/4** changed-line coverage, and zero-warning
+lint/whitespace checks pass. The earlier 309-check and repeated integration
+results still refer to the source-identical production/scenario snapshot.
+Initial exact-head CI `41207646473` passed **172/172 front and 39/39 base suites**;
+its policy run `41207646390` passed. Fresh CI and normal review remain required
+for the test-corrected head; no thread is manually resolved or gate bypassed.

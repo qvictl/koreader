@@ -77,12 +77,12 @@ describe("ReaderZooming partial setting updates", function()
 
     after_each(function()
         G_reader_settings:saveSetting("kopt_zoom_factor", saved_default)
-        require("device").input.disable_double_tap = saved_disable_double_tap
         if ui then
             ui:closeDocument()
             ui:onClose()
             ui = nil
         end
+        require("device").input.disable_double_tap = saved_disable_double_tap
     end)
 
     local function manual(factor)
