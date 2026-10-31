@@ -87,6 +87,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `27_kosync_default_http` | real localhost Spore HTTP: UI responsiveness, parent authentication, bounded workers, cancellation, failed fork and late progress responses across lifecycle changes |
 | `28_cache_pressure` | byte-based PDF cache pressure eviction, original budget preservation, and real background reflow context cleanup before and after reader closure |
 | `33_kosync_hostname_identity` | real localhost KOSync push, continued reading and manual pull: custom/default names and default-to-custom renaming do not rewind the same device; a different device ID still syncs |
+| `39_kosync_invalid_url` | persisted malformed sync URL across book opens, failed pull/push/auth and queue preservation, blank-address UI recovery and valid localhost retry |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
