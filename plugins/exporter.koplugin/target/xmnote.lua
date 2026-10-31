@@ -60,46 +60,53 @@ function XMNoteExporter:genTargetSubMenu()
 end
 
 function XMNoteExporter:getBookReadingDurationsByDay(title, md5)
-    if util.fileExists(db_location) then
-        local conn = SQ3.open(db_location)
-        local sql_query_book_id = [[SELECT id FROM book WHERE title = '%s' and md5 = '%s' LIMIT 1]]
-        local sql_query_durations = [[
+    if not util.fileExists(db_location) then return {} end
+    local conn
+    local ok, durations = pcall(function()
+        conn = SQ3.open(db_location, "ro")
+        -- Book metadata is data, not SQL (titles can contain quotes or semicolons).
+        local book_stmt = conn:prepare("SELECT id FROM book WHERE title = ? AND md5 = ? LIMIT 1")
+        local book = book_stmt:bind(title, md5):step()
+        book_stmt:close()
+        if not book then return {} end
+
+        local durations_stmt = conn:prepare([[
             SELECT date(start_time, 'unixepoch', 'localtime') AS date,
                    max(page)                                  AS last_page,
                    sum(duration)                              AS total_duration,
                    min(start_time)                            AS first_start_time
             FROM   page_stat
-            WHERE  id_book = %d
+            WHERE  id_book = ?
             GROUP  BY Date(start_time, 'unixepoch', 'localtime')
             ORDER  BY date DESC;
-        ]]
+        ]])
+        local result_durations = durations_stmt:bind(book[1]):resultset()
+        durations_stmt:close()
+        if not result_durations then return {} end
 
-        local result_book_id = conn:exec(string.format(sql_query_book_id, title, md5))
-        if not (result_book_id and result_book_id[1] and result_book_id[1][1]) then
-            return {}
-        end
-        local book_id = tonumber(result_book_id[1][1])
-
-        local result_durations = conn:exec(string.format(sql_query_durations, book_id))
-        conn:close()
-
-        if not result_durations then
-            return {}
-        end
-
-        local durations = {}
+        local result = {}
         for i = 1, #result_durations.date do
-            local entry = {
+            table.insert(result, {
                 date = tonumber(result_durations[4][i]) * 1000,
                 durationSeconds = tonumber(result_durations[3][i]),
                 position = tonumber(result_durations[2][i]),
-            }
-            table.insert(durations, entry)
+            })
         end
-        return durations
-    else
+        return result
+    end)
+    -- close() also finalizes a statement left open by a failed SQLite query.
+    if conn then
+        local close_ok, close_err = pcall(conn.close, conn)
+        if not close_ok then
+            logger.warn("XMNote: unable to close statistics database", tostring(close_err):match("^[^\n]*"))
+        end
+    end
+    if not ok then
+        local err = tostring(durations):match("^[^\n]*")
+        logger.warn("XMNote: unable to read optional statistics", err)
         return {}
     end
+    return durations
 end
 
 function XMNoteExporter:createRequestBody(booknotes)
