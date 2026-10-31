@@ -1,40 +1,40 @@
 {
-  "date": "2026-10-30",
+  "date": "2026-10-31",
   "mode": "combined",
   "overall": {
-    "covered": 52952,
-    "total": 99483,
-    "percent": 53.227,
+    "covered": 55163,
+    "total": 100045,
+    "percent": 55.138,
     "files": 492
   },
   "overall_unit": {
-    "covered": 48220,
-    "total": 98805,
-    "percent": 48.803,
+    "covered": 49638,
+    "total": 99225,
+    "percent": 50.026,
     "min": null
   },
   "diff_unit": {
-    "covered": 224,
-    "total": 235,
-    "percent": 95.319
+    "covered": 300,
+    "total": 300,
+    "percent": 100
   },
   "diff_combined": {
-    "covered": 224,
-    "total": 235,
-    "percent": 95.319
+    "covered": 300,
+    "total": 300,
+    "percent": 100
   },
   "unit_ratchet": {
-    "baseline": 48.507,
-    "label": "main@ab190e63 (previous actual full unit measurement)"
+    "baseline": 48.803,
+    "label": "main@ab784a8c (previous actual full unit measurement)"
   },
   "ratchet": {
-    "baseline": 53.119,
-    "label": "main@ab190e63 (previous actual combined measurement)"
+    "baseline": 53.227,
+    "label": "main@ab784a8c (previous actual combined measurement)"
   },
   "owned": {
-    "covered": 856,
-    "total": 877,
-    "percent": 97.605,
+    "covered": 910,
+    "total": 931,
+    "percent": 97.744,
     "min": 80,
     "ok": true,
     "modules": {
@@ -46,9 +46,9 @@
       },
       "frontend/apps/reader/modules/readerdictionary.lua": {
         "scope": "fork",
-        "covered": 447,
-        "total": 456,
-        "percent": 98.026
+        "covered": 501,
+        "total": 510,
+        "percent": 98.235
       },
       "frontend/ui/widget/dictquicklookup.lua": {
         "scope": "fork",
@@ -175,9 +175,9 @@
     }
   ],
   "ok": true,
-  "commit": "ab784a8c080255007497f8009d9d1890fd1cdea8",
+  "commit": "6444a3ce852f12f8faf2e59a686727c76d186905",
   "event": "release",
-  "diff_base": "ab190e63c8ba8cab2324443ca13be9d390c8f157",
-  "ratchet_base": "ab190e63c8ba8cab2324443ca13be9d390c8f157",
-  "updated": "2026-10-30T10:36:16Z"
+  "diff_base": "ab784a8c080255007497f8009d9d1890fd1cdea8",
+  "ratchet_base": "ab784a8c080255007497f8009d9d1890fd1cdea8",
+  "updated": "2026-10-31T10:09:42Z"
 }
