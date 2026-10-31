@@ -27,9 +27,10 @@ keyboard-wrapped instance method:
 - Received backspace and VT52/CSI left/right cursor operations call the original
   terminal methods with `skip_callback=true`.
 
-User keyboard methods are still wrapped. No keyboard implementation, shared
-method-wrapper helper or IME state machine is changed, and no temporary global
-callback suppression is used. The intentional VT52 identification reply remains
+User keyboard methods are still wrapped. The initial routing fix changed no
+keyboard implementation. The review-driven follow-up below adds a narrow Japanese
+external-cursor notification; no shared method-wrapper helper, complete IME state
+machine or temporary global callback suppression is introduced. The intentional VT52 identification reply remains
 an outgoing response. Other parser operations have no overlap with the inspected
 keyboard wrappers and are unchanged.
 
@@ -40,7 +41,7 @@ shell supervision and hardware behavior are not covered or claimed fixed.
 
 ## Tests
 
-`terminal_ime_output_spec.lua` has 24 cases covering literal UTF-8 output for six
+The initial `terminal_ime_output_spec.lua` has 24 cases covering literal UTF-8 output for six
 layouts, received backspace/VT52/CSI cursor movement, user input and cursor keys,
 bounded echo recursion, intentional identification, Japanese composing-key state,
 Chinese candidate preservation, CRLF control parity and layout reinstallation.
@@ -88,10 +89,11 @@ no production workaround or broadened ANSI fix was introduced for these.
 Native emulator assets are reused rather than rebuilt, with the existing official
 SDL3 dependency. These host results do not establish physical Kindle performance,
 actual shell interaction, or a fully rebuilt release. Independent review is
-source/log inspection rather than an independent runtime run. Exact-head CI and
+source/log inspection for this historical revision; the later hook revision also
+has an independent isolated runtime run, described below. Exact-head CI and
 formal review remain required before any merge.
 
-## Latest accepted main-84 combination
+## Initial accepted main-84 combination
 
 Accepted base is now `6692adeedb62653c0ace6d80b49686f61c585b60`. README rows 58 and 59
 are both preserved. The three terminal production/test Lua files are unchanged
@@ -119,3 +121,53 @@ changes neither the baseline terminal source nor the candidate's terminal files.
 The historical 267/249 totals are not added to or relabeled as the new 280/277
 combination. Native-asset, physical-device, shell and coverage limitations above
 remain unchanged. Exact-head CI and normal formal review are separate gates.
+
+
+## Review-driven Japanese tap-cycle correction
+
+The formal review found a real gap in the initial class-call solution: Japanese
+left/right wrappers also end the keitai multi-tap window. Bypassing that state
+notification lets a subsequent tap replace an earlier displayed kana by sending
+backspace plus a cycled character. This was not covered by the initial 24 cases.
+
+The Japanese layout now registers an optional `onExternalCursorMove` notification
+using the existing reversible method wrapper. Terminal left/right display-motion
+methods invoke it on their `skip_callback` path, including no-op boundary moves,
+matching the former Japanese navigation notification. It only clears the Japanese
+tap timestamp, not other input-method state. Existing callbacks are preserved and
+restored when the layout is unwrapped. Received text still bypasses input wrappers;
+Chinese candidates, ordinary user navigation and intentional terminal replies are
+unchanged. This does not add a general composition or ANSI rewrite.
+
+Six additional units cover received BS, VT52 left/right, CSI left/right and callback
+restoration. Scenario 59 adds real Japanese VirtualKeyboard taps before and after
+a received left movement. It uses the valid ten-second keitai setting and asserts
+that the second tap really falls inside that window; there is no mocked clock.
+The received display remains unchanged and captured input has no stale backspace.
+
+Latest code object `1d5b147affd021c51760fe7f8ab87e30de046bb9` has tree
+`ff94889b6fcdc1408ff606fe6ee43f4fa7a4f542`, identical to local tested code
+`1a9faf458340ca60b58d30a684692082d2922467`, on accepted main-84. The following
+report-only successor changes no executable code or tests.
+
+- **30/30** focused units; **286/286 across the same 18 selected suites**.
+- **289/289** checks across the same eleven emulator scenarios; applicable
+  budgets pass. Scenario 59 repeats **3 × 69/69** in fresh profiles.
+- Fresh changed-line unit coverage **9/9** across both production files;
+  configuration-aware lint **0**, original size and whitespace checks pass.
+- Exact previously reviewed head `45aaa735`: **24 pass / 6 failures**, with all
+  five stale-cycle cases sending the unwanted replacement; the real scenario
+  receives three transmitted segments instead of two after the second tap.
+  The candidate is restored and compared after these controls.
+- An independent agent separately ran **30/30 units and 69/69 integration checks**
+  in an isolated runtime pinned to these production hashes and found no actionable
+  issue. It reused the native emulator assets, did not run a shell/PTY backend,
+  and is not an independent full-CI or physical-device certification.
+
+An initial new unit fixture incorrectly passed nonempty text to `initTextBox`
+without populating `charlist`, causing identical geometry errors before and after
+this correction. It was replaced by the real terminal display-add method; those
+initial harness errors are excluded from all negative and positive evidence above.
+The historical 24/267/249 and 24/280/277 results remain separately attributed, not
+relabeled or combined into these final totals. Formal review and exact-head CI
+remain necessary gates.
