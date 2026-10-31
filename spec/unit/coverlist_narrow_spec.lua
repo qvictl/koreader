@@ -1,4 +1,6 @@
 describe("Cover list narrow cached rows", function()
+    -- Deliberate native pixel fixtures: DPI scaling would hide the narrow-width regression.
+    local NARROW_WIDTH, WIDE_WIDTH, ROW_HEIGHT = 228, 1000, 200
     local BD, BB, BookInfoManager, Geom, ImageWidget, ListMenuItem, FileManagerBookInfo
     local saved_path, saved_modules, saved
     local rows, buffers, owners, released, variant, settings
@@ -63,7 +65,7 @@ describe("Cover list narrow cached rows", function()
 
     local function row(width, cover, entry, mandatory)
         local item = ListMenuItem:new{
-            width = width, height = 200, dimen = Geom:new{ w = width, h = 200 },
+            width = width, height = ROW_HEIGHT, dimen = Geom:new{ w = width, h = ROW_HEIGHT },
             entry = entry or { file = "synthetic.epub", mandatory = "35 kB" },
             text = "Synthetic filename.epub", mandatory = mandatory or "35 kB", do_cover_image = cover,
             do_hint_opened = true,
@@ -101,7 +103,7 @@ describe("Cover list narrow cached rows", function()
     for _, kind in ipairs({ "real", "fake", "ignored" }) do
         it("shows full-width metadata instead of overflowing a narrow " .. kind .. " cover row", function()
             variant = kind
-            local item = row(228, true)
+            local item = row(NARROW_WIDTH, true)
             assert.is_true(item.do_cover_image)
             assert.is_false(item._show_cover_image)
             assert.is_nil(item._has_cover_image)
@@ -116,16 +118,16 @@ describe("Cover list narrow cached rows", function()
     end
 
     it("releases each image owner once and restores covers after widening", function()
-        local item = row(1000, true)
+        local item = row(WIDE_WIDTH, true)
         assert.is_true(item._show_cover_image)
         assert.is_true(item._has_cover_image)
         paint(item)
-        item.width = 228
+        item.width = NARROW_WIDTH
         item:update()
         assert.is_false(item._show_cover_image)
         assert.same({ 1, 1 }, released)
         paint(item)
-        item.width = 1000
+        item.width = WIDE_WIDTH
         item:update()
         assert.is_true(item._show_cover_image)
         assert.is_true(item._has_cover_image)
@@ -137,7 +139,7 @@ describe("Cover list narrow cached rows", function()
     end)
 
     it("retains the displayed cover flags when a cache miss keeps the old widget", function()
-        local item = row(1000, true)
+        local item = row(WIDE_WIDTH, true)
         local widget = item._underline_container[1]
         variant = "uncached"
         item:update()
@@ -150,13 +152,13 @@ describe("Cover list narrow cached rows", function()
 
     it("paints fallback descriptions and focus in mirrored layout", function()
         BD.mirroredUILayout = function() return true end
-        local item = row(228, true)
+        local item = row(NARROW_WIDTH, true)
         assert.is_false(item._show_cover_image)
         paint(item)
     end)
 
     it("keeps an earlier row's image hint when a later row falls back", function()
-        local item = row(228, true)
+        local item = row(NARROW_WIDTH, true)
         item.menu._has_cover_images = true
         item:update()
         assert.is_true(item.menu._has_cover_images)
@@ -165,7 +167,7 @@ describe("Cover list narrow cached rows", function()
     end)
 
     it("retains ordinary geometry and right-side info when space permits", function()
-        local item = row(1000, true)
+        local item = row(WIDE_WIDTH, true)
         assert.is_true(item._show_cover_image)
         assert.is_true(item._has_cover_image)
         assert.is_true(item._underline_container.line_x_offset >= 198)
@@ -174,7 +176,7 @@ describe("Cover list narrow cached rows", function()
     end)
 
     it("falls back without a cover when oversized optional metadata consumes the row", function()
-        local item = row(228, false, nil, string.rep("9", 100) .. " kB")
+        local item = row(NARROW_WIDTH, false, nil, string.rep("9", 100) .. " kB")
         assert.is_false(item.do_cover_image)
         assert.is_false(item._show_cover_image)
         assert.equals(0, #buffers)
@@ -193,7 +195,7 @@ describe("Cover list narrow cached rows", function()
 
     it("keeps the target-width uncached and directory paths usable", function()
         variant = "uncached"
-        paint(row(228, true))
-        paint(row(228, false, { path = "synthetic-directory", mandatory = "12" }))
+        paint(row(NARROW_WIDTH, true))
+        paint(row(NARROW_WIDTH, false, { path = "synthetic-directory", mandatory = "12" }))
     end)
 end)
