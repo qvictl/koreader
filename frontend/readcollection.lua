@@ -96,7 +96,7 @@ function ReadCollection:write(updated_collections)
         end
     end
     logger.dbg("ReadCollection: writing to collection file")
-    collections:flush()
+    return collections:flush()
 end
 
 function ReadCollection:updateLastBookTime(file)
