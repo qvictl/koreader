@@ -183,6 +183,9 @@ function ReaderStatus:onOpenNextOrPreviousFileInFolder(prev)
         -- Delay until the next tick, as this will destroy the Document instance,
         -- but we may not be the final Event caught by said Document...
         UIManager:nextTick(function()
+            -- Another queued navigation may already have closed this reader.
+            -- Never treat its now-empty document as a FileManager instance.
+            if self.ui.document ~= self.document then return end
             filemanagerutil.openFile(self.ui, file)
         end)
     else

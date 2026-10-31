@@ -500,9 +500,14 @@ function filemanagerutil.showSearchResultsOpenFileDialog(caller_ui, text, file, 
 end
 
 function filemanagerutil.openFile(ui, file, caller_pre_callback, no_dialog, after_open_callback)
+    local document = ui.document
     local openFile = function()
+        -- A confirmation can outlive the reader which requested it. FileManager
+        -- callers have no originating document and retain their normal path.
+        if document and ui.document ~= document then return end
         if caller_pre_callback then
             caller_pre_callback()
+            if document and ui.document ~= document then return end
         end
         if ui.document then -- Reader
             if ui.document.file ~= file then
