@@ -55,14 +55,18 @@ the new lookup. The pre-review candidate fails this retained-entry check.
 ## Recovery-write performance limitation
 
 The first append when the current file is missing persists the complete current
-in-memory state synchronously. Later appends are incremental again. This branch
+in-memory state synchronously. After that snapshot is successfully written and
+the current path is a regular file, later appends are incremental again. A failed
+write that leaves the path missing/non-file causes later appends to retry the
+complete snapshot, potentially repeating synchronous I/O and UI pauses. This branch
 does **not** rotate backups: `flush` rotates only when the current file is a
 regular file. It is nevertheless not a bounded/nonblocking I/O implementation.
 
 Three fresh-process Linux x86-64 samples per synthetic history size measured
-the first recovered append with `socket.gettime()` and `/proc/self/status`:
+the first recovered append with `socket.gettime()` and `/proc/self/status`.
+Current RSS uses `VmRSS`; the high-water column uses `VmHWM`, not `VmRSS`:
 
-| Entries | Backup / new snapshot bytes | First append wall time | RSS high-water after append |
+| Entries | Backup / new snapshot bytes | First append wall time | `VmHWM` after append |
 | --- | --- | --- | --- |
 | 1,000 | 105,923 / 189,021 | 2.1–4.2 ms | 3,476–3,520 KiB |
 | 10,000 | 1,068,923 / 1,908,023 | 24.8–37.7 ms | 14,760–15,220 KiB |
