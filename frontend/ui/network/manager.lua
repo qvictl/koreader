@@ -156,8 +156,9 @@ function NetworkMgr:init()
         -- Attempt to restore wifi in the background if necessary
         if Device:hasWifiRestore() and self.wifi_was_on and G_reader_settings:isTrue("auto_restore_wifi") then
             logger.dbg("NetworkMgr: init will restore Wi-Fi in the background")
-            self:restoreWifiAsync()
-            self:scheduleConnectivityCheck()
+            if self:restoreWifiAsync() ~= false then
+                self:scheduleConnectivityCheck()
+            end
         end
     end
 
@@ -402,9 +403,8 @@ function NetworkMgr:enableWifi(wifi_cb, interactive)
 end
 
 function NetworkMgr:disableWifi(cb, interactive)
-    -- DHCP lease is released when Wi-Fi goes down, so the tracked SSID is no longer valid.
-    self.lease_ssid = nil
     local complete_callback = function()
+        self.lease_ssid = nil -- also precedes events from synchronous backends
         UIManager:broadcastEvent(Event:new("NetworkDisconnected"))
         if cb then
             cb()
@@ -422,7 +422,18 @@ function NetworkMgr:disableWifi(cb, interactive)
     -- Can't be connecting since we're killing Wi-Fi ;)
     self.pending_connection = false
 
-    self:turnOffWifi(complete_callback)
+    if self:turnOffWifi(complete_callback) == false then
+        logger.warn("NetworkMgr:disableWifi: Wi-Fi shutdown request failed!")
+        if interactive then
+            UIManager:show(InfoMessage:new{
+                text = _("Unable to communicate with the Wi-Fi backend"),
+            })
+        end
+        return false
+    end
+    -- DHCP lease is released after an accepted shutdown. Do not claim it was
+    -- released (or forget the user's restore preference) after a failed request.
+    self.lease_ssid = nil
 
     if interactive then
         self.wifi_was_on = false

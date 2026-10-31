@@ -42,9 +42,10 @@ local function disableWifi()
     UIManager:show(toggle_im)
     UIManager:forceRePaint()
 
-    NetworkMgr:disableWifi(nil, true) -- flag it as interactive
+    local status = NetworkMgr:disableWifi(nil, true) -- flag it as interactive
 
     UIManager:close(toggle_im)
+    if status == false then return end -- manager reported the failure; Wi-Fi may still be on
     UIManager:show(InfoMessage:new{
         text = _("Wi-Fi off."),
         timeout = 1,
@@ -145,8 +146,9 @@ function NetworkListener:_scheduleActivityCheck()
         -- If there was no meaningful activity (+/- a couple packets), kill the Wi-Fi
         if delta <= noise_threshold then
             logger.dbg("NetworkListener: No meaningful network activity (delta:", delta, "<= threshold:", noise_threshold, "[ then:", NetworkListener._last_tx_packets, "vs. now:", tx_packets, "]) -> disabling Wi-Fi")
-            keep_checking = false
-            NetworkMgr:disableWifi()
+            -- A transient backend failure is not a disconnect. Keep the normal
+            -- backoff/retry schedule instead of permanently stopping this check.
+            keep_checking = NetworkMgr:disableWifi() == false
             -- NOTE: We leave wifi_was_on as-is on purpose, we wouldn't want to break auto_restore_wifi workflows on the next start...
         else
             logger.dbg("NetworkListener: Significant network activity (delta:", delta, "> threshold:", noise_threshold, "[ then:", NetworkListener._last_tx_packets, "vs. now:", tx_packets, "]) -> keeping Wi-Fi enabled")
@@ -223,8 +225,9 @@ if Device:hasWifiRestore() then
     function NetworkListener:onResume()
         if NetworkMgr.wifi_was_on and G_reader_settings:isTrue("auto_restore_wifi") then
             logger.dbg("NetworkListener: onResume will restore Wi-Fi in the background")
-            NetworkMgr:restoreWifiAsync()
-            NetworkMgr:scheduleConnectivityCheck()
+            if NetworkMgr:restoreWifiAsync() ~= false then
+                NetworkMgr:scheduleConnectivityCheck()
+            end
         end
     end
 end

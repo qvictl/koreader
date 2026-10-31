@@ -95,6 +95,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `41_calibre_metadata_isolation` | painted Calibre search during synthetic wireless session, received book and metadata persistence, limited deletion, reconnect and EPUB reading |
 | `42_sidecar_migration_failure` | real FileManager renames with blocked main/custom destinations retain source annotations and custom files; explicit retry, shared-sidecar extension rename, and ReaderUI reopen/page turns |
 | `44_sidecar_copy_io_failure` | Linux child-only file-size limits cause real custom-cover write and buffered custom-metadata close failures; source bytes survive, partial files are removed, unrestricted retry succeeds, and ReaderUI restores the note/title/page |
+| `47_kindle_wifi_failure` | real Wi-Fi TouchMenu, error dismissal, failed/successful retry, delayed disconnect, failed enable cleanup and resume recovery; only Kindle LIPC/hardware boundaries are synthetic and host shell commands are forbidden |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
