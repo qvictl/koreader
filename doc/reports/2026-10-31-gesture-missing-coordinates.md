@@ -56,25 +56,29 @@ tracking-ID-later frames remains covered.
 - Independent local review: no blocking finding; 76 tests (including five
   extra ordering cases subsequently incorporated), and three more scenario-40
   runs at 37/37.
-- Rebased onto main `1d97693`, retaining existing README scenarios 38/39.
-  All 146 related tests pass again; scenarios 02/03/16/40 pass 73/73 checks
-  and all five responsiveness budgets on the combined tree.
+- Merged actual current main `44511631`, retaining README scenarios 38/39/42/44
+  and the accepted sidecar/base helper and collection/XMNote fixes. All 146 related
+  tests pass with that production combination. Scenarios 02/03/16/40 pass three
+  fresh runs each, **219/219 checks and 15/15 responsiveness budgets**. On the
+  final main tree, scenarios 02/03/16/40/45 pass again: **99/99 checks**, all five
+  responsiveness budgets, including the newly merged XMNote compatibility case.
 - Lua lint and whitespace checks pass.
 
-All 151 front unit suites were also attempted in separate Busted processes:
-148 suites pass, with 2,141 successful test cases reported by Busted.
-This broader pass preceded the five additional ordering cases; all those cases
-are included in the final 146-test related pass above. Three suites are blocked
-by the unchanged host environment: GetText setup needs unavailable `msgfmt`, one
-NetworkMgr assertion requires prohibited `getifaddrs`, and four live-Internet
-translator cases fail DNS resolution. These restrictions were not bypassed.
-There is no clean full-suite or required remote CI/build/review pass claim.
+All **158 front unit suites** were also attempted in separate Busted processes
+against the final combined source: **155 suites pass, with 2,235 successful test
+cases** reported by Busted. Three suites remain blocked by the unchanged host
+environment: GetText setup needs unavailable `msgfmt`, one NetworkMgr assertion
+requires prohibited `getifaddrs`, and four live-Internet translator cases fail DNS
+resolution. These restrictions were not bypassed. This is not a clean full-suite
+claim; exact-head remote CI and formal review remain required.
 
 ## Runtime and scope
 
 All 500 core production Lua overlays were verified byte-for-byte against this
-candidate. Native libraries are reused from the existing fork emulator artifact
-with base `cc2be6a552998ca3ee379c1eec56db29df53beb9`; the unchanged gitlink matches.
+candidate; all 92 base FFI Lua files also match the actually merged base
+`d1b27196eac53e8c810c63762ed6bfb40f226382`, inherited from main. Native libraries
+are reused from the existing fork emulator artifact; that base update changes
+only Lua, not native code. The separate held base PR 36 is not included.
 SDL3 is the existing isolated local 3.4.18 build. This is current-source Lua
 validation with reused native binaries, not a fresh Kindle/native build or
 physical touchscreen test. It does not diagnose the driver or the separate
