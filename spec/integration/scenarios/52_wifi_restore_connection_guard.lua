@@ -15,7 +15,7 @@ return {
         local fm = T:fileManager()
         local saved = { manager = {}, caps = {}, execute = os.execute,
             wifi = G_reader_settings:readSetting("wifi_was_on") }
-        local caps = { "hasWifiToggle", "hasWifiRestore", "hasSeamlessWifiToggle", "isKindle" }
+        local caps = { "hasWifiToggle", "hasWifiRestore", "hasSeamlessWifiToggle", "hasWifiManager", "isKindle" }
         for key, value in pairs(NetworkMgr) do saved.manager[key] = value end
         for _, key in ipairs(caps) do saved.caps[key] = rawget(Device, key) end
         local backend = { on = false, connected = false, restores = 0, enables = 0, disables = 0 }
@@ -43,6 +43,7 @@ return {
                 Device.hasWifiToggle = function() return true end
                 Device.hasWifiRestore = function() return true end
                 Device.hasSeamlessWifiToggle = function() return true end
+                Device.hasWifiManager = function() return false end -- Kindle delegates suspend to its host
                 Device.isKindle = function() return true end -- no host restore-script kill path
                 NetworkMgr.isWifiOn = function() return backend.on end
                 NetworkMgr.isConnected = function() return backend.connected end
@@ -97,12 +98,32 @@ return {
             T:tapWidget(busy, "dismiss the busy notice")
             T:check(T:topWidget() == menu, "dismissing busy returns to the usable network menu")
             T:eq(connected, 0, "accepted restore is not mistaken for completed connectivity")
+            T:run(function()
+                NetworkMgr.lease_ssid = "before-suspend"
+                listener:onSuspend() -- radio is still off when the restore is interrupted
+            end)
+            T:check(not NetworkMgr.pending_restore and not NetworkMgr.pending_connection,
+                "suspend retires the interrupted restore ownership")
+            T:eq(#polls(), 0, "suspend removes stale connectivity polling")
+            T:eq(backend.disables, 0, "host-managed suspend does not add a radio shutdown request")
+            T:eq(disconnected, 0, "host-managed suspend creates no delayed disconnect callback")
+            T:check(NetworkMgr.wifi_was_on and G_reader_settings:isTrue("wifi_was_on"),
+                "suspend preserves automatic restore intent")
+            T:eq(NetworkMgr.lease_ssid, "before-suspend", "suspend does not claim an unconfirmed lease release")
+            T:run(function() listener:onResume() end)
+            T:eq(backend.restores, 2, "resume starts a fresh request instead of being blocked by the old guard")
+            T:check(NetworkMgr.pending_restore and NetworkMgr.pending_connection,
+                "the fresh restore owns both flags")
+            T:eq(#polls(), 1, "resume leaves one fresh connectivity poll")
             T:run(function() backend.on, backend.connected = true, true end)
             T:waitUntil(function() return connected == 1 end, 5, "real scheduled poll completes restore")
-            T:check(not NetworkMgr.pending_connection and not NetworkMgr.pending_connectivity_check,
-                "successful polling releases both pending flags")
+            T:check(not NetworkMgr.pending_restore and not NetworkMgr.pending_connection and not NetworkMgr.pending_connectivity_check,
+                "successful polling releases all pending flags")
             T:eq(NetworkMgr.lease_ssid, "synthetic-restore", "successful restore refreshes the lease identity")
             T:eq(#polls(), 0, "successful restore leaves no polling task")
+            T:wait(2.1)
+            T:eq(disconnected, 0, "no stale shutdown completion arrives after the new connection")
+            T:eq(NetworkMgr.lease_ssid, "synthetic-restore", "the new connection lease survives the old delay window")
             tapWifi()
             T:eq(backend.disables, 1, "normal interactive shutdown still reaches the backend")
             T:eq(disconnected, 1, "normal shutdown sends its completion event")
@@ -121,11 +142,11 @@ return {
             T:eq(NetworkMgr.lease_ssid, "previous-lease", "rejected restore does not silently discard lease state")
             T:eq(#polls(), 0, "rejected restore schedules no poll")
             T:run(function() backend.result = true; listener:onResume() end)
-            T:eq(backend.restores, 3, "a later resume can retry after the explicit failure")
+            T:eq(backend.restores, 4, "a later resume can retry after the explicit failure")
             T:check(NetworkMgr.pending_connection, "accepted retry owns the guard again")
             T:run(function() backend.on, backend.connected = true, true end)
             T:waitUntil(function() return connected == 2 end, 5, "retry completes through the real poll")
-            T:check(not NetworkMgr.pending_connection and not NetworkMgr.pending_connectivity_check,
+            T:check(not NetworkMgr.pending_restore and not NetworkMgr.pending_connection and not NetworkMgr.pending_connectivity_check,
                 "retry completion leaves no stuck flags")
             T:run(function() UIManager:close(menu) end)
             T:check(T:topWidget() == observer, "the real network menu closes normally after retry")

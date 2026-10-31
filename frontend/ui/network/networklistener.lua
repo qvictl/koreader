@@ -211,8 +211,16 @@ function NetworkListener:onSuspend()
 
     -- If we haven't already (e.g., via Generic's onPowerEvent), kill Wi-Fi.
     -- Do so only on devices where we have explicit management of Wi-Fi: assume the host system does things properly elsewhere.
-    if Device:hasWifiManager() and NetworkMgr:isWifiOn() then
+    if Device:hasWifiManager() and (NetworkMgr:isWifiOn() or NetworkMgr.pending_restore) then
+        -- A restore script may still be starting even before the radio reports on.
         NetworkMgr:disableWifi()
+    elseif NetworkMgr.pending_restore then
+        -- Host-managed radios (Kindle) are suspended by the system. Retire only
+        -- our restore poll/guard; do not schedule a delayed shutdown callback that
+        -- could report a stale disconnect after the next resume.
+        NetworkMgr:unscheduleConnectivityCheck()
+        NetworkMgr.pending_connection = false
+        NetworkMgr.pending_restore = false
     end
 
     -- Wi-Fi will be down, unschedule unconditionally

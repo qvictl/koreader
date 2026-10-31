@@ -5,7 +5,7 @@ describe("Asynchronous Wi-Fi restore concurrency", function()
     local saved, backend, tasks, events, saved_settings
     local caps = { "initNetworkManager", "hasWifiToggle", "hasWifiRestore", "hasWifiManager",
         "hasSeamlessWifiToggle", "isKindle", "isAndroid", "isEmulator" }
-    local ui_methods = { "scheduleIn", "nextTick", "unschedule", "broadcastEvent", "show", "close" }
+    local ui_methods = { "scheduleIn", "nextTick", "unschedule", "broadcastEvent", "show", "close", "setDirty" }
     local settings_keys = { "wifi_was_on", "auto_restore_wifi", "auto_disable_wifi" }
 
     setup(function()
@@ -23,14 +23,19 @@ describe("Asynchronous Wi-Fi restore concurrency", function()
             saved_settings[key] = G_reader_settings:readSetting(key)
             G_reader_settings:delSetting(key)
         end
-        backend = { restores = 0, enables = 0, disables = 0, on = false, connected = false }
+        backend = { restores = 0, enables = 0, disables = 0, stops = 0, on = false, connected = false }
         tasks, events = {}, {}
-        os.execute = function() error("unexpected host command in synthetic restore test") end
+        os.execute = function(command)
+            assert.is_true(backend.managed)
+            assert.equals("pkill -TERM restore-wifi-async.sh 2>/dev/null", command)
+            backend.stops = backend.stops + 1 -- observe, never execute a host command
+            return 0
+        end
         Device.hasWifiToggle = function() return true end
         Device.hasWifiRestore = function() return true end
-        Device.hasWifiManager = function() return false end
+        Device.hasWifiManager = function() return backend.managed or false end
         Device.hasSeamlessWifiToggle = function() return true end
-        Device.isKindle = function() return true end -- abort does not invoke pkill
+        Device.isKindle = function() return not backend.managed end -- managed fixtures observe pkill only
         Device.isAndroid = function() return false end
         Device.isEmulator = function() return false end
         Device.initNetworkManager = function(_, mgr)
@@ -50,8 +55,10 @@ describe("Asynchronous Wi-Fi restore concurrency", function()
             end
             mgr.turnOffWifi = function(_, callback)
                 backend.disables = backend.disables + 1
+                if backend.off_result == false then return false end
                 backend.on, backend.connected = false, false
                 if callback then callback() end
+                return backend.off_result
             end
         end
         UIManager.scheduleIn = function(_, delay, fn, ...)
@@ -62,7 +69,7 @@ describe("Asynchronous Wi-Fi restore concurrency", function()
             for i = #tasks, 1, -1 do if tasks[i].fn == fn then table.remove(tasks, i) end end
         end
         UIManager.broadcastEvent = function(_, event) events[#events + 1] = event.handler end
-        UIManager.show, UIManager.close = function() end, function() end
+        UIManager.show, UIManager.close, UIManager.setDirty = function() end, function() end, function() end
         package.loaded["ui/network/manager"], package.loaded["ui/network/networklistener"] = nil, nil
         manager = require("ui/network/manager")
         listener = require("ui/network/networklistener")
@@ -125,6 +132,7 @@ describe("Asynchronous Wi-Fi restore concurrency", function()
         manager.lease_ssid = "Previous"
         listener:onResume()
         assert.is_false(manager.pending_connection)
+        assert.is_falsy(manager.pending_restore)
         assert.equals(0, #tasks)
         assert.is_true(manager.wifi_was_on)
         assert.is_true(G_reader_settings:isTrue("wifi_was_on"))
@@ -154,6 +162,7 @@ describe("Asynchronous Wi-Fi restore concurrency", function()
         backend.restore_error = "synthetic restore failure"
         assert.is_false(manager:requestToRestoreWifi())
         assert.is_false(manager.pending_connection)
+        assert.is_falsy(manager.pending_restore)
         assert.equals(0, #tasks)
         assert.is_true(manager.wifi_was_on)
         assert.is_true(G_reader_settings:isTrue("wifi_was_on"))
@@ -185,6 +194,7 @@ describe("Asynchronous Wi-Fi restore concurrency", function()
         backend.on, backend.connected = true, true
         runTask()
         assert.is_false(manager.pending_connection)
+        assert.is_falsy(manager.pending_restore)
         assert.is_false(manager.pending_connectivity_check)
         assert.equals(0, #tasks)
         assert.equals("Synthetic", manager.lease_ssid)
@@ -199,6 +209,7 @@ describe("Asynchronous Wi-Fi restore concurrency", function()
         assert.is_true(manager.pending_connection)
         for _ = 1, 180 do runTask() end
         assert.is_false(manager.pending_connection)
+        assert.is_falsy(manager.pending_restore)
         assert.is_false(manager.pending_connectivity_check)
         assert.equals(0, #tasks)
         assert.equals(1, backend.restores)
@@ -212,9 +223,101 @@ describe("Asynchronous Wi-Fi restore concurrency", function()
         assert.is_true(manager.pending_connection)
         manager:disableWifi()
         assert.is_false(manager.pending_connection)
+        assert.is_falsy(manager.pending_restore)
         assert.is_false(manager.pending_connectivity_check)
         assert.equals(0, #tasks)
         assert.equals(1, backend.disables)
         assert.is_true(manager:requestToTurnOnWifi(nil, true))
     end)
+
+    for _, result in ipairs({ "nil", "true", "false" }) do
+        it("cancels a managed restore before the radio is on across suspend (shutdown " .. result .. ")", function()
+            backend.managed = true
+            if result ~= "nil" then backend.off_result = result == "true" end
+            allowRestore()
+            manager.lease_ssid = "Previous"
+            listener:onResume()
+            assert.is_false(backend.on)
+            listener:onSuspend()
+            assert.is_false(manager.pending_connection)
+            assert.is_false(manager.pending_connectivity_check)
+            assert.is_falsy(manager.pending_restore)
+            assert.equals(0, #tasks)
+            assert.equals(1, backend.stops)
+            assert.equals(1, backend.disables)
+            assert.is_true(manager.wifi_was_on)
+            assert.is_true(G_reader_settings:isTrue("wifi_was_on"))
+            if result == "false" then
+                assert.equals("Previous", manager.lease_ssid)
+                assert.same({ "onNetworkDisconnecting" }, events)
+            end
+            listener:onResume()
+            assert.equals(2, backend.restores)
+            assert.is_true(manager.pending_restore)
+            assert.equals(1, #tasks)
+        end)
+    end
+
+    it("cancels only restore polling on host-managed suspend without toggling its radio", function()
+        allowRestore()
+        manager.lease_ssid = "Previous"
+        listener:onResume()
+        listener:onSuspend()
+        assert.is_false(manager.pending_connection)
+        assert.is_falsy(manager.pending_restore)
+        assert.is_false(manager.pending_connectivity_check)
+        assert.equals(0, #tasks)
+        assert.equals(0, backend.stops)
+        assert.equals(0, backend.disables)
+        assert.same({}, events)
+        assert.equals("Previous", manager.lease_ssid)
+        assert.is_true(manager.wifi_was_on)
+        assert.is_true(G_reader_settings:isTrue("wifi_was_on"))
+        listener:onSuspend() -- repeated notifications remain harmless
+        listener:onResume()
+        assert.equals(2, backend.restores)
+        assert.is_true(manager.pending_restore)
+        assert.equals(1, #tasks)
+    end)
+
+    it("does not cancel an unrelated host-managed interactive owner on suspend", function()
+        allowRestore()
+        assert.is_true(manager:requestToTurnOnWifi(nil, true))
+        manager:scheduleConnectivityCheck(function() end)
+        local task = tasks[1]
+        listener:onSuspend()
+        assert.is_true(manager.pending_connection)
+        assert.is_falsy(manager.pending_restore)
+        assert.equals(1, #tasks)
+        assert.is_true(tasks[1] == task)
+        assert.equals(0, backend.disables)
+        listener:onResume()
+        assert.equals(0, backend.restores)
+        assert.is_true(tasks[1] == task)
+    end)
+
+    it("does not request shutdown for an idle managed radio that is already off", function()
+        backend.managed = true
+        listener:onSuspend()
+        assert.equals(0, backend.disables)
+        assert.equals(0, backend.stops)
+        assert.equals(0, #tasks)
+    end)
+
+
+    it("clears restore ownership when a scan menu closes after polling was taken over", function()
+        allowRestore()
+        listener:onResume()
+        local NetworkSetting = dofile("frontend/ui/widget/networksetting.lua")
+        local widget = NetworkSetting:extend{ popup = { dimen = {} } }
+        widget:onCloseWidget()
+        assert.is_true(manager.pending_connection)
+        assert.is_true(manager.pending_restore)
+        manager:unscheduleConnectivityCheck()
+        widget:onCloseWidget()
+        assert.is_false(manager.pending_connection)
+        assert.is_falsy(manager.pending_restore)
+        assert.equals(0, #tasks)
+    end)
+
 end)

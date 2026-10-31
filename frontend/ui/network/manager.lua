@@ -29,6 +29,7 @@ local NetworkMgr = {
 
     pending_connectivity_check = false,
     pending_connection = false,
+    pending_restore = false, -- the pending connection belongs to background restoration
     _before_action_tripped = nil,
 
     -- SSID for which the current DHCP lease was obtained.
@@ -60,6 +61,7 @@ function NetworkMgr:_abortWifiConnection()
     end
     -- We're obviously done with this connection attempt
     self.pending_connection = false
+    self.pending_restore = false
 end
 
 -- Attempt to deal with platforms that don't guarantee isConnected when turnOnWifi returns,
@@ -82,9 +84,11 @@ end
 function NetworkMgr:requestToRestoreWifi()
     if self.pending_connection then return EBUSY end
     self.pending_connection = true
+    self.pending_restore = true
     local ok, status = pcall(self.restoreWifiAsync, self)
     if not ok or status == false then
         self.pending_connection = false
+        self.pending_restore = false
         if not ok then logger.warn("NetworkMgr: async Wi-Fi restore failed:", status) end
         return false
     end
@@ -142,6 +146,7 @@ function NetworkMgr:connectivityCheck(iter, callback, widget)
         self.pending_connectivity_check = false
         -- We're done, so we can stop blocking concurrent connection attempts
         self.pending_connection = false
+        self.pending_restore = false
     else
         UIManager:scheduleIn(0.25, self.connectivityCheck, self, iter + 1, callback, widget)
     end
@@ -434,6 +439,7 @@ function NetworkMgr:disableWifi(cb, interactive)
     end
     -- Can't be connecting since we're killing Wi-Fi ;)
     self.pending_connection = false
+    self.pending_restore = false
 
     if self:turnOffWifi(complete_callback) == false then
         logger.warn("NetworkMgr:disableWifi: Wi-Fi shutdown request failed!")
@@ -928,6 +934,7 @@ function NetworkMgr:goOnlineToRun(callback)
     end
     -- We're done, reset the pending connection flag, as we don't have any scheduled connectivity check to do it for us.
     self.pending_connection = false
+    self.pending_restore = false
 
     return success
 end
