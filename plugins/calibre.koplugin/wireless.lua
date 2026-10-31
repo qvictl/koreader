@@ -5,7 +5,7 @@
 
 local BD = require("ui/bidi")
 local CalibreExtensions = require("extensions")
-local CalibreMetadata = require("metadata")
+local CalibreMetadata = require("metadata"):new()
 local CalibreSearch = require("search")
 local ConfirmBox = require("ui/widget/confirmbox")
 local Device = require("device")
