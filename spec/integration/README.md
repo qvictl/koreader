@@ -87,6 +87,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `27_kosync_default_http` | real localhost Spore HTTP: UI responsiveness, parent authentication, bounded workers, cancellation, failed fork and late progress responses across lifecycle changes |
 | `28_cache_pressure` | byte-based PDF cache pressure eviction, original budget preservation, and real background reflow context cleanup before and after reader closure |
 | `32_kindle_t1_retry` | ignored Kindle suspend: positive t1 retry delay, real UI heartbeats and page turns, recovery after input and timer cancellation on suspend; synthetic powerd |
+| `32_news_download_folder_safety` | real folder-selection and deletion confirmations: cancel preserves inert fixtures/settings, accept retains feed configuration, unrelated files/subfolders are deleted only after explicit consent, unreadable selection fails closed |
 | `33_kosync_hostname_identity` | real localhost KOSync push, continued reading and manual pull: custom/default names and default-to-custom renaming do not rewind the same device; a different device ID still syncs |
 | `34_footer_delayed_refresh` | real reading-order events followed by immediate document close; old footer tasks canceled, new reader feedback and page turns retained across repeated reopen cycles |
 

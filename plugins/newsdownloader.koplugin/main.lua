@@ -1,4 +1,5 @@
 local BD = require("ui/bidi")
+local ConfirmBox = require("ui/widget/confirmbox")
 local DataStorage = require("datastorage")
 local DocumentRegistry = require("document/documentregistry")
 local DownloadBackend = require("epubdownloadbackend")
@@ -225,13 +226,14 @@ function NewsDownloader:getSubMenuItems()
                     end,
                 },
                 {
-                    text = _("Delete all downloaded items"),
+                    text = _("Delete all items in download folder"),
                     keep_menu_open = true,
                     callback = function()
                         local Trapper = require("ui/trapper")
                         Trapper:wrap(function()
                                 local should_delete = Trapper:confirm(
-                                    _("Are you sure you want to delete all downloaded items?"),
+                                    T(_("Delete ALL files and subfolders in the download folder?\n\n%1\n\nThis includes files not downloaded by this plugin. Only %2 will be kept."),
+                                        BD.dirpath(self.download_dir), self.feed_config_file),
                                     _("Cancel"),
                                     _("Delete")
                                 )
@@ -908,8 +910,15 @@ function NewsDownloader:createFromDescription(feed, title, content, feed_output_
 end
 
 function NewsDownloader:removeNewsButKeepFeedConfig()
+    local ok, iter, dir = pcall(lfs.dir, self.download_dir)
+    if not ok then
+        UIManager:show(InfoMessage:new{
+            text = T(_("Cannot read download folder:\n%1\n\nNo items were deleted."), BD.dirpath(self.download_dir)),
+        })
+        return
+    end
     logger.dbg("NewsDownloader: Removing news from :", self.download_dir)
-    for entry in lfs.dir(self.download_dir) do
+    for entry in iter, dir do
         if entry ~= "." and entry ~= ".." and entry ~= self.feed_config_file then
             local entry_path = self.download_dir .. "/" .. entry
             local entry_mode = lfs.attributes(entry_path, "mode")
@@ -921,22 +930,49 @@ function NewsDownloader:removeNewsButKeepFeedConfig()
         end
     end
     UIManager:show(InfoMessage:new{
-        text = _("All downloaded news feed items deleted.")
+        text = _("Download folder cleanup finished.")
     })
 end
 
 function NewsDownloader:setCustomDownloadDirectory()
     require("ui/downloadmgr"):new{
         onConfirm = function(path)
-            logger.dbg("NewsDownloader: set download directory to: ", path)
-            self.settings:saveSetting(self.config_key_custom_dl_dir, ("%s/"):format(path))
-            self.settings:flush()
+            -- Reuse the existing tri-state helper: an unreadable folder is not
+            -- evidence of an empty one. Catch iterator errors as well as open errors.
+            local ok, is_empty = pcall(util.isEmptyDir, path)
+            if not ok or is_empty == nil then
+                UIManager:show(InfoMessage:new{
+                    text = T(_("Cannot read folder:\n%1\n\nChoose a different download folder."), BD.dirpath(path)),
+                })
+                return
+            end
+            local function apply()
+                logger.dbg("NewsDownloader: set download directory to: ", path)
+                self.settings:saveSetting(self.config_key_custom_dl_dir, ("%s/"):format(path))
+                self.settings:flush()
 
-            logger.dbg("NewsDownloader: Coping to new download folder previous self.feed_config_file from: ", self.feed_config_path)
-            FFIUtil.copyFile(self.feed_config_path, ("%s/%s"):format(path, self.feed_config_file))
+                local new_config_path = ("%s/%s"):format(path, self.feed_config_file)
+                local source_config_path = self.feed_config_path and FFIUtil.realpath(self.feed_config_path)
+                -- Selecting the current folder must not truncate its own config.
+                -- Resolve aliases too, as the chooser returns canonical paths.
+                if source_config_path and source_config_path ~= FFIUtil.realpath(new_config_path) then
+                    logger.dbg("NewsDownloader: Copying feed config from: ", self.feed_config_path)
+                    FFIUtil.copyFile(self.feed_config_path, new_config_path)
+                end
 
-            self.initialized = false
-            self:lazyInitialization()
+                self.initialized = false
+                self:lazyInitialization()
+            end
+            if is_empty then
+                apply()
+            else
+                UIManager:show(ConfirmBox:new{
+                    text = T(_("This folder is not empty:\n\n%1\n\nIf it already contains %2, that file will be overwritten with the current feed configuration.\n\nUsing it as the download folder means that deleting all items in the download folder will delete ALL files and subfolders, including files not downloaded by this plugin. Only %2 will be kept."),
+                        BD.dirpath(path), self.feed_config_file),
+                    ok_text = _("Use folder"),
+                    ok_callback = apply,
+                })
+            end
         end,
     }:chooseDir()
 end
