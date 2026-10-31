@@ -92,6 +92,12 @@ return {
             T:eq(read(selected .. "/feed_config.lua"), source_config, "accept preserves the feed-copy contract")
             T:eq(read(selected .. "/nested/keep.txt"), "nested sentinel", "choosing a folder never deletes its content")
 
+            choose(selected)
+            warning = confirmation("Use folder")
+            press(warning, "Use folder")
+            T:eq(read(selected .. "/feed_config.lua"), source_config,
+                "selecting the current folder cannot truncate its feed configuration")
+
             T:run(function() deleteEntry().callback() end)
             local deletion = confirmation("Delete", plugin.download_dir)
             T:check(deletion.text:find("feed_config.lua", 1, true), "deletion names the configuration exception")

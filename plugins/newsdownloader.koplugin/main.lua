@@ -951,8 +951,14 @@ function NewsDownloader:setCustomDownloadDirectory()
                 self.settings:saveSetting(self.config_key_custom_dl_dir, ("%s/"):format(path))
                 self.settings:flush()
 
-                logger.dbg("NewsDownloader: Copying to new download folder previous self.feed_config_file from: ", self.feed_config_path)
-                FFIUtil.copyFile(self.feed_config_path, ("%s/%s"):format(path, self.feed_config_file))
+                local new_config_path = ("%s/%s"):format(path, self.feed_config_file)
+                local source_config_path = self.feed_config_path and FFIUtil.realpath(self.feed_config_path)
+                -- Selecting the current folder must not truncate its own config.
+                -- Resolve aliases too, as the chooser returns canonical paths.
+                if source_config_path and source_config_path ~= FFIUtil.realpath(new_config_path) then
+                    logger.dbg("NewsDownloader: Copying feed config from: ", self.feed_config_path)
+                    FFIUtil.copyFile(self.feed_config_path, new_config_path)
+                end
 
                 self.initialized = false
                 self:lazyInitialization()

@@ -177,6 +177,22 @@ describe("NewsDownloader download folder safety", function()
         assert.equals(1, flushes)
     end)
 
+    it("does not copy the feed configuration onto itself when selecting the current folder", function()
+        replace(ffiutil, "copyFile", function() error("must not copy a file onto itself") end)
+        choose(root .. "/old")
+        shown[1].ok_callback()
+        assert.equals("return {}", read(plugin.feed_config_path))
+        assert.equals(root .. "/old/", plugin.download_dir)
+    end)
+
+    it("recognizes equivalent source paths before copying feed configuration", function()
+        plugin.feed_config_path = root .. "/old/./feed_config.lua"
+        replace(ffiutil, "copyFile", function() error("must not copy an aliased file onto itself") end)
+        choose(root .. "/old")
+        shown[1].ok_callback()
+        assert.equals("return {}", read(plugin.feed_config_path))
+    end)
+
     it("conservatively warns even for a folder containing only feed configuration", function()
         write(root .. "/candidate/feed_config.lua", "return {'existing'}")
         choose(root .. "/candidate")
