@@ -38,7 +38,9 @@ local activate_closer_midnight = 4
 
 local midnight_index = 11
 
-local device_max_warmth = Device:hasNaturalLight() and Powerd.fl_warmth_max or 100
+local has_natural_light = Device:hasNaturalLight()
+local device_max_warmth = has_natural_light and Powerd.fl_warmth_max or 100
+local device_warmth_fit_scale = device_max_warmth * (1/100)
 
 local function frac(x)
     return x - math.floor(x)
@@ -338,12 +340,22 @@ function AutoWarmth:scheduleMidnightUpdate(from_resume)
         if warmth_diff ~= 0 and time_diff_s > 0 then
             local delta_t = time_diff_s / math.abs(warmth_diff) -- cannot be inf, no problem
             local delta_w = warmth_diff > 0 and 1 or -1
+            -- Night-mode flags are not percentages. Preserve their existing
+            -- interpolation/timing policy instead of adding new hardware steps.
+            local use_native_steps = has_natural_light and self.control_warmth
+                and self.warmth[index1] <= 100 and self.warmth[index2] <= 100
             for i = 1, math.abs(warmth_diff) - 1 do
                 local next_warmth = math.min(self.warmth[index1], 100) + delta_w * i
-                local next_native_warmth = Powerd:toNativeWarmth(next_warmth)
-                -- Only apply warmth when reaching a new native hardware step.
-                if next_native_warmth ~= Powerd:toNativeWarmth(next_warmth - delta_w)
-                    and next_native_warmth ~= Powerd:toNativeWarmth(math.min(self.warmth[index2], 100)) then
+                local keep_step
+                if use_native_steps then
+                    local next_native_warmth = Powerd:toNativeWarmth(next_warmth)
+                    -- Leave the endpoint's native level to its existing anchor.
+                    keep_step = next_native_warmth ~= Powerd:toNativeWarmth(next_warmth - delta_w)
+                        and next_native_warmth ~= Powerd:toNativeWarmth(self.warmth[index2])
+                else
+                    keep_step = frac(next_warmth * device_warmth_fit_scale) == 0
+                end
+                if keep_step then
                     table.insert(self.sched_times_s, time1_s + delta_t * i)
                     table.insert(self.sched_warmths, next_warmth)
                 end

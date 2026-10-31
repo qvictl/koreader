@@ -101,6 +101,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `50_readerstatus_stale_navigation` | real native PDF next/previous navigation, repeated queued requests, Home and replacement interruptions, duplicate confirmations, Cancel and FileManager confirmation compatibility |
 | `51_coverlist_narrow_window` | real SDL window resize, native EPUB/custom-PNG cover extraction and cached collection/History rows; narrow fallback, wide restoration, repeated resize, page turns and reopening without changing cover preferences |
 | `53_coverimage_format_persistence` | real format-menu checkmarks, saved settings and reader reopening; native RGB PNG cover exports remain color/grayscale BMPs, with mutually exclusive selections and reading progress preserved |
+| `54_autowarmth_native_steps` | real activation menu, UIManager queued callbacks and Generic power conversion with synthetic solar time/light hardware; all 24 native warmth steps, preserved night-flag policy, schedule cancellation and native EPUB reading afterward |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:
