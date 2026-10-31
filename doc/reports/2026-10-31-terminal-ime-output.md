@@ -90,3 +90,32 @@ SDL3 dependency. These host results do not establish physical Kindle performance
 actual shell interaction, or a fully rebuilt release. Independent review is
 source/log inspection rather than an independent runtime run. Exact-head CI and
 formal review remain required before any merge.
+
+## Latest accepted main-84 combination
+
+Accepted base is now `6692adeedb62653c0ace6d80b49686f61c585b60`. README rows 58 and 59
+are both preserved. The three terminal production/test Lua files are unchanged
+from the prior tested code; the merged Wallabag metadata fix is included, not an
+unmerged dependency. Published merge/code `0e11080b513f0be0200b45f93bedc1be703bfedd`
+has tree `f6302bba9c993fa6e5fd11d5a8c11175f333be23`, identical to local tested merge
+`457093174c13d37af4d0805a6e1114eb673cb7a2`. This report-only successor changes no
+executable code or tests.
+
+Fresh results on that combination:
+
+- **24/24** focused units; **280/280 across 18 selected suites**, adding the
+  accepted Wallabag-null suite to the previous 17. No selected exclusion.
+- **277/277** checks in eleven emulator scenarios, adding scenario 58 to the
+  previous ten. Applicable budgets pass; scenario 59 repeats **3 × 57/57** in
+  fresh profiles.
+- Fresh changed-line unit coverage **6/6**; configuration-aware lint **0**;
+  original size and whitespace checks pass.
+- An initial combination command used two abbreviated suite filenames and stopped
+  at the first missing file after four suites. That incomplete attempt is excluded;
+  the corrected complete command produced the totals above.
+
+The prior main-83 negative controls remain attributed to main-83; this merge
+changes neither the baseline terminal source nor the candidate's terminal files.
+The historical 267/249 totals are not added to or relabeled as the new 280/277
+combination. Native-asset, physical-device, shell and coverage limitations above
+remain unchanged. Exact-head CI and normal formal review are separate gates.
