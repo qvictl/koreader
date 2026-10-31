@@ -731,8 +731,13 @@ function ReaderZooming:onZoomFactorChange()
 end
 
 function ReaderZooming:onSetZoomPan(settings, no_redraw)
-    self.ui.doc_settings:saveSetting("kopt_zoom_factor", settings.kopt_zoom_factor)
-    self.ui.doc_settings:saveSetting("zoom_mode", settings.zoom_mode)
+    -- Partial updates (e.g., overlap only) must not erase the current mode or factor.
+    if settings.kopt_zoom_factor ~= nil then
+        self.ui.doc_settings:saveSetting("kopt_zoom_factor", settings.kopt_zoom_factor)
+    end
+    if settings.zoom_mode ~= nil then
+        self.ui.doc_settings:saveSetting("zoom_mode", settings.zoom_mode)
+    end
     for k, v in pairs(settings) do
         self[k] = v
         -- Configurable keys aren't prefixed...
