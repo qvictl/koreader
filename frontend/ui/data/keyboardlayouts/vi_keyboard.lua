@@ -48,6 +48,8 @@ local wrapInputBox = function(inputbox)
         table.insert(wrappers, util.wrapMethod(inputbox, "rightChar", nil, separate))
         table.insert(wrappers, util.wrapMethod(inputbox, "upLine",    nil, separate))
         table.insert(wrappers, util.wrapMethod(inputbox, "downLine",  nil, separate))
+        -- External navigation commits composition without sending editing keys.
+        table.insert(wrappers, util.wrapMethod(inputbox, "onExternalCursorMove", nil, clear_stack))
         -- -- Move to other input box.
         table.insert(wrappers, util.wrapMethod(inputbox, "unfocus",         nil, separate))
         table.insert(wrappers, util.wrapMethod(inputbox, "onCloseKeyboard", nil, separate))

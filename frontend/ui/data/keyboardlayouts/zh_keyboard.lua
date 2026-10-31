@@ -129,6 +129,7 @@ local wrapInputBox = function(inputbox)
         table.insert(wrappers, util.wrapMethod(inputbox, "delChar",          wrappedDelChar,   nil))
         table.insert(wrappers, util.wrapMethod(inputbox, "delToStartOfLine", nil, clear_stack))
         table.insert(wrappers, util.wrapMethod(inputbox, "clear",            nil, clear_stack))
+        table.insert(wrappers, util.wrapMethod(inputbox, "onExternalCursorMove", nil, clear_stack))
         -- -- Navigation.
         table.insert(wrappers, util.wrapMethod(inputbox, "leftChar",  nil, separate))
         table.insert(wrappers, util.wrapMethod(inputbox, "rightChar", nil, separate))

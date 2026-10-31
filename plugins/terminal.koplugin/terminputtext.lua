@@ -168,13 +168,13 @@ function TermInputText:_helperVT52VT100(cmd, mode, param1, param2, param3)
     elseif cmd == "C" then -- cursor right
         param1 = param1 == 0 and 1 or param1
         for i = 1, param1 do
-            self:rightChar(true)
+            TermInputText.rightChar(self, true, i == 1)
         end
         return true
     elseif cmd == "D" then -- cursor left
         param1 = param1 == 0 and 1 or param1
         for i = 1, param1 do
-            self:leftChar(true)
+            TermInputText.leftChar(self, true, i == 1)
         end
         return true
     elseif cmd == "H" then -- cursor home
@@ -257,6 +257,8 @@ function TermInputText:_helperVT52VT100(cmd, mode, param1, param2, param3)
     return false
 end
 
+-- Terminal output is not keyboard input. Call the class implementations below
+-- so IME wrappers cannot consume skip_callback or retransmit received text.
 function TermInputText:interpretAnsiSeq(text)
     local pos = 1
     local param1, param2, param3 = 0, 0, 0
@@ -271,10 +273,11 @@ function TermInputText:interpretAnsiSeq(text)
                 while printable_ends < #text and isPrintable(text:sub(printable_ends+1,printable_ends+1)) do
                     printable_ends = printable_ends + 1
                 end
-                self:addChars(text:sub(pos, printable_ends), true, true)
+                TermInputText.addChars(self, text:sub(pos, printable_ends), true, true)
                 pos = printable_ends
             elseif next_byte == backspace then
-                self:leftChar(true)
+                -- BS also echoes input-method replacement edits; do not end composition.
+                TermInputText.leftChar(self, true)
             end
         elseif self.sequence_state == "esc" then
             self.sequence_state = ""
@@ -283,9 +286,9 @@ function TermInputText:interpretAnsiSeq(text)
             elseif next_byte == "B" then -- cursor down
                 self:moveCursorDown(true)
             elseif next_byte == "C" then -- cursor right
-                self:rightChar(true)
+                TermInputText.rightChar(self, true, true)
             elseif next_byte == "D" then -- cursor left
-                self:leftChar(true)
+                TermInputText.leftChar(self, true, true)
             elseif next_byte == "F" then -- enter graphics mode
                 logger.dbg("Terminal: enter graphics mode not supported")
             elseif next_byte == "G" then -- exit graphics mod
@@ -453,7 +456,6 @@ function TermInputText:scrollRegionUp(column)
     end
 end
 
--- @fixme: This interacts badly with the wrapping of addChars in e.g. ja_keyboard.
 function TermInputText:addChars(chars, skip_callback, skip_table_concat)
     -- the same as in inputtext.lua
     if not chars then
@@ -702,7 +704,10 @@ end
 --              overridden InputText methods                    --
 ------------------------------------------------------------------
 
-function TermInputText:leftChar(skip_callback)
+-- Only explicit received cursor commands request notification. A received BS
+-- may be an input method's own replacement echo and must preserve composition.
+function TermInputText:leftChar(skip_callback, notify_input_method)
+    if notify_input_method and self.onExternalCursorMove then self:onExternalCursorMove() end
     if self.charpos == 1 then return end
     if self.strike_callback and not skip_callback then
         self.strike_callback(esc_seq.cursor_left)
@@ -716,7 +721,8 @@ function TermInputText:leftChar(skip_callback)
     self.charpos = self.charpos - 1
 end
 
-function TermInputText:rightChar(skip_callback)
+function TermInputText:rightChar(skip_callback, notify_input_method)
+    if notify_input_method and self.onExternalCursorMove then self:onExternalCursorMove() end
     if self.strike_callback and not skip_callback then
         self.strike_callback(esc_seq.cursor_right)
         return

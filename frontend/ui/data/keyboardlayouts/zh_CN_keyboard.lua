@@ -130,6 +130,7 @@ local wrapInputBox = function(inputbox)
         -- -- Navigation.
         table.insert(wrappers, util.wrapMethod(inputbox, "upLine", nil, separate))
         table.insert(wrappers, util.wrapMethod(inputbox, "downLine", nil, separate))
+        table.insert(wrappers, util.wrapMethod(inputbox, "onExternalCursorMove", nil, clear_stack))
         -- -- Move to other input box.
         table.insert(wrappers, util.wrapMethod(inputbox, "unfocus", nil, separate))
         table.insert(wrappers, util.wrapMethod(inputbox, "onCloseKeyboard", nil, separate))

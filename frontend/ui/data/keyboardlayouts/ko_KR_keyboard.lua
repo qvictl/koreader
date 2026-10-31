@@ -1,4 +1,5 @@
 local logger = require("logger")
+local util = require("util")
 
 --------
 -- # Korean 2-beolsik Keyboard layout
@@ -77,6 +78,8 @@ local wrapInputBox = function(inputbox)
         wrap_func_with_hghelper_reset(inputbox, "rightChar")
         wrap_func_with_hghelper_reset(inputbox, "upLine")
         wrap_func_with_hghelper_reset(inputbox, "downLine")
+        local external_cursor_wrapper = util.wrapMethod(inputbox, "onExternalCursorMove", nil,
+            function() HgHelper.HgFSM.clean_state() end)
 
         ---- unfocus: move to other inputbox
         wrap_func_with_hghelper_reset(inputbox, "unfocus")
@@ -96,6 +99,7 @@ local wrapInputBox = function(inputbox)
         wrap_touch_event_func_with_hghelper_reset(inputbox, "onSwipeTextBox")
 
         return function() -- return unwrap function
+            external_cursor_wrapper:revert()
             restore_func_references(inputbox)
             inputbox._wrapped = nil
         end
