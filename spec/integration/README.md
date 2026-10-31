@@ -67,6 +67,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 
 | Scenario | Covers |
 |---|---|
+| `68_http_308_news_feed` | loopback 308→301→RSS through the real NewsDownloader: redirect bodies are discarded, article EPUB creation and reading work, redirect opt-out and loop limits remain enforced |
 | `01_startup_filemanager` | startup to the file manager, books listed, tap on a book opens it; startup budget |
 | `02_english_epub` | EPUB: page turns (tap, swipe), TOC (tap on an entry), go to page; open/turn/close budgets |
 | `03_cjk_epub` | CJK EPUB with the bundled Noto Sans CJK SC: text extraction, word selection, page turns, CJK TOC, re-rendering |
