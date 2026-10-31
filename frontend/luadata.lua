@@ -161,12 +161,12 @@ function LuaData:flush()
     if not self.file then return end
 
     if lfs.attributes(self.file, "mode") == "file" then
-        for i=1, self.max_backups, 1 do
+        -- Rotate older snapshots first, without overwriting a newer snapshot
+        -- before it has moved. Recovery reads .old.1 before the older backups.
+        for i=self.max_backups - 1, 1, -1 do
             if lfs.attributes(self.file..".old."..i, "mode") == "file" then
                 logger.dbg("LuaData: Rename", self.file .. ".old." .. i, "to", self.file .. ".old." .. i+1)
-                os.rename(self.file, self.file .. ".old." .. i+1)
-            else
-                break
+                os.rename(self.file .. ".old." .. i, self.file .. ".old." .. i+1)
             end
         end
         logger.dbg("LuaData: Rename", self.file, "to", self.file .. ".old.1")
