@@ -58,22 +58,30 @@ No host Wi-Fi script, physical radio or external-network request is exercised.
 
 ## Validation
 
-Production/test commit `952bfe0da86164ea8426079ba686763d04c219ab`, tree
-`d53793b177a242a68bb299232d17c8fcc11ecd5a`, is based on accepted main
-`da47c289`. The report-only successor does not change executable/test bytes.
+Initial production/test commit `952bfe0da86164ea8426079ba686763d04c219ab`
+(tree `d53793b177a242a68bb299232d17c8fcc11ecd5a`) was based on main
+`da47c289`: 151 focused unit cases and 70 integration checks passed.
+
+The final combination `e93cac6884ae21d751faac5feb75720a5ae02135`
+(tree `cf3855c54a6f3adaf39eda691d9b3022f75532d4`) merges actual accepted
+main `624275dc` from fork #77. The only merge conflict was adjacent README rows;
+both 51 and 52 are preserved. The candidate's production/test bytes are unchanged.
+The following results were rerun on that combination. Its report-only successor
+does not change executable/test bytes.
 
 | Check | Result |
 |---|---|
 | New unit suite | 10/10 |
-| Ten focused unit suites | 151/151; one pre-existing host loopback case explicitly excluded |
-| Real emulator scenarios 01 / 09 / 47 / 52 | 70/70 checks; applicable budgets pass |
+| Fourteen focused unit suites | 176/176; one pre-existing host loopback case explicitly excluded |
+| Real emulator scenarios 01 / 09 / 47 / 51 / 52 | 92/92 checks; applicable budgets pass |
 | Scenario 52, three fresh-profile repeats | 3 × 27/27 |
 | Fresh changed-line unit coverage | 12/12 (100%) across the two production files |
 | Lua lint / original pixel-size checks / whitespace | Pass; zero Lua warnings/errors; no rule changes |
 
 The focused suites are `network_restore_guard`, `networkmgr_flows`,
 `network_manager`, `network_dns_async`, `networksetting`, `kindle_wifi_lipc`,
-`kindle_wifi_toggle_failure`, `autosuspend_network`, `dispatcher` and `uimanager`.
+`kindle_wifi_toggle_failure`, `autosuspend_network`, `dispatcher`, `uimanager`,
+`coverlist_narrow`, `covermenu_lifecycle`, `textboxwidget` and `imagewidget`.
 The exact excluded existing case is
 `ifHasAnAddress finds the loopback address when the interface is up`: this host's
 native getifaddrs fixture limitation was already observed before this change.
