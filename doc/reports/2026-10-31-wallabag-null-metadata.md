@@ -127,7 +127,7 @@ representative device storage, and these measurements are not release coverage
 or full-repository test results. Exact-head CI and formal review remain separate
 merge gates.
 
-### Final isolation-strengthened snapshot
+### Main-82 isolation-strengthened snapshot (historical)
 
 Published code/test object `ae4d378b415e2da84fff2cf49d21fbab15a7b985` has tree
 `47a8bd640e98f72464d27274a9075522e3645f00`, equal to local tested `d7c518f8345`.
@@ -140,3 +140,30 @@ in scenario 58; applicable budgets pass. Its fresh-profile repeats are **3 ×
 These final results do not reattribute the earlier 24-check scenario to the
 isolation-strengthened fixture. Independent source/log review is separate from
 runtime execution, and normal exact-head CI/formal review remain required.
+
+
+### Latest accepted main-83 combination
+
+Accepted main is now `0531bd8ad57d42b69787a0b1ae0052f6296b5ab8`. Integration
+README rows **57 and 58** are both preserved. The candidate's three production/
+test Lua files are unchanged from `d7c518f8345`; the integration is with actual
+merged main, not an unmerged dependency.
+
+Published merge/code object `214a59c8501d8e7a1feb94ea8f076289f2726c5d`, tree
+`8ed55c514c0de2a26663e32cf076b6ef54822d74`, equals local tested combination
+`a08730cb24a681676229d7e3abdab6f81b5eee35`. The following report-only successor
+contains no further source/test change. Fresh validation on this combination:
+
+- **13/13** candidate unit tests; **294/294** across 15 selected suites, adding
+  the accepted keyboard-zoom suite to the prior list. The single existing host
+  loopback-address exclusion remains explicit and unchanged.
+- **184/184** checks across nine emulator scenarios: prior eight plus **57**.
+  Applicable budgets pass; scenario 58 repeats **3 × 28/28** in fresh profiles.
+- Fresh candidate changed-line unit coverage **3/3**; lint **0**; original size
+  and whitespace checks pass.
+- Exact-main-83 control rerun: **6 pass / 2 failures / 5 errors**; real menu still
+  fails before its sync summary with the filename string/function mismatch.
+  Candidate production is restored and compared afterward.
+
+These are the latest combination results; the earlier 271/156 and 199/152
+figures remain historical, not duplicated or added into the final totals.
