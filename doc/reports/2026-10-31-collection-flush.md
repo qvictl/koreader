@@ -51,13 +51,18 @@ last expression in a chain; successful return compatibility is tested.
   the second book before the first and closes favorites. The file manager stays
   open. Before flushing, disk order is intentionally still the original order.
   The baseline then fails because `UIManager:flushSettings()` leaves that old
-  order on disk. With the final fix, all 16 checks pass, including no second write
+  order on disk. With the final fix, all 19 checks pass, including no second write
   without edits, clearing successful dirty markers, and reopening and painting
   favorites after reloading the persisted settings. It then connects a real
   private folder, flushes while the folder menu remains open and closes it; the
   parent list must refresh its count and folder marker. The intermediate candidate
   fails this case (2 displayed instead of the folder marker plus 3). Related startup
-  and generic suspend/resume scenarios each pass 7/7 (30/30 checks across three scenarios).
+  and generic suspend/resume scenarios each pass 7/7 (33/33 checks across three scenarios).
+- Scenario cleanup restores in-memory collections, the read timestamp and exact
+  current/backup settings bytes, and removes its private EPUBs. It closes leftover
+  widgets and waits for cover metadata workers before deleting their input files.
+  A local error-injection variant verifies the same cleanup after an exception;
+  that deliberately failed run is not counted as a passed integration scenario.
 - The native libraries are reused from the authorized fork emulator; runtime
   Lua is overlaid from the tested source. This is not a native rebuild or a
   PocketBook hardware/power-loss durability test. The reproduction establishes
@@ -66,3 +71,40 @@ last expression in a chain; successful return compatibility is tested.
 
 Exact-head CI, coverage, AI review and unresolved-thread gates remain required
 before merging. No upstream writes or device installation are involved.
+
+## Synchronous flush tradeoff and measured limits
+
+`UIManager:flushSettings()` is a synchronous broadcast, not an asynchronous
+completion protocol. PocketBook's `EVT_HIDE` / `EVT_BACKGROUND` handler immediately
+returns the suspend notification after the broadcast. This fix deliberately
+finishes collection persistence before that existing return boundary, matching
+other settings handlers. Scheduling a future write or simply forking without a
+platform completion barrier could return with the edits still only in memory,
+reintroducing the original failure. Waiting for a child at that boundary would
+still delay the event loop; it is not an asynchronous responsiveness fix.
+
+This does **not** make serialization or storage latency harmless. Three fresh
+Linux x86-64 emulator processes per fixture exercised the actual collection
+manager handler, `ReadCollection:write`, full LuaSettings serialization and the
+ordinary `.old` backup path. Each fixture used synthetic long book paths, checked
+all entries before the timed flush, and reopened the output with the expected
+count afterwards. These are host measurements, **not equivalent Kindle hardware
+or flash-storage acceptance tests**:
+
+| Collection entries | Settings bytes | Flush duration | Repeat flush without edits |
+| ---: | ---: | ---: | ---: |
+| 1,000 | 164,963 | 5.4–6.1 ms | ≤0.001 ms |
+| 10,000 | 1,667,966 | 151–166 ms | ≤0.002 ms |
+| 30,000 | 5,047,966 | 1,150–1,343 ms | ≤0.003 ms |
+
+At 30,000 entries, Lua heap measured before/after the flush rises from about
+15,000 KiB to 52,400 KiB, and current RSS (`VmRSS`) rises from 35,496–37,792 KiB to
+63,352–65,028 KiB. Process `VmHWM` was already 68,808–69,076 KiB after fixture
+construction; that high-water value must not be mislabelled as this flush's
+isolated peak. There is a real synchronous pause and memory cost, and slower
+Kindle storage can be worse. No device-wide safe latency or memory guarantee is
+claimed. Successful dirty-marker clearing removes redundant repeats; it does
+not eliminate the cost of the first changed flush or a necessary failed retry.
+A broader asynchronous persistence design needs platform lifecycle completion
+coordination and state-versioning for concurrent edits before it can safely
+replace this synchronous contract.
