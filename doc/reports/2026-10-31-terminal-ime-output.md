@@ -171,3 +171,25 @@ initial harness errors are excluded from all negative and positive evidence abov
 The historical 24/267/249 and 24/280/277 results remain separately attributed, not
 relabeled or combined into these final totals. Formal review and exact-head CI
 remain necessary gates.
+
+## Final accepted main-87 combination
+
+Accepted base is `edb652a5c5ffd023e1db85caffa1c5df34b538d3`. README rows 58/59/60
+all remain. Published merge/code `f609346ca4cefd266b38b657e809d11f12aa1014` has tree
+`828ad9a8a8826ce4a8301c2f9c9908733d61fd81`, equal to local tested merge
+`6abdc1215c15d77136fa640ba11855329912f890`. The two production files and terminal
+unit/scenario files are unchanged from the reviewed hook correction above.
+
+Fresh results: **30/30 focused**, **300/300 in 19 selected unit suites** and
+**344/344 in twelve emulator scenarios**, adding the accepted Japanese selection
+suite and scenario 60 to the preceding combination. All applicable budgets pass;
+scenario 59 repeats **3 × 69/69** in fresh profiles. Fresh changed-line unit coverage
+is **9/9**, configuration-aware lint **0**, and original size/whitespace checks pass.
+No selected unit exclusions. These counts supersede rather than add to 286/289.
+
+The independent 30-unit/69-check rerun remains attributed to the hook snapshot
+before this main-87 merge; the candidate files are identical, but no independent
+full-combination rerun is claimed. The subsequent report-only commit changes no
+production/tests. Earlier negative controls retain their original exact-head
+attribution. Native-assets/device/shell limitations and normal CI/review gates
+remain unchanged.
