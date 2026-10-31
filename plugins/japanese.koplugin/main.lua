@@ -151,6 +151,20 @@ function Japanese:onWordSelection(args)
         return
     end
 
+    -- Match the dictionaries used by the subsequent lookup: the enabled list
+    -- already includes this book's preferred dictionaries, even if globally
+    -- disabled, but dictionaries disabled for this book must still be omitted.
+    local dict_names = {}
+    for _, name in ipairs(self.dictionary.enabled_dict_names) do
+        if not (self.dictionary.doc_disabled_dicts and self.dictionary.doc_disabled_dicts[name]) then
+            table.insert(dict_names, name)
+        end
+    end
+    -- With no -u options sdcv searches every installed dictionary, not none.
+    if #dict_names == 0 then
+        return
+    end
+
     -- We reset the end of the range to pos0+1 because crengine will select
     -- half-width katakana (ｶﾀｶﾅ) in strange ways that often overshoots the
     -- end of words.
@@ -165,7 +179,7 @@ function Japanese:onWordSelection(args)
     -- looking forward, but unfortunately there isn't a great endpoint defined
     -- either (aside from punctuation). So we just copy Yomichan and set a hard
     -- limit (20 characters) and stop early if we ever hit punctuation. We then
-    -- select the longest word present in one of the user's installed
+    -- select the longest word present in one of the user's enabled
     -- dictionaries (after deinflection).
 
     local all_candidates = {}
@@ -214,7 +228,7 @@ function Japanese:onWordSelection(args)
     --- @todo Given there is a limit to how many command-line arguments you can
     --       pass, we should split up the candidate list if it's too long.
     local best_word
-    local cancelled, all_results = self.dictionary:rawSdcv(all_words)
+    local cancelled, all_results = self.dictionary:rawSdcv(all_words, dict_names)
     if not cancelled and all_results ~= nil then
         for i, term_results in ipairs(all_results) do
             if #term_results ~= 0 then
