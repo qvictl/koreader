@@ -1,3 +1,4 @@
+-- luacheck: ignore 122 -- restored synthetic io/os boundary overrides
 -- NetworkMgr / NetworkListener flows: connection attempts, connectivity polling and its
 -- timeout, the beforeWifiAction / afterWifiAction framework, DNS / route failures,
 -- the blocking goOnlineToRun loop, the scan & reconnect logic, and the inactivity timer.
@@ -9,6 +10,7 @@ describe("NetworkMgr flows", function()
     local backend, scheduled, shown, closed, events
     local orig = {}
     local device_caps
+    local saved_execute
 
     local EBUSY = 16
 
@@ -47,6 +49,8 @@ describe("NetworkMgr flows", function()
         Device = require("device")
         UIManager = require("ui/uimanager")
         Event = require("ui/event")
+        saved_execute = os.execute
+        os.execute = function() return 0 end -- no host Wi-Fi scripts/processes in synthetic backend tests
 
         for _, k in ipairs{"initNetworkManager", "hasWifiToggle", "hasWifiRestore", "hasSeamlessWifiToggle",
                            "hasWifiManager", "isKindle", "isAndroid", "isEmulator"} do
@@ -81,6 +85,7 @@ describe("NetworkMgr flows", function()
             end
             function mgr:turnOffWifi(complete_callback)
                 backend.turn_off_calls = backend.turn_off_calls + 1
+                if backend.turn_off_result == false then return false end
                 backend.wifi_on = false
                 backend.connected = false
                 if complete_callback then complete_callback() end
@@ -102,11 +107,15 @@ describe("NetworkMgr flows", function()
             end
             function mgr:obtainIP() backend.obtain_ip_calls = backend.obtain_ip_calls + 1 end
             function mgr:releaseIP() backend.release_ip_calls = backend.release_ip_calls + 1 end
-            function mgr:restoreWifiAsync() backend.restore_calls = backend.restore_calls + 1 end
+            function mgr:restoreWifiAsync()
+                backend.restore_calls = backend.restore_calls + 1
+                return backend.restore_result
+            end
         end
     end)
 
     teardown(function()
+        os.execute = saved_execute
         for k, v in pairs(orig) do
             if k:sub(1, 2) == "UI" then
                 UIManager[k:sub(3)] = v
@@ -158,6 +167,18 @@ describe("NetworkMgr flows", function()
         G_reader_settings:delSetting("http_proxy")
         G_reader_settings:delSetting("http_proxy_enabled")
         loadManager()
+    end)
+
+    it("does not schedule a known failed restore during initialization or forget restore intent", function()
+        device_caps.hasWifiRestore, device_caps.isKindle = true, true
+        G_reader_settings:makeTrue("wifi_was_on")
+        G_reader_settings:makeTrue("auto_restore_wifi")
+        backend.restore_result = false
+        loadManager()
+        assert.equals(1, backend.restore_calls)
+        assert.equals(0, #scheduled)
+        assert.is_true(NetworkMgr.wifi_was_on)
+        assert.is_true(G_reader_settings:isTrue("wifi_was_on"))
     end)
 
     describe("connectivity check", function()
@@ -349,6 +370,32 @@ describe("NetworkMgr flows", function()
             -- Non-interactive: remember that Wi-Fi was on, for the next restore.
             assert.is_true(NetworkMgr.wifi_was_on)
             assert.is_true(G_reader_settings:isTrue("wifi_was_on"))
+        end)
+
+        it("preserves restore intent and lease without a false disconnect on explicit backend failure", function()
+            backend.wifi_on, backend.connected, backend.turn_off_result = true, true, false
+            NetworkMgr.wifi_was_on, NetworkMgr.lease_ssid = true, "Home"
+            G_reader_settings:makeTrue("wifi_was_on")
+            local completed = spy.new(function() end)
+            assert.is_false(NetworkMgr:disableWifi(completed, true))
+            assert.spy(completed).was.not_called()
+            assert.same({ "NetworkDisconnecting" }, events)
+            assert.is_true(NetworkMgr.wifi_was_on)
+            assert.is_true(G_reader_settings:isTrue("wifi_was_on"))
+            assert.equals("Home", NetworkMgr.lease_ssid)
+            assert.is_true(backend.wifi_on)
+            assert.equals("Unable to communicate with the Wi-Fi backend", lastShownText())
+        end)
+
+        it("clears the lease before a synchronous completion callback on accepted nil status", function()
+            NetworkMgr.lease_ssid = "Home"
+            local completed = false
+            NetworkMgr:disableWifi(function()
+                assert.is_nil(NetworkMgr.lease_ssid)
+                completed = true
+            end)
+            assert.is_true(completed)
+            assert.equals(1, countEvents("NetworkDisconnected"))
         end)
 
         it("forgets wifi_was_on when the user turned it off", function()
@@ -999,6 +1046,50 @@ describe("NetworkMgr flows", function()
             NetworkListener:onNetworkConnected()
             assert.are.equal(1, #scheduled) -- no interface to watch: no second check
             G_reader_settings:delSetting("auto_disable_wifi")
+        end)
+
+        it("retries the inactivity shutdown after explicit backend failure", function()
+            G_reader_settings:makeTrue("auto_disable_wifi")
+            backend.wifi_on, backend.connected, backend.turn_off_result = true, true, false
+            tx = { 100, 101, 102 }
+            NetworkListener:onNetworkConnected()
+            runScheduled(1)
+            assert.equals(1, backend.turn_off_calls)
+            assert.equals(0, countEvents("NetworkDisconnected"))
+            assert.equals(1, #scheduled)
+            assert.equals(600, scheduled[1].delay)
+            backend.turn_off_result = nil -- accepted legacy asynchronous/nil contract
+            runScheduled(1)
+            assert.equals(2, backend.turn_off_calls)
+            assert.equals(1, countEvents("NetworkDisconnected"))
+            assert.equals(0, #scheduled)
+            G_reader_settings:delSetting("auto_disable_wifi")
+        end)
+
+        it("does not announce Wi-Fi off after a rejected interactive request", function()
+            backend.wifi_on, backend.connected, backend.turn_off_result = true, true, false
+            NetworkListener:onInfoWifiOff()
+            assert.equals("Unable to communicate with the Wi-Fi backend", lastShownText())
+            assert.equals(0, countEvents("NetworkDisconnected"))
+            backend.turn_off_result = nil
+            NetworkListener:onInfoWifiOff()
+            assert.equals("Wi-Fi off.", lastShownText())
+        end)
+
+        it("does not poll a rejected resume restore but accepts a later nil-status request", function()
+            NetworkMgr.wifi_was_on = true
+            G_reader_settings:makeTrue("wifi_was_on")
+            G_reader_settings:makeTrue("auto_restore_wifi")
+            backend.restore_result = false
+            NetworkListener:onResume()
+            assert.equals(1, backend.restore_calls)
+            assert.equals(0, #scheduled)
+            assert.is_true(NetworkMgr.wifi_was_on)
+            assert.is_true(G_reader_settings:isTrue("wifi_was_on"))
+            backend.restore_result = nil
+            NetworkListener:onResume()
+            assert.equals(2, backend.restore_calls)
+            assert.equals(1, #scheduled)
         end)
 
         it("backs off while there is traffic (capped at 30 min), and turns Wi-Fi off when idle", function()

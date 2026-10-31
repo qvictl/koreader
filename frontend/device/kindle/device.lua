@@ -270,28 +270,52 @@ local function kindleScanThenGetResults()
     end
 end
 
-local function kindleEnableWifi(toggle)
-    local haslipc, lipc = pcall(require, "liblipclua")
-    local lipc_handle
-    if haslipc then
-        lipc_handle = lipc.init("com.github.koreader.networkmgr")
+local function failedWifiRequest(interactive)
+    if interactive then
+        UIManager:show(require("ui/widget/infomessage"):new{
+            text = require("gettext")("Unable to communicate with the Wi-Fi backend"),
+        })
     end
-    if lipc_handle then
-        -- Be extremely thorough... c.f., #6019
-        -- NOTE: I *assume* this'll also ensure we prefer Wi-Fi over 3G/4G, which is a plus in my book...
-        if toggle == 1 then
-            lipc_handle:set_int_property("com.lab126.cmd", "wirelessEnable", 1)
-            lipc_handle:set_int_property("com.lab126.wifid", "enable", 1)
-        else
-            lipc_handle:set_int_property("com.lab126.wifid", "enable", 0)
-            lipc_handle:set_int_property("com.lab126.cmd", "wirelessEnable", 0)
+    return false
+end
+
+local function kindleEnableWifi(toggle, interactive)
+    local haslipc, lipc = pcall(require, "liblipclua")
+    if haslipc then
+        local initialized, lipc_handle = pcall(lipc.init, "com.github.koreader.networkmgr")
+        if not initialized or not lipc_handle then
+            logger.warn("kindleEnableWifi: failed to initialize LIPC", lipc_handle)
+            return failedWifiRequest(interactive)
         end
-        lipc_handle:close()
+        local success, err = pcall(function()
+            -- Be extremely thorough... c.f., #6019
+            -- Prefer Wi-Fi over 3G/4G; preserve the ordering on enable/disable.
+            if toggle == 1 then
+                lipc_handle:set_int_property("com.lab126.cmd", "wirelessEnable", 1)
+                lipc_handle:set_int_property("com.lab126.wifid", "enable", 1)
+            else
+                lipc_handle:set_int_property("com.lab126.wifid", "enable", 0)
+                lipc_handle:set_int_property("com.lab126.cmd", "wirelessEnable", 0)
+            end
+        end)
+        -- Always release the handle, including when a daemon/source disappears.
+        -- The binding's successful setters and close need not return a value.
+        local closed, close_err = pcall(lipc_handle.close, lipc_handle)
+        if not success then logger.warn("kindleEnableWifi: LIPC request failed", err) end
+        if not closed then logger.warn("kindleEnableWifi: LIPC close failed", close_err) end
+        return (success and closed) or failedWifiRequest(interactive)
     else
         -- No liblipclua on FW < 5.x ;)
-        -- Always kill 3G first...
-        os.execute("lipc-set-prop -i com.lab126.wan enable 0")
-        os.execute("lipc-set-prop -i com.lab126.wifid enable " .. toggle)
+        local success, status = pcall(function()
+            -- Always try to kill 3G first; WAN may not exist on Wi-Fi-only models.
+            os.execute("lipc-set-prop -i com.lab126.wan enable 0")
+            return os.execute("lipc-set-prop -i com.lab126.wifid enable " .. toggle)
+        end)
+        if not success or status ~= 0 then
+            logger.warn("kindleEnableWifi: legacy Wi-Fi request failed", status)
+            return failedWifiRequest(interactive)
+        end
+        return true
     end
 end
 
@@ -430,13 +454,13 @@ function Kindle:initNetworkManager(NetworkMgr)
     local haslipc, _ = pcall(require, "liblipclua")
     if haslipc then
         function NetworkMgr:turnOnWifi(complete_callback, interactive)
-            kindleEnableWifi(1)
+            if not kindleEnableWifi(1, interactive) then return false end
             return self:reconnectOrShowNetworkMenu(complete_callback, interactive)
         end
     else
         -- If we can't use the lipc Lua bindings, we can't support any kind of interactive Wi-Fi UI...
         function NetworkMgr:turnOnWifi(complete_callback, interactive)
-            kindleEnableWifi(1)
+            if not kindleEnableWifi(1, interactive) then return false end
             if complete_callback then
                 complete_callback()
             end
@@ -444,7 +468,7 @@ function Kindle:initNetworkManager(NetworkMgr)
     end
 
     function NetworkMgr:turnOffWifi(complete_callback)
-        kindleEnableWifi(0)
+        if not kindleEnableWifi(0) then return false end
         -- NOTE: Same here, except disconnect is simpler, so a dumb delay will do...
         if complete_callback then
             UIManager:scheduleIn(2, complete_callback)
@@ -456,7 +480,7 @@ function Kindle:initNetworkManager(NetworkMgr)
     end
 
     function NetworkMgr:restoreWifiAsync()
-        kindleEnableWifi(1)
+        return kindleEnableWifi(1)
     end
 
     function NetworkMgr:authenticateNetwork(network)
