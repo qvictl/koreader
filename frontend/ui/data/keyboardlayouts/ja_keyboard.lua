@@ -99,6 +99,9 @@ local function wrapInputBox(inputbox)
         table.insert(wrappers, util.wrapMethod(inputbox, "rightChar", nil, exitKeitaiMode))
         table.insert(wrappers, util.wrapMethod(inputbox, "upLine",    nil, exitKeitaiMode))
         table.insert(wrappers, util.wrapMethod(inputbox, "downLine",  nil, exitKeitaiMode))
+        -- External display updates must not pass through keyboard input methods,
+        -- but explicit cursor movement still ends the current tap cycle.
+        table.insert(wrappers, util.wrapMethod(inputbox, "onExternalCursorMove", nil, exitKeitaiMode))
         -- Move to other input box.
         table.insert(wrappers, util.wrapMethod(inputbox, "unfocus", nil, exitKeitaiMode))
         -- Gestures to move cursor.

@@ -4,7 +4,7 @@ return {
     name = "Terminal output does not become IME keyboard input",
     timeout = 45,
     settings = { language = "en", keyboard_layout = "en", keyboard_layout_default = "en",
-        virtual_keyboard_enabled = true },
+        virtual_keyboard_enabled = true, keyboard_japanese_keitai_tap_interval = 10 },
     run = function(T)
         local UIManager = require("ui/uimanager")
         local InputDialog = require("ui/widget/inputdialog")
@@ -88,6 +88,26 @@ return {
             T:run(function() dialog._input_widget:interpretAnsiSeq("reopened 日本語") end)
             T:eq(#sent, 0, "reopened terminal retains output-only semantics")
             T:eq(dialog:getInputText(), "reopened 日本語", "reopened terminal displays new output")
+            closeDialog()
+
+            openDialog("ja")
+            T:run(function() dialog._input_widget:interpretAnsiSeq("ああ") end)
+            T:repaint()
+            local kana_key = T:findWidget(dialog._input_widget.keyboard, function(w)
+                return w.key == "あ" and w.callback
+            end)
+            T:tapWidget(kana_key, "real Japanese kana key before received cursor move")
+            T:eq(table.concat(sent), "あ", "first Japanese key reaches captured transmit")
+            local first_tap = dialog._input_widget._ja_last_tap_time
+            T:check(first_tap ~= nil, "first Japanese tap starts the composing window")
+            T:run(function() dialog._input_widget:interpretAnsiSeq("\027[D") end)
+            T:eq(#sent, 1, "received cursor motion does not send Japanese input")
+            T:tapWidget(kana_key, "same Japanese kana key after received cursor move")
+            T:check(require("ui/time").since(first_tap) < require("ui/time").s(10),
+                "second real tap is inside the configured composing interval")
+            T:eq(#sent, 2, "cursor movement prevents a stale replacement backspace")
+            T:eq(sent[2], "あ", "second Japanese tap is a new character, not the old cycle")
+            T:eq(dialog:getInputText(), "ああ", "captured user input never edits received display locally")
             closeDialog()
             local no_new_children = true
             for _, pid in ipairs(T:children()) do

@@ -106,7 +106,7 @@ not by a few percent. `IT_BUDGET_SCALE=2` doubles them all.
 | `56_vocabulary_context_provenance` | native EPUB selected-word context, real sdcv and rendered-definition long-press, manual/automatic SQLite vocabulary capture, root versus nested edits, popup closure and reader reopen; no network |
 | `57_keyboard_pdf_zoom` | native synthetic PDF, real keyboard dispatch, paging/panning, manual scale, bottom menu, flipping and close/reopen; skim modal uses explicit ReaderUI key dispatch (not physical modal routing); continuous/reflow and regional-free unit controls |
 | `58_wallabag_null_metadata` | real Wallabag menu, JSON-null title/URL, EPUB export sinks, partial-failure retry and existing annotation retention, native EPUB opening/reopen; synthetic HTTP only |
-| `59_terminal_ime_output` | real InputDialog, VirtualKeyboard taps/layout replacement and terminal ANSI parser with synthetic received bytes and captured transmit; six layouts, UTF-8 output, cursor controls and repeated close/reopen; no shell, PTY or commands |
+| `59_terminal_ime_output` | real InputDialog, VirtualKeyboard taps/layout replacement and terminal ANSI parser with synthetic received bytes and captured transmit; six layouts, UTF-8 output, cursor controls, Japanese tap-cycle reset after external movement and repeated close/reopen; no shell, PTY or commands |
 
 The Linux-only `tools/benchmark_font_memory.sh` runs scenario 21 with RSS/PSS,
 process peak RSS, timings and a test-only FreeType face-finalizer observer:

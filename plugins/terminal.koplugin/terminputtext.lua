@@ -704,6 +704,7 @@ end
 ------------------------------------------------------------------
 
 function TermInputText:leftChar(skip_callback)
+    if skip_callback and self.onExternalCursorMove then self:onExternalCursorMove() end
     if self.charpos == 1 then return end
     if self.strike_callback and not skip_callback then
         self.strike_callback(esc_seq.cursor_left)
@@ -718,6 +719,7 @@ function TermInputText:leftChar(skip_callback)
 end
 
 function TermInputText:rightChar(skip_callback)
+    if skip_callback and self.onExternalCursorMove then self:onExternalCursorMove() end
     if self.strike_callback and not skip_callback then
         self.strike_callback(esc_seq.cursor_right)
         return

@@ -128,6 +128,47 @@ describe("Terminal output with keyboard input methods", function()
         assert.equals("あ", table.concat(widget.charlist))
     end)
 
+    for _, movement in ipairs({
+        { "backspace", "\008", 4 },
+        { "VT52 left", "\027D", 4 },
+        { "VT52 right", "\027C", 1 },
+        { "CSI left", "\027[2D", 4 },
+        { "CSI right", "\027[2C", 1 },
+    }) do
+        it("ends Japanese tap cycling after received " .. movement[1], function()
+            setLayout("ja")
+            TermInputText.addChars(widget, "あああ", true)
+            widget.charpos = movement[3]
+            widget:addChars("あ")
+            assert.is_not_nil(widget._ja_last_tap_time)
+            assert.same({"あ"}, transmitted)
+            widget:interpretAnsiSeq(movement[2])
+            assert.same({"あ"}, transmitted)
+            widget:addChars("あ")
+            assert.same({"あ", "あ"}, transmitted)
+            assert.equals("あああ", table.concat(widget.charlist))
+        end)
+    end
+
+
+    it("restores the external cursor callback when Japanese wrapping is removed", function()
+        local moved = 0
+        local previous = function() moved = moved + 1 end
+        widget.onExternalCursorMove = previous
+        setLayout("ja")
+        TermInputText.addChars(widget, "あああ", true)
+        widget:addChars("あ")
+        widget:interpretAnsiSeq("\027D")
+        assert.is_nil(widget._ja_last_tap_time)
+        assert.equals(1, moved)
+        assert.same({"あ"}, transmitted)
+        unwrap()
+        unwrap = nil
+        assert.equals(previous, widget.onExternalCursorMove)
+        widget:interpretAnsiSeq("\027D")
+        assert.equals(2, moved)
+    end)
+
 
     it("does not flush a Chinese candidate on received cursor movement", function()
         setLayout("zh_CN")
