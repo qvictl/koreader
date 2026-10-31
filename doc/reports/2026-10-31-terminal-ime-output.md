@@ -238,7 +238,7 @@ private Japanese layout with a fixed clock; the shared `ui/time` and UIManager
 clock are untouched, with global `now` identity checked during cleanup. This
 supersedes the historical ten-second UI assertion.
 
-### Final validation on accepted main-87
+### Second-correction validation on accepted main-87 (historical)
 
 Code object `f0e10992b71ed1333690ee192aa2b5dd3dcc60bb` has tree
 `19a05b7164cf7900e755d5b2fe3517b354a7cf22`, equal to local tested code
@@ -265,3 +265,44 @@ an actual trailing destination and allowed Chinese candidate length to change;
 the final controls check the real anchor and protected prefix rather than assume
 all candidates have one character. All earlier device/native-assets/coverage
 limitations and required normal CI/formal-review gates continue to apply.
+
+
+## Final accepted main-88 combination
+
+Accepted base is `72f1648453e2c2f1f1e48d7a1e2b452cca52c3c0`. README rows
+58/59/60/62 remain. Code object `e16bb2e2a8ba88ca21ec71bbada7b42f3deab83a`
+and local tested code `861f9ce2208506e3c08fb2506d8e6635801d0b92` have identical
+tree `c21195598430bdfaf35fe847c39c413a8f9c7bac`; both include the accepted PDF
+current-factor correction. The report-only successor changes no executable/test
+files.
+
+A final two-line refinement notifies once per explicit CSI cursor command, rather
+than repeatedly clearing composition for each character of an `nC`/`nD` command.
+The first step still notifies at a boundary/no-op; VT52 and BS behavior is unchanged.
+Five existing callback tests now check multi-step CSI commands, including both
+directions, boundary/no-op and restoration of the original callback. The preceding
+per-step implementation passes 54 and fails these five strengthened tests.
+
+Fresh final evidence:
+
+- **59/59** focused; **344/344 in 20 selected unit suites**, adding the accepted
+  15-case PDF settings suite to the preceding combination; no selected exclusions.
+- **516/516** checks across thirteen scenarios: 01/02/16/46/50/53/55/56/57/58/59/
+  60/62. Applicable budgets pass. Scenario 59 repeats **3 × 116/116** in fresh
+  profiles.
+- Fresh changed-line unit coverage **18/18** across the six production files;
+  configuration-aware lint **0**, original size/whitespace checks pass.
+- Final strengthened units against exact prior head `d9a715fd`: **31 pass / 28
+  failures**, including the five per-command callback cases. All six candidate
+  production files were restored and byte-compared after this control.
+- An independent reviewer read the final two-line refinement and independently
+  reran **59/59 units** with all six production files and the unit fixture matching
+  byte-for-byte. Their earlier **116/116 integration** rerun belongs to the prior
+  per-step notification implementation and preceding behavior-neutral local-name
+  rename, not to this final snapshot. The author's fresh combined/repeated UI runs
+  cover the final snapshot.
+
+Earlier 329/391 results and their exact prior-head negative controls remain
+historical. The finite command/BS-echo contract, real asynchronous backend versus
+synthetic echo distinction, no shell/PTY execution, native-asset reuse, hardware
+limitations and formal exact-head CI/review requirements remain unchanged.
