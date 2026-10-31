@@ -34,6 +34,8 @@ Snooze/Repeat UI and fork status-bar behavior are retained.
 - Reconcile on Resume and through the existing InputEvent hook, including when
   no Resume arrives. Repeated input does not extend the deadline or duplicate
   the alarm task. HookContainer's existing wrapper unregisters each closed view.
+  Input-triggered expiry is queued until after the current input batch is
+  dispatched, so its tap cannot accidentally dismiss or activate the new popup.
 - Cancel old alarm/display tasks **before** invoking an overdue callback. The
   former post-callback `unschedule()` canceled newly repeated intervals. Refresh
   stopped timer fields without scheduling a second display loop for a new timer.
@@ -59,6 +61,49 @@ changed by the implementation or tests. Broader existing policies for manual
 stop during expiry/profile handling or old popup callbacks are not redesigned.
 
 ## Validation
+
+### Latest review-driven input-batch correction
+
+Production/test commit `aaf9affd207b49c62341e28c4e85737ec40cafac`, tree
+`5247ab7142c09b39870a738ddd9ee13638f0b541`, matches local tested commit
+`2f88332c`. It extends the initial submission below; the report-only successor
+changes no executable/test bytes. README 54 and 55 remain intact.
+
+CodeRabbit identified a real input-ordering regression in the initial port:
+UIManager runs the InputEvent hook before dispatching that batch's events.
+Synchronously displaying an overdue timer popup let the same page-turn tap hit
+that popup instead. A deterministic emulator control reproduced this: the reader
+stayed on page 2 rather than reaching page 3. Two initial focused controls failed;
+the final 24-case suite against the previously reviewed production passes 21 and
+fails the three newly added batch-dispatch, Stop and view-transfer cases.
+
+The input hook now only requeues the stable alarm callback with its remaining
+time (zero when overdue). The callback wrapper cancels old alarm/display tasks
+before running expiry, then refreshes fields only if still stopped and open.
+This preserves expiry/profile/popup/status ordering and does not cancel a newly
+repeated or profile-started timer. A Stop or view close in the triggering batch
+can cancel the queued alarm before any expiry UI appears.
+
+| Final check | Result |
+|---|---|
+| Expanded timer unit suite | 24/24 |
+| Same twenty-one focused unit suites | 214/214, no exclusions |
+| Same nine emulator scenarios | 219/219 checks; applicable budgets pass |
+| Final scenario 55 fresh-profile repeats | 3 × 34/34 |
+| Fresh changed-line unit coverage | 31/31 (100%); not whole-repository coverage |
+| Lua lint / original pixel-size checks / whitespace | Pass, zero warnings/errors |
+
+The new real-queue check dispatches a synthetic Gesture through the actual
+`handleInputEvent` immediately after InputEvent, as the production batch loop
+does: the EPUB advances one page, the deferred popup remains visible, and Done
+leaves no alarm task. This is not a physical wake/gesture-detector test. The two
+older scenario expiry assertions now wait for the queued event instead of
+assuming inline delivery; those intermediate harness failures are not counted
+as product failures or passing runs. Independent source/log review found no new
+blocking issue; it is not an independent runtime rerun. Exact-head CI and formal
+review of this correction remain separate gates.
+
+### Initial submission (historical evidence)
 
 Production/test commit `247506fc608a54036db424aec01316d5fd747821`, tree
 `9ba2f1289c7678e6b66b144c40c34f355a2af20a`, matches local tested code based on
