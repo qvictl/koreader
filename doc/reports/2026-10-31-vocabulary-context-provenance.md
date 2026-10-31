@@ -119,3 +119,19 @@ native rebuild, release-wide test pass, or physical-device certification.
 Independent source/log review found no new blocking issue and did not rerun the
 runtime. Exact-head CI, formal included review and the normal merge gate remain
 required separately.
+
+## CI compatibility follow-up
+
+The first draft-head CI run (`41196718627`, head `17ea5d82`) passed 167 of
+168 front unit suites, including all 32 new provenance cases. The sole failure
+was an existing file-manager fuzzy-setting spy assertion that expected the old
+`stardictLookup` argument count. The optional final provenance argument is nil
+for this legacy caller, but the spy distinguishes an extra trailing nil.
+
+The test now explicitly expects that nil; production and integration code are
+unchanged. A focused local control reproduced the failure (0/1), then the
+existing lookup-settings group passed 6/6 after the assertion update. Only
+that group ran locally, not the unrelated download tests in the same file.
+The earlier 208/188 and repeated integration evidence above still belongs to
+the original production/test snapshot; the updated exact-head CI is a separate
+gate, not a claimed local rerun of the whole suite.
