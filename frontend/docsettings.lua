@@ -345,9 +345,13 @@ function DocSettings:flush(data, no_custom_metadata)
                 if metadata_file then
                     filepath, filename = util.splitFilePathName(metadata_file)
                     if filepath ~= sidecar_dir_slash then
-                        ffiutil.copyFile(metadata_file, sidecar_dir_slash .. filename)
-                        os.remove(metadata_file)
-                        self:getCustomCoverFile(true) -- reset cache
+                        local err = ffiutil.copyFile(metadata_file, sidecar_dir_slash .. filename)
+                        if err then
+                            logger.warn("DocSettings: keeping custom cover after failed copy:", metadata_file, err)
+                        else
+                            os.remove(metadata_file)
+                            self:getCustomCoverFile(true) -- reset cache
+                        end
                     end
                 end
                 -- custom metadata
@@ -355,9 +359,13 @@ function DocSettings:flush(data, no_custom_metadata)
                 if metadata_file then
                     filepath, filename = util.splitFilePathName(metadata_file)
                     if filepath ~= sidecar_dir_slash then
-                        ffiutil.copyFile(metadata_file, sidecar_dir_slash .. filename)
-                        os.remove(metadata_file)
-                        self:getCustomMetadataFile(true) -- reset cache
+                        local err = ffiutil.copyFile(metadata_file, sidecar_dir_slash .. filename)
+                        if err then
+                            logger.warn("DocSettings: keeping custom metadata after failed copy:", metadata_file, err)
+                        else
+                            os.remove(metadata_file)
+                            self:getCustomMetadataFile(true) -- reset cache
+                        end
                     end
                 end
             end
@@ -442,7 +450,7 @@ function DocSettings.updateLocation(doc_path, new_doc_path, copy)
     if not (has_sidecar_file or custom_cover_file or custom_metadata_file) then return end
 
     local doc_settings = DocSettings:open(doc_path)
-    local do_purge
+    local do_purge, sidecar_to_keep, data_to_purge
 
     if new_doc_path then -- copy/rename/move
         if doc_path == new_doc_path -- move book metadata
@@ -452,19 +460,36 @@ function DocSettings.updateLocation(doc_path, new_doc_path, copy)
                 local new_doc_settings = DocSettings:open(new_doc_path)
                 doc_settings.data.doc_path = new_doc_path
                 new_sidecar_dir = new_doc_settings:flush(doc_settings.data, true) -- without custom
-            end
-            if not new_sidecar_dir then
+                if not new_sidecar_dir then
+                    logger.warn("DocSettings: keeping source metadata after failed save:", doc_path, new_doc_path)
+                    return
+                end
+            else
                 new_sidecar_dir = DocSettings:getSidecarDir(new_doc_path)
                 util.makePath(new_sidecar_dir)
             end
-            if custom_cover_file then
-                local _, filename = util.splitFilePathName(custom_cover_file)
-                ffiutil.copyFile(custom_cover_file, new_sidecar_dir .. "/" .. filename)
+            local copies_ok = true
+            data_to_purge = { doc_settings = true }
+            for key, file in pairs({
+                custom_cover_file = custom_cover_file,
+                custom_metadata_file = custom_metadata_file,
+            }) do
+                local _, filename = util.splitFilePathName(file)
+                local target = new_sidecar_dir .. "/" .. filename
+                -- Extension-only renames can share a sidecar directory. Never copy a
+                -- custom file onto itself, or remove it when purging the old settings.
+                if file ~= target then
+                    local err = ffiutil.copyFile(file, target)
+                    if err then
+                        logger.warn("DocSettings: keeping source metadata after failed copy:", file, target, err)
+                        copies_ok = false
+                    else
+                        data_to_purge[key] = file
+                    end
+                end
             end
-            if custom_metadata_file then
-                ffiutil.copyFile(custom_metadata_file, new_sidecar_dir .. "/" .. custom_metadata_filename)
-            end
-            do_purge = not copy
+            sidecar_to_keep = new_sidecar_dir .. "/" .. DocSettings.getSidecarFilename(new_doc_path)
+            do_purge = not copy and copies_ok
         end
     else -- delete
         if has_sidecar_file then
@@ -480,7 +505,7 @@ function DocSettings.updateLocation(doc_path, new_doc_path, copy)
     if do_purge then
         doc_settings.custom_cover_file = custom_cover_file -- cache
         doc_settings.custom_metadata_file = custom_metadata_file -- cache
-        doc_settings:purge()
+        doc_settings:purge(sidecar_to_keep, data_to_purge)
     end
 end
 
