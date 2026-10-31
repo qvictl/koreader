@@ -28,7 +28,7 @@ Other segments keep the existing fractional filter, clamp and timing policy:
 
 - A Kindle driver can declare a 24-step scale even when the device exposes no
   natural light. Applying that hidden scale to night-mode-only scheduling changes
-  the first intermediate event of `1100 -> 0` from 99% at 36 seconds to 97% at
+  the first intermediate event of a one-hour `1100 -> 0` segment from 99% at 36 seconds to 97% at
   108 seconds. The old 100-percent scheduling resolution is preserved there.
 - Night mode is encoded by adding 1000 to a percentage. For the valid anchor
   `1090`, production `setWarmth()` applies 90%, or native level 22. The existing
