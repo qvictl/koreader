@@ -116,3 +116,28 @@ The independent reviewer found no actionable source/cleanup issue and reran the
 production/test bytes. That review did not independently run the full selection,
 negative controls, native rebuilds or remote CI. Exact-head CI and the repository's
 formal AI review/merge gate remain separate publication requirements.
+
+## Accepted-main synchronization
+
+After Calibre inbox initialization merged as actual main
+`a7f4a2f31e47807bcd39b7bcadc62f6d153cae61`, the candidate was combined with it.
+The only conflict was adjacent README rows; both scenarios **65 and 66** are
+retained. There was no production conflict, and all four OPDS production/test
+files are unchanged from the frozen code snapshot above.
+
+Local merge `e611158151081eb41ca0a6b31abeda6f3010dd09` and published merge object
+`a1226a8d0e6c26857763bed4db07e5afc1ca7200` share tree
+`873a9c8d39de7accfe5fa25013ffea9f12741d02`. The updated combination passed:
+
+- **315/315 in 17 nonempty suites, 19 invocations**, adding Calibre's 15-case
+  inbox-initialization suite; the same two default-excluded zero-case invocations
+  and one host loopback exclusion remain explicit.
+- **819/819 in 17 emulator scenarios**, the previous selection plus scenario 65;
+  all applicable budgets pass. Scenario 66 again passes all 23 checks.
+- Candidate runtime/source byte comparison and whitespace checks pass.
+
+The earlier 300/732 totals, repeats, negative controls, fresh coverage and
+independent runtime results retain their original snapshot attribution; this
+section does not claim the independent reviewer reran the expanded combination.
+The report-only successor leaves this tested combined tree's executable files
+unchanged. Final exact-head CI and formal review remain required.
