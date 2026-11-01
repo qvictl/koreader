@@ -1,40 +1,40 @@
 {
-  "date": "2026-10-31",
+  "date": "2026-11-01",
   "mode": "combined",
   "overall": {
-    "covered": 55163,
-    "total": 100045,
-    "percent": 55.138,
+    "covered": 59980,
+    "total": 101230,
+    "percent": 59.251,
     "files": 492
   },
   "overall_unit": {
-    "covered": 49638,
-    "total": 99225,
-    "percent": 50.026,
+    "covered": 52316,
+    "total": 99711,
+    "percent": 52.468,
     "min": null
   },
   "diff_unit": {
-    "covered": 300,
-    "total": 300,
+    "covered": 168,
+    "total": 168,
     "percent": 100
   },
   "diff_combined": {
-    "covered": 300,
-    "total": 300,
+    "covered": 168,
+    "total": 168,
     "percent": 100
   },
   "unit_ratchet": {
-    "baseline": 48.803,
-    "label": "main@ab784a8c (previous actual full unit measurement)"
+    "baseline": 50.026,
+    "label": "main@6444a3ce (previous actual full unit measurement)"
   },
   "ratchet": {
-    "baseline": 53.227,
-    "label": "main@ab784a8c (previous actual combined measurement)"
+    "baseline": 55.138,
+    "label": "main@6444a3ce (previous actual combined measurement)"
   },
   "owned": {
-    "covered": 910,
-    "total": 931,
-    "percent": 97.744,
+    "covered": 941,
+    "total": 963,
+    "percent": 97.715,
     "min": 80,
     "ok": true,
     "modules": {
@@ -46,21 +46,21 @@
       },
       "frontend/apps/reader/modules/readerdictionary.lua": {
         "scope": "fork",
-        "covered": 501,
-        "total": 510,
-        "percent": 98.235
+        "covered": 514,
+        "total": 523,
+        "percent": 98.279
       },
       "frontend/ui/widget/dictquicklookup.lua": {
         "scope": "fork",
-        "covered": 43,
-        "total": 43,
+        "covered": 55,
+        "total": 55,
         "percent": 100
       },
       "frontend/ui/trapper.lua": {
         "scope": "fork",
-        "covered": 84,
+        "covered": 83,
         "total": 84,
-        "percent": 100
+        "percent": 98.81
       },
       "frontend/ui/uimanager.lua": {
         "scope": "func:UIManager:widgetInvert",
@@ -118,8 +118,8 @@
       },
       "plugins/japanese.koplugin/main.lua": {
         "scope": "fork",
-        "covered": 21,
-        "total": 21,
+        "covered": 28,
+        "total": 28,
         "percent": 100
       },
       "base/ffi/util.lua": {
@@ -175,9 +175,9 @@
     }
   ],
   "ok": true,
-  "commit": "6444a3ce852f12f8faf2e59a686727c76d186905",
+  "commit": "0dc42ff5e3fe7c6f95c85093c3ab3a32e6c11a4f",
   "event": "release",
-  "diff_base": "ab784a8c080255007497f8009d9d1890fd1cdea8",
-  "ratchet_base": "ab784a8c080255007497f8009d9d1890fd1cdea8",
-  "updated": "2026-10-31T10:09:42Z"
+  "diff_base": "6444a3ce852f12f8faf2e59a686727c76d186905",
+  "ratchet_base": "6444a3ce852f12f8faf2e59a686727c76d186905",
+  "updated": "2026-11-01T11:03:58Z"
 }
